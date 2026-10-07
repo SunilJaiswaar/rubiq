@@ -1,0 +1,146 @@
+passScore: 0.7
+questions:
+  - id: reset-invariant
+    kind: choice
+    concept: reset
+    prompt: What do all three reset modes have in common?
+    options:
+      - text: They move the current branch pointer to the named commit
+        correct: true
+        feedback: >-
+          The flag only decides whether the index and working tree follow. That is the whole
+          model.
+      - text: They discard the commits they move past
+        feedback: >-
+          The commits remain in the object store and the reflog. Only the pointer moved.
+      - text: They all require a force push afterwards
+        feedback: >-
+          Only if the commits were already pushed — and that is true of any history rewrite,
+          not specific to reset.
+    explanation: >-
+      Reset always moves the branch pointer; the mode controls how much else is dragged
+      along. `--soft` stops there, `--mixed` also resets the index, `--hard` also resets the
+      working tree. Once you know Git's three states, there is nothing to memorise — each
+      mode resets one more of them.
+
+  - id: soft-squash
+    kind: choice
+    concept: reset
+    prompt: "You want to combine your last three commits into one. Which command starts that?"
+    options:
+      - text: "`git reset --soft HEAD~3`"
+        correct: true
+        feedback: >-
+          The branch moves back three, the changes stay staged, and one `git commit`
+          finishes it.
+      - text: "`git reset --hard HEAD~3`"
+        feedback: That discards the work entirely — you would have nothing left to commit.
+      - text: "`git reset --mixed HEAD~3`"
+        feedback: >-
+          Works, but leaves everything unstaged so you must `git add` again. `--soft` skips
+          that step.
+    explanation: >-
+      `--soft HEAD~3` moves the branch back three commits while leaving the index exactly as
+      it was, so all the accumulated changes are already staged and `git commit` produces one
+      commit containing them. The same move with `--mixed` also works but requires re-adding;
+      with `--hard` the changes are gone.
+
+  - id: reset-vs-revert
+    kind: choice
+    concept: undo
+    prompt: "A commit on `main` broke production. Colleagues have already pulled it. What do you use?"
+    options:
+      - text: "`git revert` — it adds a new commit that undoes the change, so history only moves forward"
+        correct: true
+        feedback: >-
+          Nobody's parent references are invalidated, and the log honestly shows the change
+          and its undoing.
+      - text: "`git reset --hard` then force push"
+        feedback: >-
+          That discards commits others already have, so their next pull sees divergent
+          history. Avoid on shared branches.
+      - text: "`git commit --amend`"
+        feedback: Rewrites the commit, so it has the same force-push problem.
+    explanation: >-
+      The discriminator is whether anyone else has the commits. Reset and amend both rewrite
+      history, which changes hashes and leaves colleagues referencing parents the remote no
+      longer has. Revert appends a commit that applies the inverse change, so every existing
+      hash stays valid. On a shared branch the visible record of "we shipped this, then undid
+      it" is also more honest than a history where it never happened.
+
+  - id: reset-with-path
+    kind: choice
+    concept: reset
+    prompt: "What does `git reset file.js` do, as opposed to `git reset HEAD~1`?"
+    options:
+      - text: "It unstages `file.js` — with a path, reset does not move the branch at all"
+        correct: true
+        feedback: >-
+          Two unrelated behaviours under one name, which is exactly why `git restore
+          --staged` was added.
+      - text: It resets the branch and then restores that one file
+        feedback: The branch is not touched when a path is given.
+      - text: It discards changes to `file.js` in the working tree
+        feedback: >-
+          That is `git restore file.js`. Reset with a path affects the index, not your files.
+    explanation: >-
+      `git reset` has two unrelated modes. Without a path it moves the branch pointer.
+      With a path it copies that path from the given commit into the index, leaving the
+      branch and your working tree alone — an unstage. The overloading is a known wart, and
+      `git restore --staged file.js` is the unambiguous modern spelling.
+
+  - id: hard-unrecoverable
+    kind: choice
+    concept: reflog
+    prompt: >-
+      You run `git reset --hard HEAD~1` with uncommitted changes in your working tree. What
+      is recoverable?
+    options:
+      - text: The commit, from the reflog. The uncommitted changes are gone.
+        correct: true
+        feedback: >-
+          The reflog records where refs pointed; work that was never committed was never in a
+          ref.
+      - text: Both — the reflog covers everything
+        feedback: >-
+          The reflog tracks ref movements only. It has no record of content you never
+          committed.
+      - text: Neither — `--hard` is always destructive
+        feedback: >-
+          The discarded *commit* is in the reflog for weeks and easy to restore.
+    explanation: >-
+      Two different things are being discarded and only one is recoverable. The commit
+      `HEAD~1` moved past is still in the object store with a reflog entry, so
+      `git reset --hard HEAD@{1}` restores it. The uncommitted edits in your working tree were
+      never in a commit, so there is nothing to recover them from. That asymmetry is why
+      `git stash` — which creates real commit objects — is the safer habit when you are
+      unsure.
+
+  - id: explain-reset-choice
+    kind: recall
+    concept: undo
+    prompt: >-
+      Write the decision procedure you would give a junior colleague for undoing something
+      in Git.
+    key_points:
+      - First question — has it been pushed where others can see it?
+      - If pushed, use `revert`; history moves forward and nobody's parents break
+      - If not pushed, use `reset` and pick the mode by where you want the changes to land
+      - "`--soft` for staged (re-commit differently), `--mixed` for unstaged, `--hard` to discard"
+      - Stash first if there is uncommitted work you care about, since `--hard` cannot be undone for that
+      - Everything committed is reflog-recoverable for about a month
+      - For one file, `git restore` and `git restore --staged` rather than reset
+    model: >-
+      The first question is always whether the commits have been pushed somewhere others can
+      see. If they have, use `revert`: it adds a commit applying the inverse change, so every
+      existing hash stays valid and nobody's history breaks — and the log honestly records
+      that we shipped something and undid it. If they have not been pushed, `reset` is fine,
+      and the mode follows from where you want the changes to end up: `--soft` leaves them
+      staged, which is what you want to re-commit them differently or squash several into
+      one; `--mixed` leaves them unstaged in your files; `--hard` throws them away. The one
+      genuine danger is that `--hard` also discards *uncommitted* work, and the reflog cannot
+      help with that because it only records where refs pointed — so if there is anything in
+      the working tree I care about, I stash first, since stash creates real commits.
+      Everything that was ever committed is recoverable from the reflog for roughly a month.
+      And for a single file, `git restore` and `git restore --staged` say what they mean
+      instead of relying on reset's overloaded path behaviour.

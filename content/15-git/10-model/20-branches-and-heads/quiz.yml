@@ -1,0 +1,141 @@
+passScore: 0.7
+questions:
+  - id: branch-is
+    kind: choice
+    concept: branches
+    prompt: What is a Git branch, physically?
+    options:
+      - text: A 41-byte file containing a commit hash
+        correct: true
+        feedback: >-
+          Which is why creating one is instant regardless of repository size, and why
+          deleting one destroys no commits.
+      - text: A copy of the repository at a point in time
+        feedback: >-
+          That was Subversion's model, and it is why branching there had real cost. Git
+          copies nothing.
+      - text: A list of the commits that belong to it
+        feedback: >-
+          No list is stored. "Which commits are on this branch" is computed by walking
+          parents from the tip.
+    explanation: >-
+      A branch is a ref: a file under `.git/refs/heads/` holding 40 hex characters and a
+      newline. Committing rewrites that file. Everything else — which commits are "on" the
+      branch — is derived by following parent pointers. This is the whole reason cheap
+      branching, and therefore the pull-request workflow, became possible.
+
+  - id: detached-head
+    kind: choice
+    concept: detached-head
+    prompt: "You are on a detached HEAD and make two commits, then run `git switch main`. What happened to them?"
+    options:
+      - text: They exist in the object store but nothing references them — recoverable via the reflog
+        correct: true
+        feedback: >-
+          `git switch -c keep-this` before moving away would have put a label on them.
+      - text: They were deleted immediately
+        feedback: >-
+          Objects are not deleted on checkout. `gc` eventually prunes unreachable ones, but
+          the reflog keeps them reachable for weeks.
+      - text: They were merged into main automatically
+        feedback: Nothing merges implicitly. HEAD moved and the commits were left behind.
+    explanation: >-
+      With a detached HEAD, commits update HEAD only — no branch follows along. Switching
+      away leaves them unreferenced: still in `.git/objects`, findable through
+      `git reflog` or `git fsck --lost-found`, and eventually prunable. Detached HEAD is a
+      legitimate state (bisect, inspecting a tag); the discipline is to create a branch
+      before leaving if you committed anything.
+
+  - id: three-diffs
+    kind: order
+    concept: staging-area
+    prompt: >-
+      Put these in the order a change travels: working tree, repository, index.
+    items:
+      - Working tree — the files as they are now
+      - Index — what the next commit will contain
+      - Repository — committed history
+    explanation: >-
+      `git add` moves a change from the working tree into the index; `git commit` moves the
+      index into the repository. The three diff commands compare adjacent pairs: `git diff`
+      is worktree vs index ("not yet staged"), `git diff --staged` is index vs HEAD ("what I
+      am about to commit"), and `git diff HEAD` is worktree vs HEAD ("everything I have
+      changed"). Most staging confusion is really confusion about which pair you are looking
+      at.
+
+  - id: add-then-edit
+    kind: choice
+    concept: staging-area
+    prompt: >-
+      You run `git add f.txt`, then edit `f.txt` again, then commit. What is in the commit?
+    options:
+      - text: The version as it was when you ran `git add` — and the file still shows as modified afterwards
+        correct: true
+        feedback: >-
+          The index holds content, not a reference to the file. This surprises people
+          constantly.
+      - text: Your latest edit, because `git add` just marks the file for inclusion
+        feedback: >-
+          `git add` copies the content into the index. Later edits are a new, unstaged
+          change.
+      - text: Both versions, as two changes
+        feedback: A commit contains one snapshot per path.
+    explanation: >-
+      `git add` writes the file's current content into the index as a blob. Editing
+      afterwards creates a difference between the working tree and the index, so the commit
+      captures the staged version and `git status` immediately reports the file as modified
+      again. That is the index working as designed — and it is why `git diff --staged` before
+      committing is a good habit.
+
+  - id: unrecoverable
+    kind: multi
+    concept: staging-area
+    prompt: Which of these destroy work that the reflog cannot recover?
+    options:
+      - text: "`git reset --hard` discarding uncommitted changes"
+        correct: true
+        feedback: >-
+          The reflog records where refs pointed. Uncommitted work was never in a commit, so
+          there is nothing to recover.
+      - text: "`git clean -fd` on untracked files"
+        correct: true
+        feedback: Untracked files are not in the object store at all.
+      - text: "`git reset --hard <older-commit>` on committed work"
+        feedback: >-
+          Recoverable — the reflog records where the branch was before it moved.
+      - text: "`git branch -D feature`"
+        feedback: >-
+          Deletes a 41-byte file. The commits remain and the reflog has the tip.
+    explanation: >-
+      The reflog tracks ref movements, so anything that was ever committed is recoverable
+      for weeks. What it cannot help with is content that was never committed: uncommitted
+      changes discarded by `reset --hard`, and untracked files removed by `clean -fd`. The
+      habit that prevents both: `git stash` instead, because stash creates real commit
+      objects.
+
+  - id: explain-staging-value
+    kind: recall
+    concept: staging-area
+    prompt: >-
+      A colleague argues the staging area is pointless complexity and they would rather
+      `commit -a` everything. Make the case for it.
+    key_points:
+      - The unit of work and the unit of history are different things
+      - One session usually contains a fix plus unrelated things you noticed
+      - Separate commits make `git bisect` able to identify which change broke something
+      - "`git revert` can undo one change without dragging the others along"
+      - A reviewer can read one logical change instead of a mixed diff
+      - "`git add -p` is the practical tool; stash is the related one"
+      - Concede the cost — it is a third state to learn, and Mercurial omitted it deliberately
+    model: >-
+      The argument is that the unit of work and the unit of history are not the same thing.
+      An editing session is usually one intended fix plus two unrelated things I noticed
+      while in there, and committing all of it together loses information. Three separate
+      commits mean `git bisect` can tell me which of them broke the build, `git revert` can
+      undo one without dragging the others along, and a reviewer reads the pagination fix
+      without the typo noise. `git add -p` is how that actually happens in practice — staging
+      individual hunks rather than whole files. I would concede the cost honestly: it is a
+      third state to learn and it is a real part of why Git is harder than tools without one.
+      Mercurial left it out on exactly that reasoning, and then added it back as an extension
+      because people wanted it — which suggests the complexity does buy something, but that
+      it is a fair thing to find annoying.

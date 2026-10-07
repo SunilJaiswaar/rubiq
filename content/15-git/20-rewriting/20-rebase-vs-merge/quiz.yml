@@ -1,0 +1,145 @@
+passScore: 0.7
+questions:
+  - id: what-rebase-does
+    kind: choice
+    concept: rebase
+    prompt: What does `git rebase main` do to your branch's commits?
+    options:
+      - text: Copies them onto main's tip as new commits with new hashes, abandoning the originals
+        correct: true
+        feedback: >-
+          "Moving" commits is the misleading metaphor — nothing is moved, because objects
+          are immutable.
+      - text: Moves the existing commits so they have a new parent
+        feedback: >-
+          Objects are immutable and named by content. A different parent means a different
+          hash, which means a different commit.
+      - text: Creates one new commit containing all your changes
+        feedback: >-
+          That is a squash. A plain rebase replays each commit separately.
+    explanation: >-
+      Rebase replays each commit onto the new base, producing new commits with the same
+      changes, new parents and therefore new hashes. The originals become unreferenced and
+      remain recoverable from the reflog. Because the hashes change, anyone else holding the
+      old commits now references parents that are gone — which is the entire basis of the
+      golden rule.
+
+  - id: golden-rule-why
+    kind: choice
+    concept: rebase
+    prompt: "Why does force-pushing a rebased shared branch break colleagues?"
+    options:
+      - text: Their local commits reference parents no longer on the remote, so a pull merges two histories containing every change twice
+        correct: true
+        feedback: >-
+          Hence conflicts in every file the rebase touched, and duplicated work in the log.
+      - text: Git locks the branch after a force push
+        feedback: There is no locking. The problem is divergent history.
+      - text: The remote rejects their push permanently
+        feedback: >-
+          Their push is rejected as non-fast-forward, but the real damage is the merge they
+          attempt next.
+    explanation: >-
+      After the rebase the remote holds B' and C' while colleagues hold B and C — same
+      changes, different hashes, no shared tip. Pulling asks Git to merge two histories that
+      both contain the work, so every change appears twice and conflicts appear in every
+      touched file. `--force-with-lease` prevents this by refusing when the remote has moved
+      since your last fetch.
+
+  - id: fast-forward
+    kind: choice
+    concept: fast-forward
+    prompt: What is a fast-forward merge?
+    options:
+      - text: The target has no commits you lack, so Git just moves the branch pointer — no merge commit is created
+        correct: true
+        feedback: >-
+          Which is why `--no-ff` exists: some teams want the commit so each feature's
+          boundary stays visible.
+      - text: A merge that skips conflict detection for speed
+        feedback: >-
+          There is nothing to conflict. One history is already an ancestor of the other.
+      - text: A merge that squashes the commits
+        feedback: Squashing is a separate operation; fast-forward keeps every commit as is.
+    explanation: >-
+      If your branch already contains every commit on the target, joining them needs no new
+      commit — the pointer can simply advance. It is a pointer move rather than a merge.
+      `--no-ff` forces a merge commit so the log records where a feature began and ended,
+      which makes `git log --first-parent` a readable list of features.
+
+  - id: rerere
+    kind: choice
+    concept: conflicts
+    prompt: "Why might a single rebase make you resolve the same conflict several times?"
+    options:
+      - text: Rebase replays commits one at a time, so a conflicting region can conflict again in each later commit
+        correct: true
+        feedback: >-
+          `git config rerere.enabled true` records your resolution and reapplies it
+          automatically.
+      - text: Git forgets resolutions between files
+        feedback: >-
+          It does not forget within one commit — the repetition is across the replayed
+          commits.
+      - text: It is a bug in recent Git versions
+        feedback: It is inherent to replaying commits individually.
+    explanation: >-
+      A rebase applies each of your commits in turn, so if several of them touch the same
+      region that conflicts with the new base, you are asked about it repeatedly. `rerere`
+      ("reuse recorded resolution") stores how you resolved each conflict hunk and replays
+      it for identical later occurrences. It is off by default and removes most of the pain
+      of a long rebase.
+
+  - id: clean-merge-not-correct
+    kind: choice
+    concept: conflicts
+    prompt: >-
+      One branch adds a comment at the end of a function; another rewrites the function
+      body. Git merges cleanly. Is the result correct?
+    options:
+      - text: Not necessarily — Git merges text, so non-overlapping line changes merge without complaint regardless of meaning
+        correct: true
+        feedback: >-
+          Which is why a clean merge still needs the test suite. Absence of conflict is not
+          evidence of correctness.
+      - text: Yes — a clean merge means Git verified compatibility
+        feedback: >-
+          Git has no understanding of the code. It compares lines.
+      - text: "No — Git would have reported a semantic conflict"
+        feedback: >-
+          There is no such detection. Semantic conflicts are exactly the ones Git cannot
+          see.
+    explanation: >-
+      Git's merge is textual: it conflicts when the same region changed on both sides, and
+      otherwise combines. Two changes can be individually sensible, non-overlapping, and
+      jointly wrong — a renamed function plus a new call to the old name merges perfectly and
+      does not compile. This is why merge gates run tests: the clean merge is the start of
+      verification, not the end of it.
+
+  - id: explain-policy
+    kind: recall
+    concept: rebase
+    prompt: >-
+      Your team has no written policy and two people with opposite habits are now in a mess
+      on a shared branch. Propose a policy and justify it.
+    key_points:
+      - The specific rule — rebase your own unpushed work, never rebase after someone else has it
+      - Require `--force-with-lease` instead of `--force`, since it checks the real condition
+      - Rebase before review so each commit builds and the history is bisectable
+      - Merge or squash into main; pick one and write it down
+      - The reason consistency matters more than the choice — the failure is mixed habits on one branch
+      - Note that merge and rebase optimise for different readers, so neither is simply wrong
+    model: >-
+      The specific rule I would write is: rebase freely while the work is only yours, and
+      never rebase a branch after anyone else has pulled it. Note the threshold is someone
+      having pulled it, not it having been pushed — which is why the policy should also
+      require `--force-with-lease` rather than `--force`, because that checks the actual
+      condition instead of relying on anyone remembering. For integration into main I would
+      pick one of merge-with-no-ff or squash and write it down, without arguing much about
+      which: the failure we just had was not caused by the wrong choice, it was caused by two
+      people on one branch with different habits. I would also add `rebase -i --exec` running
+      the tests before opening a PR, because that is what makes a tidy history actually
+      bisectable rather than just pretty. And I would frame it honestly in the discussion:
+      merge preserves what happened and rebase produces something readable later, so they
+      optimise for different readers. Neither side is wrong, which is exactly why the team
+      needs a decision rather than a debate.

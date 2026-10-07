@@ -14,6 +14,16 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
+/**
+ * Characters YAML reserves at the start of a plain scalar. A value beginning with one
+ * of these must be quoted or written as a block scalar, or the parse fails — usually
+ * with an "indentation" error pointing at the wrong place.
+ *
+ * The backtick is the one that bites in this project, because technical prose starts
+ * with `code` constantly.
+ */
+const RESERVED_FIRST = new Set(['`', '@', '%', '!', '&', '*', '|', '>', '{', '[', '?', ':', '-', '#', ','])
+
 /** Keys whose values are free prose and therefore likely to contain a colon. */
 const PROSE_KEYS = [
   'feedback', 'text', 'prompt', 'name', 'title', 'summary', 'label', 'model',
@@ -42,15 +52,28 @@ export async function findUnquotedColons(root = path.join(ROOT, 'content')) {
       const m = LINE.exec(line)
       if (!m) return
       const value = m[4]
-      // Block scalars, quoted strings, anchors and flow collections are all fine.
-      if (!value || '"\'|>&*[{#'.includes(value[0])) return
-      if (/: /.test(value) || /:$/.test(value.trimEnd())) {
+      if (!value) return
+
+      const first = value[0]
+
+      // Already quoted or an explicit block scalar — nothing to check.
+      if (first === '"' || first === "'" || first === '|' || first === '>') return
+
+      const add = (reason) =>
         problems.push({
           file: path.relative(ROOT, file),
           line: i + 1,
           key: m[3],
           value: value.slice(0, 70),
+          reason,
         })
+
+      if (RESERVED_FIRST.has(first)) {
+        add(`starts with the YAML-reserved character "${first}"`)
+        return
+      }
+      if (/: /.test(value) || /:$/.test(value.trimEnd())) {
+        add('contains ": ", which YAML reads as a nested mapping')
       }
     })
   }
@@ -60,14 +83,15 @@ export async function findUnquotedColons(root = path.join(ROOT, 'content')) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const problems = await findUnquotedColons()
   for (const p of problems) {
-    console.log(`${p.file}:${p.line}  [${p.key}]  ${p.value}`)
+    console.log(`${p.file}:${p.line}  [${p.key}]  ${p.reason}`)
+    console.log(`    ${p.value}`)
   }
   if (problems.length) {
     console.error(
-      `\n✖ ${problems.length} unquoted scalar(s) containing ": " — YAML will read these ` +
-      `as a nested mapping.\n  Wrap the value in double quotes, or use a >- block scalar.\n`,
+      `\n✖ ${problems.length} plain scalar(s) YAML cannot parse as intended.\n` +
+      `  Wrap the value in double quotes, or use a >- block scalar.\n`,
     )
     process.exit(1)
   }
-  console.log('✔ no unquoted colons in content YAML')
+  console.log('✔ content YAML scalars are safe')
 }

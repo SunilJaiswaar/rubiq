@@ -1,0 +1,133 @@
+passScore: 0.7
+questions:
+  - id: reflog-vs-log
+    kind: choice
+    concept: reflog
+    prompt: What does the reflog show that `git log` cannot?
+    options:
+      - text: Positions a ref has previously held, including commits nothing currently reaches
+        correct: true
+        feedback: >-
+          Which is exactly the set you need after a reset or rebase — orphaned commits are
+          invisible to `git log`.
+      - text: Commits from other people's clones
+        feedback: The reflog is strictly local and never pushed.
+      - text: The contents of each commit
+        feedback: Both show commits; the difference is which commits they can reach.
+    explanation: >-
+      `git log` walks parent pointers from a ref, so it can only show history as it
+      currently stands. The reflog is a journal of every position each ref has held,
+      including ones no longer in any branch's ancestry. After a reset or a bad rebase the
+      orphaned commits are unreachable and therefore absent from `git log` — and still listed
+      in the reflog, which is what makes recovery possible.
+
+  - id: orig-head
+    kind: choice
+    concept: recovery
+    prompt: "What is `ORIG_HEAD`?"
+    options:
+      - text: A ref Git writes before operations that move HEAD significantly — merge, rebase, reset, pull
+        correct: true
+        feedback: "A free one-deep undo: `git reset --hard ORIG_HEAD`."
+      - text: The first commit in the repository
+        feedback: That would be the root commit, found with `git rev-list --max-parents=0 HEAD`.
+      - text: The default branch on the remote
+        feedback: That is `origin/HEAD`, which is a different thing entirely.
+    explanation: >-
+      Git saves the previous HEAD into `ORIG_HEAD` before merge, rebase, reset and pull, so
+      there is always a one-step undo available without reading the reflog at all.
+      `git reset --hard ORIG_HEAD` is the fastest way back from a rebase or merge you regret,
+      and it costs nothing to try.
+
+  - id: unrecoverable
+    kind: multi
+    concept: recovery
+    prompt: Which of these cannot be recovered from the reflog?
+    options:
+      - text: Working-tree changes discarded by `git reset --hard`
+        correct: true
+        feedback: Never in a commit, so never in a ref. The reflog has no record of them.
+      - text: Untracked files removed by `git clean -fd`
+        correct: true
+        feedback: Untracked files are not in the object store at all.
+      - text: Commits orphaned by a bad rebase
+        feedback: >-
+          Recoverable — the reflog holds the pre-rebase tip, and so does `ORIG_HEAD`.
+      - text: A branch deleted with `git branch -D`
+        feedback: Only a ref file was removed; the commits and the reflog entry remain.
+    explanation: >-
+      The dividing line is whether the content ever reached a commit object. Anything
+      committed is recoverable for weeks via the reflog or `fsck`. Uncommitted working-tree
+      changes and untracked files were never in the object store, so discarding them is
+      final. That asymmetry is the whole argument for `git stash` before anything uncertain —
+      stash creates real commits.
+
+  - id: fsck
+    kind: choice
+    concept: recovery
+    prompt: >-
+      You committed on a detached HEAD months ago, switched away, and there is no reflog
+      entry. What finds it?
+    options:
+      - text: "`git fsck --lost-found`, which lists dangling commits still in the object store"
+        correct: true
+        feedback: Also how you recover a dropped stash, since those are dangling commits too.
+      - text: "`git log --all`"
+        feedback: "`--all` means all *refs*. A dangling commit has no ref pointing at it."
+      - text: Nothing — without a reflog entry it is gone
+        feedback: >-
+          Only once `gc` has pruned it. Until then the object is sitting there, just
+          unreferenced.
+    explanation: >-
+      `git fsck` walks the object store directly rather than following refs, so it reports
+      objects nothing points at. That covers commits made on a detached HEAD, dropped
+      stashes, and anything whose reflog entry has expired but which has not yet been pruned.
+      It is the second place to look when the reflog comes up empty.
+
+  - id: gc-window
+    kind: choice
+    concept: garbage-collection
+    prompt: "Roughly how long do you have to recover an orphaned commit?"
+    options:
+      - text: Weeks — about 30 days with a reflog entry, around 2 weeks without, and `gc` runs automatically
+        correct: true
+        feedback: >-
+          Which is why recovery is something to do now rather than when you next remember.
+      - text: Forever, unless you run `git gc` by hand
+        feedback: >-
+          `git gc --auto` is triggered by ordinary commands once enough loose objects
+          accumulate.
+      - text: Until you next close your editor
+        feedback: Objects persist on disk independently of any editor.
+    explanation: >-
+      The defaults are 90 days for reachable reflog entries, 30 for unreachable ones, and a
+      2-week prune window for objects with no reflog entry. `gc` also runs automatically, so
+      you cannot assume nothing has been pruned just because you never invoked it. The
+      practical reading: a generous safety net measured in weeks, with an invisible clock.
+
+  - id: explain-secret-leak
+    kind: recall
+    concept: recovery
+    prompt: >-
+      A teammate pushed a file containing a live API key. They ask you to help rewrite the
+      history. What do you tell them, and in what order?
+    key_points:
+      - Rotate the credential first — this is an incident, not a Git problem
+      - Assume it is already compromised; it was on the remote, in CI logs, and in clones
+      - Rewriting history is cleanup, not remediation, and does not un-leak anything
+      - Rotate first because the rewrite takes time and the key is live throughout
+      - Then use `git filter-repo` to remove it from history and force-push with lease
+      - Tell everyone to re-clone or reset, since their clones still contain it
+      - Add a pre-commit secret scan so it cannot recur
+    model: >-
+      The first thing is that this is not a Git problem, it is a credential incident — so
+      rotate the key before touching the history. It has been on a remote, almost certainly
+      in CI logs, possibly in GitHub's cached diff views, and in every clone anyone has
+      taken; rewriting history removes it from *our* history and un-leaks nothing. The
+      ordering matters specifically because the rewrite takes time and the key is live for
+      all of it. Once the key is dead, the cleanup is `git filter-repo` to strip the path
+      from every commit, then a force push with lease, then telling everyone to re-clone or
+      hard-reset, because their existing clones still contain the object. Finally I would add
+      a pre-commit secret scan, since this will otherwise happen again — and the recurring
+      version is worse, because the first time teaches you the response and the second time
+      suggests nobody changed anything.

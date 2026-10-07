@@ -376,8 +376,8 @@ if (existsSync(roadmapFile)) {
 for (const problem of await findUnquotedColons(CONTENT)) {
   err(
     `${problem.file}:${problem.line}`,
-    `"${problem.key}" contains ": " but is not quoted — YAML reads that as a nested ` +
-    `mapping. Wrap it in double quotes or use a >- block scalar.`,
+    `"${problem.key}" ${problem.reason}. Wrap the value in double quotes or use a >- ` +
+    `block scalar.\n     ${problem.value}`,
   )
 }
 

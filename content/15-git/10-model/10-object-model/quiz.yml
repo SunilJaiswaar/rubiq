@@ -1,0 +1,152 @@
+passScore: 0.7
+questions:
+  - id: commit-contents
+    kind: choice
+    concept: git-objects
+    prompt: What does a Git commit object contain?
+    options:
+      - text: One tree hash, its parent hashes, author/committer metadata, and the message
+        correct: true
+        feedback: >-
+          A complete snapshot by reference, not a diff — which is why checking out any
+          commit is instant.
+      - text: A diff against its parent
+        feedback: >-
+          If it did, checkout would mean replaying thousands of patches. Diffs are computed
+          on demand by comparing two trees.
+      - text: The full bytes of every file in the project
+        feedback: >-
+          It references a tree, which references blobs. The content is in the store, not in
+          the commit.
+    explanation: >-
+      A commit is a small text object: one tree (the whole snapshot, by reference), zero or
+      more parents, author and committer with timestamps, and the message. Diffs are
+      derived at display time. This is the opposite of Subversion, which modelled history
+      as deltas and had to reconstruct snapshots — modelling the snapshot and compressing
+      the storage separately is what makes Git's branching cheap.
+
+  - id: hash-chain
+    kind: choice
+    concept: commit-graph
+    prompt: "You amend a commit three back from the tip. How many commit hashes change?"
+    options:
+      - text: "All three — the amended one and both descendants"
+        correct: true
+        feedback: >-
+          Each commit's hash covers its parent's hash, so a change cascades to the tip. That
+          is why a rebased branch needs a force push.
+      - text: Just the one you amended
+        feedback: >-
+          Its children record its hash as their parent. Change it and they must be rewritten
+          too.
+      - text: None — amending edits the commit in place
+        feedback: >-
+          Objects are immutable and named by their content. Amending creates a new commit and
+          moves the branch.
+    explanation: >-
+      A commit's hash is computed over its content, and that content includes the parent
+      hash. So commits form a hash chain: altering any one invalidates every descendant,
+      which must be rewritten. This is why history is tamper-evident, why signed commits
+      protect their whole ancestry, and why force-pushing a shared branch breaks
+      colleagues' parent references.
+
+  - id: renames
+    kind: choice
+    concept: git-objects
+    prompt: "Why does Git not need to 'track' file renames?"
+    options:
+      - text: A blob stores content only — the filename lives in the tree, so a rename changes only a tree entry
+        correct: true
+        feedback: >-
+          And rename *detection* in diffs is a display-time heuristic over blob similarity,
+          not stored data.
+      - text: It records a rename operation in the commit
+        feedback: >-
+          Nothing in the object model records operations. `git log --follow` guesses after
+          the fact.
+      - text: It does track them, in the index
+        feedback: >-
+          The index is a staging area for the next commit, not a history of moves.
+    explanation: >-
+      Blobs are named by the hash of their bytes and carry no filename. Renaming a file
+      leaves the blob untouched and changes only the tree entry pointing at it. Rename
+      detection in `git log --follow` and in diffs is a heuristic comparing blob similarity
+      at display time — so a rename combined with heavy edits in one commit often goes
+      undetected, which is a consequence of the design rather than a bug.
+
+  - id: packfiles
+    kind: choice
+    concept: content-addressing
+    prompt: "Git stores a full snapshot per commit, yet repositories are small. How?"
+    options:
+      - text: Identical content is one blob, and packfiles delta-compress similar objects — a storage layer the object model does not see
+        correct: true
+        feedback: >-
+          Deltas are chosen by similarity, not commit order, so a blob may be stored against
+          a much later version.
+      - text: Commits actually store diffs after all
+        feedback: >-
+          The model is snapshots. Delta compression happens underneath it and is invisible
+          above.
+      - text: Old commits are discarded during garbage collection
+        feedback: >-
+          `gc` removes *unreachable* objects. Everything reachable from a branch is kept
+          permanently.
+    explanation: >-
+      Two mechanisms. Content addressing means an unchanged file is one blob no matter how
+      many commits reference it. And packfiles store similar objects as deltas against each
+      other — chosen by similarity rather than history order. Crucially this is a storage
+      optimisation below the object graph: nothing above it knows, which is why it can be
+      aggressive without complicating the model.
+
+  - id: large-files
+    kind: choice
+    concept: content-addressing
+    prompt: "Why is Git poor at large binary files, and why is deleting them not enough?"
+    options:
+      - text: Each version is a full blob that delta-compresses badly, and old commits keep those blobs reachable forever
+        correct: true
+        feedback: >-
+          Which is why fixing it needs history rewriting (filter-repo) or Git LFS, not a
+          delete commit.
+      - text: Git refuses files over a size limit
+        feedback: >-
+          There is no hard limit. It accepts them and the repository becomes permanently
+          slow to clone.
+      - text: Binary files cannot be hashed
+        feedback: Hashing is content-agnostic. The problem is that similar binaries do not delta well.
+    explanation: >-
+      A changed binary produces an entirely new blob, and binary formats rarely delta
+      usefully — so ten revisions of a 100 MB file is close to 1 GB. Deleting the file in a
+      later commit does not help: the blobs stay reachable from the commits that contained
+      them, and a clone fetches all of it. Fixing it requires rewriting history with
+      `git filter-repo`, or keeping such files out of Git with LFS. The weakness follows
+      directly from content addressing rather than being an oversight.
+
+  - id: explain-force-push
+    kind: recall
+    concept: commit-graph
+    prompt: >-
+      A colleague rebased a shared branch and force-pushed. Explain to the team what
+      happened in terms of the object model, and what to do instead.
+    key_points:
+      - Rebase creates new commits — same changes, different parents, therefore different hashes
+      - The old commits still exist but nothing on the remote points at them
+      - Everyone else's local branch references parents that are no longer on the remote
+      - Their next pull tries to merge two divergent histories containing duplicate changes
+      - "`--force-with-lease` would have refused if the remote had moved since their last fetch"
+      - Recovery is via reflog, which still holds the pre-rebase tip for weeks
+    model: >-
+      Rebasing does not move commits; it creates new ones. Each replayed commit has a
+      different parent, and since a commit's hash covers its parent's hash, every hash
+      changed — so what is on the remote now is a different chain containing the same
+      changes. Force-pushing replaced the remote's tip with that chain, and the commits
+      everyone else has locally now reference parents the remote no longer has. Their next
+      pull sees two divergent histories carrying duplicate work and tries to merge them,
+      which is where the mess comes from. What to do instead: do not rewrite a branch others
+      have pulled — merge, or rebase only your own unpushed work. And use
+      `--force-with-lease` rather than `--force` as a habit, because it checks the remote is
+      still where you last saw it and refuses otherwise, which would have caught this.
+      Recovery is straightforward right now: the pre-rebase tip is in their reflog and in
+      everyone else's local branch, so we can restore it — but the reflog expires, so now is
+      the time.
