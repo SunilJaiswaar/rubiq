@@ -1,0 +1,146 @@
+passScore: 0.7
+questions:
+  - id: deadlock-cycle
+    kind: choice
+    concept: deadlocks
+    prompt: "T1 locks row 1 then row 2; T2 locks row 2 then row 1. What is the one-line fix?"
+    options:
+      - text: "Lock in a consistent order — `ORDER BY id FOR UPDATE` — so a cycle cannot form"
+        correct: true
+        feedback: >-
+          You can never wait for something earlier in the order than what you already hold.
+      - text: Increase `deadlock_timeout` so the detector does not fire
+        feedback: >-
+          That delays detection; the cycle still never resolves on its own.
+      - text: Use REPEATABLE READ so both transactions see a snapshot
+        feedback: >-
+          Isolation level does not change which locks are taken or in what order.
+    explanation: >-
+      A deadlock requires a cycle in the waits-for graph. If every transaction acquires locks in
+      the same total order — ascending primary key is the usual choice — then a transaction only
+      ever waits for a lock later in the order than the ones it holds, so no cycle can exist. In
+      practice that means `ORDER BY id FOR UPDATE` on multi-row locks and sorting id collections
+      before iterating. Postgres will detect and break a cycle for you, but it does so by killing
+      a transaction.
+
+  - id: migration-outage
+    kind: choice
+    concept: online-migrations
+    prompt: >-
+      `ALTER TABLE orders ADD COLUMN note text` is metadata-only and takes 2ms. How does it
+      cause a 40-second outage?
+    options:
+      - text: "It waits for ACCESS EXCLUSIVE behind a 40-second SELECT, and every query arriving meanwhile queues behind the waiting ALTER"
+        correct: true
+        feedback: >-
+          A short `lock_timeout` plus a retry prevents this entirely.
+      - text: Adding a column rewrites the whole table
+        feedback: >-
+          Not on modern Postgres for a nullable column or a constant default.
+      - text: The new column has to be backfilled with NULLs row by row
+        feedback: >-
+          It is recorded in the catalogue only; existing rows are untouched.
+    explanation: >-
+      The ALTER itself is instant, but it needs ACCESS EXCLUSIVE, which conflicts with the
+      ACCESS SHARE held by any running SELECT. So it waits. The decisive detail is that lock
+      requests are queued in arrival order: new SELECTs arriving while the ALTER waits are placed
+      behind it, even though they do not conflict with the long-running query. One slow read plus
+      one instant migration therefore takes the table offline for the duration of the read. The
+      fix is `SET lock_timeout` so the migration fails fast and can be retried.
+
+  - id: for-share-upgrade
+    kind: choice
+    concept: locking
+    prompt: "Two transactions take `FOR SHARE` on row 1, then both `UPDATE` it. What happens?"
+    options:
+      - text: Deadlock — each needs the other to release its share lock before it can take an exclusive one
+        correct: true
+        feedback: >-
+          Take `FOR UPDATE` from the start if you intend to write.
+      - text: One waits and then proceeds once the other commits
+        feedback: >-
+          Neither can commit: each is blocked by the other's share lock.
+      - text: Both succeed, since share locks are compatible
+        feedback: >-
+          The share locks are compatible; the exclusive upgrades are not.
+    explanation: >-
+      `FOR SHARE` locks are mutually compatible, so both transactions acquire them. The `UPDATE`
+      then needs an exclusive lock, which conflicts with the *other* transaction's share lock —
+      and vice versa. Neither can proceed and neither will release, so it is a genuine cycle.
+      Lock upgrades are a well-known deadlock source, which is why the rule is to take the
+      strongest lock you will need at the point you first touch the row.
+
+  - id: skip-locked
+    kind: choice
+    concept: locking
+    prompt: "What does `FOR UPDATE SKIP LOCKED` buy you, and what do you give up?"
+    options:
+      - text: "Workers claim different rows with no coordination; you give up ordering, since rows locked by others are skipped rather than awaited"
+        correct: true
+        feedback: >-
+          This is how a plain table becomes a usable work queue.
+      - text: It avoids taking any lock at all, so there is no contention
+        feedback: >-
+          It still locks the rows it returns; it just does not wait for ones already locked.
+      - text: It guarantees each row is processed exactly once
+        feedback: >-
+          At-least-once still needs idempotent handlers; the lock only prevents concurrent claims.
+    explanation: >-
+      `SKIP LOCKED` tells the scan to pass over rows another transaction has locked instead of
+      blocking on them. Ten workers running the same `ORDER BY created_at ... LIMIT 1` query
+      therefore each get a different job with no queue server and no contention. The cost is
+      ordering: a worker takes the oldest *available* row, not the oldest row, so processing order
+      is only approximate. That is fine for independent jobs and wrong if the jobs must be applied
+      in sequence.
+
+  - id: batched-backfill
+    kind: choice
+    concept: online-migrations
+    prompt: "Why batch a backfill rather than issuing one `UPDATE` over ten million rows?"
+    options:
+      - text: "One statement holds row locks on every row for its whole duration and creates ten million dead tuples at once; batches keep locks short and let VACUUM keep up"
+        correct: true
+        feedback: >-
+          Commit between batches, or the locks are held just as long.
+      - text: Because a single UPDATE cannot exceed a row limit
+        feedback: >-
+          There is no such limit.
+      - text: Because batching lets the planner use an index
+        feedback: >-
+          Index use depends on the WHERE clause, not the batch size.
+    explanation: >-
+      A single enormous `UPDATE` is one transaction: it takes a row lock on every row it touches
+      and holds all of them until it commits, so concurrent writers to any of those rows wait for
+      the entire backfill. It also creates a new version of every row, producing millions of dead
+      tuples that VACUUM must reclaim afterwards, which bloats the table. Batching a few thousand
+      rows and committing between batches keeps each lock brief and lets autovacuum work
+      incrementally. The commit between batches is the essential part — batching inside one
+      transaction achieves nothing.
+
+  - id: explain-lock-incident
+    kind: recall
+    concept: locking
+    prompt: >-
+      Queries against one table are timing out. Walk through how you would diagnose and resolve
+      it.
+    key_points:
+      - pg_stat_activity filtered on wait_event_type = 'Lock'
+      - pg_blocking_pids to find the blocker, not just the blocked
+      - Look at the blocker's state and xact_start age — idle in transaction is the common culprit
+      - pg_cancel_backend before pg_terminate_backend
+      - Check whether a migration or DDL is waiting and queueing traffic behind it
+      - Afterwards set lock_timeout, statement_timeout and idle_in_transaction_session_timeout
+    model: >-
+      First establish that it is locking rather than slowness: query `pg_stat_activity` for rows
+      with `wait_event_type = 'Lock'`, and join it to itself through `pg_blocking_pids` so I see
+      the blocker rather than only the victims. Then look at the blocker's `state` and the age of
+      its `xact_start` — if it is `idle in transaction`, it is an application connection that
+      opened a transaction and stopped, which is the most common cause. I would also check
+      specifically for a waiting `ALTER TABLE` or `CREATE INDEX`, because a queued DDL statement
+      blocks every query behind it even when those queries do not conflict with the original
+      holder. To resolve it, `pg_cancel_backend` on the blocker first, since that cancels the
+      query and leaves the connection, so the application sees a query error rather than a
+      dropped connection; `pg_terminate_backend` only if cancelling does not work. Afterwards the
+      durable fix is configuration: `lock_timeout` so DDL fails instead of queueing,
+      `statement_timeout` to bound runaway queries, and
+      `idle_in_transaction_session_timeout` so a forgotten transaction cannot do this again.

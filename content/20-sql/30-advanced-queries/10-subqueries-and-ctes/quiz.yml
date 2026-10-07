@@ -1,0 +1,136 @@
+passScore: 0.7
+questions:
+  - id: not-in-null
+    kind: choice
+    concept: subqueries
+    prompt: >-
+      `SELECT * FROM users WHERE id NOT IN (SELECT user_id FROM orders)` returns zero rows,
+      though many users have no orders. Why?
+    options:
+      - text: "`user_id` contains a NULL, and `id <> NULL` is UNKNOWN rather than true, so every row fails"
+        correct: true
+        feedback: >-
+          `NOT EXISTS` avoids this entirely because it asks about row existence, not values.
+      - text: "`NOT IN` requires a primary key on the inner column"
+        feedback: "No such requirement."
+      - text: The subquery returns too many rows for NOT IN
+        feedback: "`NOT IN` handles any number of rows."
+    explanation: >-
+      `id NOT IN (1, 2, NULL)` expands to `id <> 1 AND id <> 2 AND id <> NULL`. The last term
+      is UNKNOWN — SQL cannot say whether a value differs from an unknown — and `true AND
+      UNKNOWN` is UNKNOWN, which does not pass `WHERE`. So every row is rejected. It is
+      especially dangerous because the result is zero rows rather than an error, so it looks
+      like a data problem rather than a query bug.
+
+  - id: correlated
+    kind: choice
+    concept: correlated-subqueries
+    prompt: "What makes a subquery correlated?"
+    options:
+      - text: It references a column from the outer query, so it cannot be evaluated independently
+        correct: true
+        feedback: >-
+          Logically once per outer row — though the planner often rewrites it into a join.
+      - text: It appears in the SELECT list rather than in WHERE
+        feedback: >-
+          Position does not determine correlation; the reference to an outer column does.
+      - text: It returns more than one row
+        feedback: >-
+          That is about whether it can be used as a scalar, which is a different property.
+    explanation: >-
+      Correlation means the inner query depends on the current outer row, so there is no single
+      result to compute up front. An uncorrelated subquery runs exactly once and its value is
+      substituted. A correlated one logically runs per outer row, which is why it can be
+      catastrophic on a large table — and why planners work hard to rewrite it as a semi-join.
+      The risk is that whether they succeed depends on the shape and the statistics.
+
+  - id: exists-select-1
+    kind: choice
+    concept: subqueries
+    prompt: "Why write `EXISTS (SELECT 1 FROM ...)` rather than `SELECT *`?"
+    options:
+      - text: "Nothing reads the columns — `EXISTS` only asks whether a row exists, so naming columns is noise"
+        correct: true
+        feedback: >-
+          Most databases optimise both identically; the `1` states the intent.
+      - text: "`SELECT *` inside EXISTS is a syntax error"
+        feedback: "It is valid, just misleading."
+      - text: "`SELECT 1` makes the subquery stop after one row"
+        feedback: >-
+          `EXISTS` is what short-circuits, regardless of the select list.
+    explanation: >-
+      `EXISTS` evaluates to true as soon as the subquery yields any row, and never looks at its
+      columns. Writing `SELECT 1` says that plainly. Query planners treat `SELECT *` and
+      `SELECT 1` inside `EXISTS` the same way, so this is about communicating intent to the
+      next reader rather than about performance.
+
+  - id: cte-performance
+    kind: choice
+    concept: ctes
+    prompt: "Does wrapping a query in a CTE make it faster?"
+    options:
+      - text: "No — it is a readability tool, and on Postgres before 12 it was an optimisation fence that could make it slower"
+        correct: true
+        feedback: >-
+          Since Postgres 12 a single-use CTE is inlined, so the cost is now zero.
+      - text: Yes, because the CTE result is cached and reused
+        feedback: >-
+          Materialisation is not caching, and it can prevent a filter being pushed down.
+      - text: Yes, because the planner optimises CTEs more aggressively
+        feedback: >-
+          Historically the opposite — it could not optimise across the boundary at all.
+    explanation: >-
+      CTEs give each step a name, which makes a multi-stage query readable and independently
+      testable. Older Postgres materialised every CTE, so an outer `WHERE id = 42` could not be
+      pushed into it and the whole table was scanned. Postgres 12 inlines a CTE referenced once
+      and lets you force either behaviour with `MATERIALIZED` / `NOT MATERIALIZED` —
+      materialising deliberately is useful when a CTE is expensive and referenced several times.
+
+  - id: scalar-subquery
+    kind: choice
+    concept: subqueries
+    prompt: >-
+      A scalar subquery in the SELECT list works in development and errors in production. What
+      is the most likely cause?
+    options:
+      - text: Production data has more than one matching row, and a scalar subquery must return exactly one
+        correct: true
+        feedback: >-
+          Add an explicit ORDER BY plus LIMIT 1, or use an aggregate, which always returns one row.
+      - text: Production uses a different SQL dialect
+        feedback: >-
+          Possible in general, and not the likely explanation for this specific error.
+      - text: The subquery times out
+        feedback: >-
+          A timeout reports as a timeout, not as a cardinality error.
+    explanation: >-
+      A subquery used as an expression must yield one row and one column. With one order per
+      user locally it does; with two in production the database raises "more than one row
+      returned by a subquery used as an expression". The constraint is on the data, not the
+      query, so the only reliable fixes are to make it one row explicitly — `ORDER BY ... LIMIT
+      1` — or to use an aggregate such as `MAX` or `SUM`, which collapses any number of rows to
+      one.
+
+  - id: explain-rewrite
+    kind: recall
+    concept: correlated-subqueries
+    prompt: >-
+      A report uses a correlated subquery in the SELECT list to show each user's order count
+      over 500,000 users. Explain the risk and how you would rewrite it.
+    key_points:
+      - Logically one inner execution per outer row — the SQL equivalent of an N+1
+      - Harder to spot than an application N+1 because the log shows one query
+      - The planner may flatten it, and whether it does depends on shape and statistics
+      - Rewrite as a LEFT JOIN with GROUP BY, or a grouped subquery joined once
+      - COUNT the right-hand key so non-matching users get 0, not 1
+      - Confirm with EXPLAIN ANALYZE rather than assuming
+    model: >-
+      The risk is that it is logically one inner execution per outer row — the SQL spelling of
+      an N+1, and harder to notice than the application kind because the log shows a single
+      query. A good planner usually flattens it into a grouped join, but whether it does depends
+      on the shape and the statistics, so the plan can degrade later without the query changing.
+      I would rewrite it as one pass: left join `orders`, `GROUP BY users.id`, and
+      `COUNT(orders.id)` — counting the right-hand key rather than `*` so users with no orders
+      come back as 0 instead of 1. Then confirm with `EXPLAIN ANALYZE` instead of assuming,
+      since if the planner was already flattening it, the two plans will be the same and the
+      rewrite is just clearer.

@@ -1,0 +1,26 @@
+language: sql
+notes: >-
+  `total` is NULL for order 13 — deliberately. Run the starter, then try
+  `SELECT COUNT(*), COUNT(total), SUM(total), AVG(total) FROM orders;` and work out why
+  COUNT(*) and COUNT(total) disagree, and what AVG divided by.
+starter: |
+  SELECT city, COUNT(*) AS orders, SUM(total) AS revenue
+  FROM orders
+  GROUP BY city
+  HAVING SUM(total) > 200
+  ORDER BY revenue DESC;
+seed:
+  tables:
+    - name: orders
+      columns:
+        - { name: id, type: integer }
+        - { name: city, type: text }
+        - { name: status, type: text }
+        - { name: total, type: integer }
+      rows:
+        - [10, "Pune", "paid", 500]
+        - [11, "Pune", "paid", 250]
+        - [12, "Delhi", "paid", 900]
+        - [13, "Delhi", "cancelled", null]
+        - [14, "Kochi", "refunded", 120]
+        - [15, "Pune", "refunded", 80]

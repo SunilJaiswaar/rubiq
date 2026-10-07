@@ -1,0 +1,127 @@
+passScore: 0.7
+questions:
+  - id: where-vs-having
+    kind: choice
+    concept: grouping
+    prompt: "Why can `WHERE` not refer to `SUM(total)`?"
+    options:
+      - text: "`WHERE` runs before grouping, so the aggregate does not exist yet"
+        correct: true
+        feedback: >-
+          Which is also why a row-level condition belongs in `WHERE` rather than `HAVING`.
+      - text: Aggregates are only allowed in SELECT and HAVING by convention
+        feedback: >-
+          It is an evaluation-order consequence, not a convention.
+      - text: "`WHERE` only accepts column comparisons"
+        feedback: "`WHERE` accepts arbitrary expressions — just not aggregates."
+    explanation: >-
+      The clauses are evaluated FROM → WHERE → GROUP BY → aggregate → HAVING → SELECT →
+      ORDER BY. `WHERE` sees individual rows before any grouping has happened, so there is no
+      group for `SUM` to summarise. `HAVING` exists precisely to filter after that step. The
+      practical corollary: a condition that only looks at a row should go in `WHERE`, because
+      putting it in `HAVING` means grouping rows you then discard.
+
+  - id: count-star-vs-column
+    kind: choice
+    concept: null-semantics
+    prompt: "`totals` are 100, NULL and 300. What do `COUNT(*)`, `COUNT(total)` and `AVG(total)` return?"
+    options:
+      - text: "3, 2, and 200"
+        correct: true
+        feedback: >-
+          `AVG` divided 400 by 2, not by 3 — the NULL row is not in the denominator.
+      - text: "3, 3, and 133.33"
+        feedback: "`COUNT(total)` skips NULL, and so does `AVG`'s denominator."
+      - text: "2, 2, and 200"
+        feedback: "`COUNT(*)` counts rows, including the one with a NULL total."
+    explanation: >-
+      `COUNT(*)` counts rows: 3. `COUNT(total)` counts non-NULL values: 2. `SUM` ignores the
+      NULL and returns 400, and `AVG` divides by the non-NULL count, giving 200 rather than
+      133.33. This is the single most common source of quietly-wrong numbers in reporting:
+      the average is over a subset the query never names.
+
+  - id: left-join-count
+    kind: choice
+    concept: grouping
+    prompt: "After `users LEFT JOIN orders`, why does a user with no orders show `COUNT(*) = 1`?"
+    options:
+      - text: The outer join produced one row with NULLs on the right, and `COUNT(*)` counts rows
+        correct: true
+        feedback: "`COUNT(orders.id)` skips the NULL and gives 0."
+      - text: "`COUNT(*)` always counts at least 1"
+        feedback: >-
+          `SELECT COUNT(*) FROM orders WHERE 1=0` returns 0. It is the invented join row here.
+      - text: The join silently became an inner join
+        feedback: >-
+          An inner join would have dropped the user entirely.
+    explanation: >-
+      A LEFT JOIN keeps left-hand rows that have no match by producing a single row with NULL
+      in every right-hand column. `COUNT(*)` counts that row, so the answer is 1.
+      `COUNT(orders.id)` counts non-NULL values of the right-hand key, which is 0 — the
+      correct answer. This is the reason to count a specific column rather than `*` whenever
+      an outer join is involved.
+
+  - id: sum-across-join
+    kind: choice
+    concept: aggregates
+    prompt: >-
+      A report sums `orders.total` over `orders JOIN line_items`. Each order has three line
+      items. What does the total show?
+    options:
+      - text: Three times the real revenue, because the join produced three rows per order
+        correct: true
+        feedback: >-
+          Aggregate each grain separately — a subquery or CTE per side.
+      - text: The correct revenue, since SUM deduplicates
+        feedback: "`SUM` has no idea the rows are duplicates; it adds what it is given."
+      - text: An error, because the grains do not match
+        feedback: >-
+          SQL cannot detect this. That is exactly why it survives into production.
+    explanation: >-
+      A join to a one-to-many produces one row per child, each carrying a copy of the parent's
+      columns. `SUM(orders.total)` then adds each order's total once per line item. The
+      aggregate is correct for the rows it received; the row set was wrong. It is dangerous
+      specifically because the result is plausible rather than absurd — so the check is to
+      compare the row count before and after adding a join.
+
+  - id: sum-empty
+    kind: choice
+    concept: null-semantics
+    prompt: "What does `SELECT SUM(total) FROM orders WHERE city = 'Nowhere'` return?"
+    options:
+      - text: One row containing NULL
+        correct: true
+        feedback: >-
+          Wrap it in `COALESCE(..., 0)` when a number must appear.
+      - text: One row containing 0
+        feedback: "`COUNT` of nothing is 0; `SUM` of nothing is NULL."
+      - text: Zero rows
+        feedback: >-
+          An aggregate with no GROUP BY always returns exactly one row.
+    explanation: >-
+      An aggregate query with no `GROUP BY` always returns exactly one row, even over an empty
+      input. `COUNT` returns 0 there, but `SUM`, `AVG`, `MIN` and `MAX` return NULL — there is
+      nothing to sum. Add `GROUP BY` and the behaviour changes again: an empty input then
+      produces zero rows, which breaks code assuming a first row exists.
+
+  - id: explain-dashboard
+    kind: recall
+    concept: aggregates
+    prompt: >-
+      You need one query giving total orders, paid orders, and paid revenue. Describe the
+      approach and why it beats three queries.
+    key_points:
+      - Conditional aggregation — FILTER, or SUM(CASE WHEN ...)
+      - One pass over the table instead of three
+      - Three queries read the same rows three times
+      - Filter the date range in WHERE so an index can be used
+      - COALESCE the sums so an empty range shows 0 rather than NULL
+    model: >-
+      Conditional aggregation in a single pass: `COUNT(*)`, then `COUNT(*) FILTER (WHERE
+      status = 'paid')`, then `SUM(total) FILTER (WHERE status = 'paid')` — or the portable
+      `SUM(CASE WHEN ... THEN ... ELSE 0 END)` form if the database lacks `FILTER`. It beats
+      three queries because all three answers come from the same rows, so three queries read
+      the same data three times and pay the scan or index cost three times. I would keep the
+      date range in `WHERE` rather than inside the FILTERs, since that is what bounds the work
+      and lets an index on `created_at` apply, and I would `COALESCE` the sums to 0 so an empty
+      range renders as a number instead of a blank tile.

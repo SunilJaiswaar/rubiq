@@ -1,0 +1,145 @@
+passScore: 0.7
+questions:
+  - id: lost-update
+    kind: choice
+    concept: anomalies
+    prompt: >-
+      Two READ COMMITTED transactions each read balance 500, then write 400 and 450. What is
+      the final balance and what is this called?
+    options:
+      - text: "450 — a lost update; the first transaction's change is gone with no error reported"
+        correct: true
+        feedback: >-
+          READ COMMITTED does not prevent this. Both transactions committed successfully.
+      - text: "400, because the first write wins"
+        feedback: >-
+          The later write overwrites it; nothing preserves the earlier value.
+      - text: One transaction errors with a conflict
+        feedback: >-
+          Neither errors. That is precisely what makes it dangerous.
+    explanation: >-
+      Both transactions read 500, computed a new value from it, and wrote. The second write
+      overwrote the first, so the withdrawal of 100 vanished — and both transactions committed
+      without error. READ COMMITTED guarantees you never read uncommitted data; it says nothing
+      about whether the value you read is still current when you write. Most bugs described as
+      "a race condition" are this anomaly at the default isolation level.
+
+  - id: atomic-update
+    kind: choice
+    concept: transactions
+    prompt: "Why is `UPDATE accounts SET balance = balance - 100` safe from a lost update?"
+    options:
+      - text: The read and the write are one statement, so no other transaction can act in the gap — and the row is locked for its duration
+        correct: true
+        feedback: >-
+          The gap between reading and writing is where the anomaly lives, so remove the gap.
+      - text: "`UPDATE` runs at SERIALIZABLE regardless of the session's level"
+        feedback: >-
+          The level is unchanged; it is the absence of a gap that helps.
+      - text: Arithmetic in SQL is atomic because it is evaluated by the planner
+        feedback: >-
+          It is the single-statement row lock, not where the arithmetic happens.
+    explanation: >-
+      A lost update needs a window between reading a value and writing a value derived from it.
+      `balance = balance - 100` reads and writes inside one statement, holding a row lock the
+      whole time, so a concurrent update to the same row waits and then re-reads. Any operation
+      expressible this way should be — it is cheaper than a lock you manage and cannot be
+      forgotten by a future caller.
+
+  - id: write-skew
+    kind: choice
+    concept: isolation-levels
+    prompt: >-
+      Two doctors each check "2 people on call, safe to leave" and each go off call, writing to
+      different rows. Which isolation level prevents this?
+    options:
+      - text: "Only SERIALIZABLE — it tracks read-write dependencies, where snapshot isolation sees no write-write conflict"
+        correct: true
+        feedback: >-
+          This anomaly is write skew, and it is the reason SERIALIZABLE exists.
+      - text: REPEATABLE READ, because the snapshot is taken once
+        feedback: >-
+          A consistent snapshot does not help: both reads were valid at the time.
+      - text: READ COMMITTED with FOR UPDATE on each doctor's own row
+        feedback: >-
+          They lock different rows, so the locks never meet.
+    explanation: >-
+      Write skew is two transactions reading an overlapping set, each making a decision that is
+      valid given what it read, and then writing to *disjoint* rows. There is no write-write
+      conflict, so snapshot isolation at any level cannot detect it, and locking each
+      transaction's own target row does not help because the locks do not overlap. SERIALIZABLE
+      tracks the read-write dependency between them and aborts one with a serialization failure
+      — which is why it requires a retry loop in the application.
+
+  - id: mvcc
+    kind: choice
+    concept: mvcc
+    prompt: "Under Postgres MVCC, why does a reader not block a writer?"
+    options:
+      - text: An UPDATE writes a new row version rather than overwriting, so the reader's snapshot still sees the old one
+        correct: true
+        feedback: >-
+          Two writers to the same row do still block, because only one new version can win.
+      - text: Readers take shared locks, which are compatible with write locks
+        feedback: >-
+          Reads under MVCC take no row locks at all.
+      - text: The reader is served from a cache rather than the table
+        feedback: >-
+          It reads the table — just a different version of the row.
+    explanation: >-
+      Postgres never overwrites a row in place. An update writes a new version, stamped with the
+      creating transaction id, and marks the old one dead. Each transaction holds a snapshot
+      defining which versions are visible to it, so a reader reads the version valid for its
+      snapshot and never waits. The costs are that dead versions must be reclaimed by VACUUM,
+      and a long-open transaction holds a snapshot that prevents that reclamation — which is how
+      an idle-in-transaction connection bloats tables it never touched.
+
+  - id: network-in-transaction
+    kind: choice
+    concept: transactions
+    prompt: "Name the two separate failures caused by making an HTTP call inside a transaction."
+    options:
+      - text: "Locks are held for the remote call's latency, causing contention and pool exhaustion; and if the call succeeds but the commit fails, the external effect has no local record"
+        correct: true
+        feedback: >-
+          Commit the state change first, then enqueue the side effect.
+      - text: The HTTP call cannot be rolled back, and transactions forbid I/O
+        feedback: >-
+          Databases do not forbid it. The irreversibility is half the answer; the lock duration
+          is the half that causes outages.
+      - text: The connection pool and the HTTP pool deadlock against each other
+        feedback: >-
+          Not the mechanism; the problem is lock hold time plus a non-atomic side effect.
+    explanation: >-
+      Two independent problems. Operationally, the transaction's locks and its database
+      connection are held for however long the third party takes, so a slow gateway turns into
+      lock contention and then connection-pool exhaustion — taking down endpoints that have
+      nothing to do with payments. Semantically, the remote effect is not part of the
+      transaction: if the charge succeeds and the commit then fails, the card is charged for an
+      order that does not exist. The pattern is to commit the state change and enqueue the side
+      effect for a job to perform.
+
+  - id: explain-check-then-act
+    kind: recall
+    concept: transactions
+    prompt: >-
+      Signup does `SELECT` to check an email is unused, then `INSERT`. Duplicates appear in
+      production. Explain why no isolation level fixes this and what does.
+    key_points:
+      - The two statements leave a window; another transaction inserts between them
+      - Isolation controls visibility, not the existence of the window
+      - Under snapshot isolation neither transaction can see the other's uncommitted insert
+      - A unique index is enforced at write time, so it cannot be raced
+      - Catch the uniqueness violation and present it as a validation error
+      - Keep the application-level check for the message, not for correctness
+    model: >-
+      Because the check and the act are two statements, there is a window between them, and
+      isolation levels govern what a transaction can *see* rather than removing that window.
+      Under snapshot isolation it is actually worse than it sounds: neither transaction can see
+      the other's uncommitted insert at any level, so both checks legitimately pass and both
+      inserts proceed. The only reliable fix is a unique index on email, because a constraint is
+      evaluated at write time by the database itself — there is no gap to race. The application
+      then catches the uniqueness violation and renders it as a validation error. I would keep
+      the `SELECT` check too, but only for the friendly message on the common path; the
+      constraint is what makes it correct, and it is also the only form that protects against
+      code paths written next year by someone who never read this one.

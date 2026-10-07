@@ -15,10 +15,17 @@ description: >-
 
 
   You will write SELECT statements, joins and aggregates, then look at the query plan
-  and explain why the database chose it.
+  and explain why the database chose it. From there the track goes where most SQL
+  material stops: subqueries and CTEs, window functions, what each isolation level
+  actually permits, how two correct transactions deadlock, and why a two-millisecond
+  migration can take a table offline for forty seconds.
 outcomes:
   - Write SELECT, JOIN, GROUP BY and HAVING without looking them up
   - Read a query plan and say which part is expensive
   - Explain when an index helps, when it does not, and what it costs
   - Recognise the shape of a query that will get slower as data grows
   - Debug a query that returns the wrong number of rows
+  - Use subqueries, CTEs and window functions, and know which to reach for
+  - Name the anomalies your isolation level still allows, and fix a lost update
+  - Prevent deadlocks by lock ordering, and run a migration without blocking traffic
+  - Design a schema whose constraints enforce its own invariants

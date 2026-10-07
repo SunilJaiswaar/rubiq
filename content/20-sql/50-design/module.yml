@@ -1,0 +1,3 @@
+title: Designing the schema
+summary: Normalisation as a tool rather than a rule, the costs of denormalising on purpose, and the constraints that make a schema enforce its own invariants.
+level: intermediate

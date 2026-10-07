@@ -1,0 +1,141 @@
+passScore: 0.7
+questions:
+  - id: list-column
+    kind: choice
+    concept: normalisation
+    prompt: "`orders.product_names` holds `\"Keyboard, Mouse\"`. What does this cost you?"
+    options:
+      - text: "No index, no join, no foreign key — so you cannot count sales per product or prevent a typo naming a product that does not exist"
+        correct: true
+        feedback: >-
+          A `LIKE '%Mouse%'` scan also matches "Mouse Pad".
+      - text: Only extra storage, since the string is longer than two integers
+        feedback: >-
+          Storage is the least of it; the lost capabilities are the real cost.
+      - text: Nothing, as long as you always parse it the same way
+        feedback: >-
+          Parsing is the symptom. The database can no longer help you at all.
+    explanation: >-
+      A list inside a string is opaque to the database. You cannot index its elements, so
+      filtering means a sequential scan with a leading-wildcard `LIKE` that also matches
+      substrings like "Mouse Pad". You cannot join to `products`, so there is no foreign key and
+      nothing prevents a typo. You cannot aggregate per product without parsing text. Every one
+      of those is a capability a second table gives you for free, which is what 1NF is actually
+      about.
+
+  - id: third-normal-form
+    kind: choice
+    concept: normalisation
+    prompt: "`customers(id, name, postcode, city)` violates which form, and what breaks?"
+    options:
+      - text: "3NF — city is determined by postcode rather than by the row's identity, so two rows can share a postcode and disagree about the city"
+        correct: true
+        feedback: >-
+          Nothing in the schema prevents the contradiction.
+      - text: 2NF, because city depends on part of the key
+      
+        feedback: >-
+          2NF only applies to composite keys; this key is a single id.
+      - text: 1NF, because city and postcode are related
+        feedback: >-
+          1NF is about multiple values in one cell.
+    explanation: >-
+      3NF forbids a non-key column being determined by another non-key column. Here postcode
+      determines city, so the city value is a fact about the postcode rather than about the
+      customer — and storing it per customer means two customers with the same postcode can
+      carry different cities with no error. Whether to fix it is a judgement call (a postcode
+      table costs a join), but it should be a decision rather than an accident.
+
+  - id: unit-price
+    kind: choice
+    concept: schema-design
+    prompt: "Why is storing `unit_price` on `order_items` not a denormalisation?"
+    options:
+      - text: The price paid is a different fact from the product's current price — an order must not change when a price list is edited
+        correct: true
+        feedback: >-
+          Recording a historical value is correctness, not duplication.
+      - text: It is a denormalisation, but an acceptable one for performance
+        feedback: >-
+          Performance is not the argument; the two values mean different things.
+      - text: Because `products.price` is mutable and therefore not a real fact
+        feedback: >-
+          It is a real fact — just a different one, about now rather than about then.
+    explanation: >-
+      Denormalisation means storing the same fact twice. "The price of this product today" and
+      "the price this customer paid on the 4th" are distinct facts that merely happen to be equal
+      at the moment of purchase. If the order line read through to `products.price`, every past
+      order would silently change whenever someone edited the price list. The distinction
+      generalises: snapshotting a value because it is historically meaningful carries no
+      synchronisation burden, while copying a current value does.
+
+  - id: counter-drift
+    kind: choice
+    concept: data-integrity
+    prompt: "A counter cache maintained by `order.items_count += 1` in Ruby drifts low. Why?"
+    options:
+      - text: "Two concurrent requests both read the same value and both write value+1, so one increment is lost"
+        correct: true
+        feedback: >-
+          Use an atomic `count = count + 1`, or a trigger that cannot be bypassed.
+      - text: Ruby integers overflow at high counts
+        feedback: >-
+          Not at these magnitudes, and the drift is downward.
+      - text: The cache is invalidated before the write completes
+        feedback: >-
+          There is no cache invalidation here; it is a column.
+    explanation: >-
+      This is a lost update. Reading the count, adding one in application memory, and writing it
+      back leaves a window in which another request does the same from the same starting value —
+      both write the same result and one increment disappears. `UPDATE orders SET items_count =
+      items_count + 1` has no window because the read and write are one statement. A trigger is
+      stronger still, since it also covers bulk imports and console sessions that never run your
+      model code.
+
+  - id: validation-vs-constraint
+    kind: choice
+    concept: constraints
+    prompt: "A model has `validates :email, uniqueness: true` and duplicates still appear. Why?"
+    options:
+      - text: "The validation is a SELECT followed by an INSERT with a gap between them, so two simultaneous signups both pass — and it is bypassed by update_column, insert_all and any other writer"
+        correct: true
+        feedback: >-
+          The unique index is what makes it true.
+      - text: The validation only runs on create, not on update
+        feedback: >-
+          It runs on both by default; the race and the bypasses are the cause.
+      - text: Case sensitivity — the duplicates differ in case
+        feedback: >-
+          A real adjacent problem, and not the reason two identical emails get through.
+    explanation: >-
+      A uniqueness validation performs a query and then, some microseconds later, an insert.
+      Under concurrency both requests can see no existing row and both insert. It is also
+      bypassed by `update_column`, `insert_all`, a migration, a console session, or any second
+      application writing the same table. A unique index is evaluated by the database at write
+      time, so there is no window and no way around it. Keep the validation for the friendly
+      error message and add the index for correctness.
+
+  - id: explain-jsonb
+    kind: recall
+    concept: schema-design
+    prompt: >-
+      A colleague proposes storing all order attributes in a single `jsonb` column to avoid
+      migrations. Give your assessment.
+    key_points:
+      - Anything you filter, join or constrain on belongs in a column
+      - jsonb gives up types, NOT NULL, foreign keys, defaults and planner statistics
+      - No referential integrity to products or users
+      - GIN indexes exist but are larger and less precise than a btree on a column
+      - Right for genuinely unknown shapes — event properties, third-party payloads
+      - Migrations are not the cost being avoided; they are cheap and reviewable
+    model: >-
+      I would push back on it as a default and keep it for the part of the payload whose shape we
+      genuinely do not know. The problem is that `jsonb` trades away most of what the database
+      does for us: no column types, no NOT NULL, no foreign key to products or users, no
+      defaults, and much worse planner statistics, so query plans degrade. Anything we filter,
+      join or constrain on should be a column — and for orders that is nearly everything. GIN
+      indexing exists, but it is larger and less selective than a btree on a typed column. Where
+      it genuinely fits is unbounded or third-party-shaped data: event properties, a webhook
+      payload we store verbatim, per-tenant custom fields. The cost being avoided — writing
+      migrations — is also the cheapest and most reviewable part of the process, so we would be
+      trading a known small cost for an unknown large one.

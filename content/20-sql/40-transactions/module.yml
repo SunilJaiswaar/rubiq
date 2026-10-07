@@ -1,0 +1,3 @@
+title: Transactions and concurrency
+summary: What a transaction actually guarantees, which anomalies each isolation level still allows, and how two correct queries become a deadlock.
+level: advanced

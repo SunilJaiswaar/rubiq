@@ -1,0 +1,3 @@
+title: Queries that compose
+summary: Subqueries, CTEs and window functions — the tools that let one query answer a question that needs two passes over the data.
+level: intermediate

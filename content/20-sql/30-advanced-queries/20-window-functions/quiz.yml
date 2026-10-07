@@ -1,0 +1,132 @@
+passScore: 0.7
+questions:
+  - id: window-vs-group-by
+    kind: choice
+    concept: window-functions
+    prompt: "Six orders across three cities. How many rows does each return?"
+    options:
+      - text: "`GROUP BY city` returns 3; `SUM(total) OVER (PARTITION BY city)` returns 6"
+        correct: true
+        feedback: >-
+          The window attaches the aggregate to each row instead of collapsing it.
+      - text: Both return 3
+        feedback: >-
+          A window function never changes the row count.
+      - text: Both return 6
+        feedback: "`GROUP BY` collapses each group into one row."
+    explanation: >-
+      This is the entire distinction. `GROUP BY` partitions rows and emits one row per
+      partition, destroying the individual rows. A window function partitions rows the same
+      way, computes the aggregate, and attaches it to every row in the partition — so the
+      output has as many rows as the input. That is what makes "each order next to its city's
+      total" a single query rather than an aggregate joined back to the table.
+
+  - id: filter-window
+    kind: choice
+    concept: window-functions
+    prompt: "Why is `WHERE ROW_NUMBER() OVER (...) <= 3` invalid?"
+    options:
+      - text: Window functions are computed after WHERE, so the value does not exist yet — wrap it in a CTE and filter outside
+        correct: true
+        feedback: >-
+          Which is why every top-N-per-group query has that extra layer.
+      - text: "`ROW_NUMBER` can only appear in ORDER BY"
+        feedback: "It can appear in SELECT; the restriction is about evaluation order."
+      - text: "`WHERE` cannot contain function calls"
+        feedback: "It can contain ordinary functions — just not window functions."
+    explanation: >-
+      The evaluation order is FROM → WHERE → GROUP BY → HAVING → window functions → SELECT →
+      ORDER BY → LIMIT. `WHERE` runs before any window is computed, so there is nothing to
+      compare against. The fix is a CTE or derived table that computes the window, with the
+      filter applied in the enclosing query. This is a syntax cost, not a performance one — the
+      planner still executes it as one pass plus a sort.
+
+  - id: rank-variants
+    kind: choice
+    concept: window-functions
+    prompt: "Totals ordered 500, 500, 300. What do ROW_NUMBER, RANK and DENSE_RANK give?"
+    options:
+      - text: "ROW_NUMBER 1,2,3 · RANK 1,1,3 · DENSE_RANK 1,1,2"
+        correct: true
+        feedback: >-
+          RANK skips to 3 after the tie; DENSE_RANK does not skip.
+      - text: "ROW_NUMBER 1,1,2 · RANK 1,1,2 · DENSE_RANK 1,2,3"
+        feedback: "`ROW_NUMBER` never produces duplicates."
+      - text: "All three give 1,1,2"
+        feedback: >-
+          Only DENSE_RANK does.
+    explanation: >-
+      The three differ only in tie handling. `ROW_NUMBER` ignores ties entirely and assigns
+      distinct consecutive numbers, so for equal values the assignment is arbitrary unless the
+      ORDER BY is fully deterministic. `RANK` gives ties the same number and then skips the
+      consumed positions. `DENSE_RANK` gives ties the same number and continues without gaps.
+      For "top 3 per group", `ROW_NUMBER` guarantees exactly three rows while `RANK` can return
+      four if two values tie for third.
+
+  - id: range-vs-rows
+    kind: choice
+    concept: frames
+    prompt: >-
+      A running total with `SUM(amount) OVER (ORDER BY day)` shows the same value for two rows
+      that share a day. Why?
+    options:
+      - text: "The default frame is RANGE, which includes all peer rows with the same ORDER BY value — use ROWS for per-row accumulation"
+        correct: true
+        feedback: >-
+          Both are plausible-looking outputs, which is what makes this silent.
+      - text: The rows are being deduplicated
+        feedback: >-
+          Nothing deduplicates; both rows are present with identical running values.
+      - text: "`SUM` cannot be used as a window function"
+        feedback: "It can — it is the most common one."
+    explanation: >-
+      With `ORDER BY` and no explicit frame, the default is `RANGE BETWEEN UNBOUNDED PRECEDING
+      AND CURRENT ROW`, and RANGE is defined in terms of *values*: every row whose ORDER BY key
+      equals the current row's is a peer and is included. So each row of a duplicated day sees
+      the entire day. `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` counts physical rows
+      and accumulates one at a time. RANGE is usually right for a daily total, ROWS for per-row
+      accumulation — and neither reports an error when you pick the wrong one.
+
+  - id: over-empty
+    kind: choice
+    concept: partitioning
+    prompt: "What does `SUM(total) OVER ()` compute?"
+    options:
+      - text: The grand total across every row of the result, repeated on each row
+        correct: true
+        feedback: >-
+          Which is how a "percentage of total" column is written.
+      - text: The total for the current row only
+        feedback: >-
+          That would just be `total`.
+      - text: A syntax error — OVER requires PARTITION BY
+        feedback: "`OVER ()` is valid; the window is simply every row."
+    explanation: >-
+      An empty `OVER ()` means one partition containing all rows and no ordering, so the frame
+      is the whole result set. The aggregate is computed once and attached to every row, which
+      is exactly what a share-of-total column needs: `100.0 * total / SUM(total) OVER ()`.
+      Without window functions that requires a second query or a join to a one-row aggregate.
+
+  - id: explain-dedupe
+    kind: recall
+    concept: window-functions
+    prompt: >-
+      A `users` table has duplicate emails. Describe how you would keep only the newest row per
+      email, and what you would do before running it.
+    key_points:
+      - ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC)
+      - Add a unique tiebreaker such as id DESC so ties are deterministic
+      - Delete where rn > 1
+      - Run the SELECT first and inspect what would be deleted
+      - Do it in a transaction, and check the count before committing
+      - Add the unique index afterwards so it cannot recur
+    model: >-
+      A CTE computing `ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC, id
+      DESC)`, then deleting the rows where the number is greater than 1. The `id DESC` matters:
+      without a unique tiebreaker, two rows with the same `created_at` are numbered arbitrarily,
+      so which one survives is not reproducible — and on a retry you could keep a different row.
+      Before running it I would execute the SELECT and look at exactly which rows have rn > 1,
+      because a wrong PARTITION BY deletes real data and there is no undo. Then run the delete
+      inside a transaction, check the affected count against what the SELECT showed, and only
+      then commit. Afterwards add the unique index on email, since otherwise the cleanup is
+      something you will be doing again.
