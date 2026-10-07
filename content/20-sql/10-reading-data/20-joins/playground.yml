@@ -1,0 +1,32 @@
+language: sql
+notes: >-
+  `orders.user_id` points at `users.id`. Bo and Dee have no orders — they are there so you
+  can see what each join type does with a non-matching row. Asha has two, so you can watch
+  a join multiply rows.
+starter: |
+  SELECT users.name, orders.id, orders.total
+  FROM users
+  LEFT JOIN orders ON users.id = orders.user_id
+  ORDER BY users.name;
+seed:
+  tables:
+    - name: users
+      columns:
+        - { name: id, type: integer }
+        - { name: name, type: text }
+        - { name: city, type: text }
+        - { name: credit_limit, type: integer }
+      rows:
+        - [1, "Asha", "Pune", 1000]
+        - [2, "Bo", "Pune", 500]
+        - [3, "Cal", "Delhi", 2000]
+        - [4, "Dee", "Kochi", 750]
+    - name: orders
+      columns:
+        - { name: id, type: integer }
+        - { name: user_id, type: integer }
+        - { name: total, type: integer }
+      rows:
+        - [10, 1, 500]
+        - [11, 1, 250]
+        - [12, 3, 900]

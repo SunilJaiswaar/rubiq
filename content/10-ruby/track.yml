@@ -1,0 +1,24 @@
+title: Ruby
+tagline: The language, understood rather than memorised.
+category: Languages
+icon: gem
+accent: ruby
+difficulty: beginner
+order: 10
+prerequisites: []
+description: >-
+  Ruby rewards people who understand why it is shaped the way it is. Almost every piece
+  of Ruby syntax that looks strange at first — blocks, symbols, `yield`, modules, open
+  classes — exists to solve a specific problem, and once you know the problem the syntax
+  stops being arbitrary.
+
+
+  This track teaches Ruby in that order: the problem first, then the feature. It does not
+  assume you have written Ruby before. It does assume you would rather understand one
+  thing properly than skim ten.
+outcomes:
+  - Read Ruby written by other people without guessing
+  - Use blocks and `yield` deliberately, not by imitation
+  - Explain the difference between a proc and a lambda, and why it exists
+  - Choose between a module and a class for a given job
+  - Find a bug in Ruby code by reasoning about the object model

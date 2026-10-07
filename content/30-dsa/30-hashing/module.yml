@@ -1,0 +1,3 @@
+title: Hashing
+summary: The structure that turns a scan into a single lookup, and what it costs to get that.
+level: intermediate

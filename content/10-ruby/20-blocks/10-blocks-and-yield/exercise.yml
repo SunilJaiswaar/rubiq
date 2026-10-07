@@ -1,0 +1,86 @@
+id: ruby-blocks-retry
+language: javascript
+title: Build the retry wrapper
+brief: >-
+  The lesson's checkpoint asks for a `retry_up_to` method. Build it here in JavaScript,
+  where it runs in your browser — the structure is identical, and the point is the
+  pattern, not the syntax.
+
+
+  Write `retryUpTo(times, fn)`. It calls `fn()`. If `fn` throws, it tries again, up to
+  `times` attempts in total. If the last attempt still throws, let that error escape. On
+  success, return whatever `fn` returned.
+
+
+  This is the same inversion of responsibility as `File.open`: the caller supplies the
+  work, and your function owns the policy around it.
+starter: |
+  function retryUpTo(times, fn) {
+    // Your code here.
+    //
+    // Hints:
+    //   - You need a loop that can both return a value and remember the last error.
+    //   - "up to `times` attempts in total" means times === 1 is a single try.
+    //   - On the final failure, the original error must escape unchanged.
+  }
+
+  // A little harness so you can see it work. Click Run.
+  let attempts = 0;
+  const flaky = () => {
+    attempts += 1;
+    if (attempts < 3) throw new Error(`attempt ${attempts} failed`);
+    return `succeeded on attempt ${attempts}`;
+  };
+
+  console.log(retryUpTo(5, flaky));
+solution: |
+  function retryUpTo(times, fn) {
+    let lastError;
+    for (let attempt = 1; attempt <= times; attempt++) {
+      try {
+        return fn();
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError;
+  }
+hints:
+  - >-
+    Start with the success path only: a loop that calls `fn()` and returns the result.
+    Then add the try/catch around it.
+  - >-
+    You need somewhere to keep the error between iterations, because you only throw it
+    after the loop has finished failing. A variable declared outside the loop.
+  - >-
+    "Up to `times` attempts in total" — so `retryUpTo(1, fn)` calls `fn` exactly once.
+    Check your loop bounds against that case.
+  - >-
+    After the loop ends without returning, every attempt failed. Throw the error you
+    saved, not a new one — the caller wants the real cause.
+tests:
+  - id: returns-value
+    name: Returns the value when the function succeeds first time
+    call: retryUpTo(3, () => 42)
+    expect: 42
+  - id: single-attempt
+    name: times = 1 calls the function exactly once
+    call: "(() => { let n = 0; try { retryUpTo(1, () => { n++; throw new Error('x') }) } catch (e) {} return n })()"
+    expect: 1
+  - id: retries-until-success
+    name: Retries until the function stops throwing
+    call: "(() => { let n = 0; return retryUpTo(5, () => { n++; if (n < 3) throw new Error('x'); return n }) })()"
+    expect: 3
+  - id: stops-at-limit
+    name: Makes no more than `times` attempts
+    call: "(() => { let n = 0; try { retryUpTo(4, () => { n++; throw new Error('x') }) } catch (e) {} return n })()"
+    expect: 4
+  - id: rethrows-last-error
+    name: Lets the final error escape, with its original message
+    call: "(() => { try { retryUpTo(2, () => { throw new Error('still broken') }) } catch (e) { return e.message } return 'no error thrown' })()"
+    expect: still broken
+  - id: no-swallow-on-zero
+    name: Does not silently succeed when given zero attempts
+    hidden: true
+    call: "(() => { try { const r = retryUpTo(0, () => 1); return r === undefined ? 'undefined' : r } catch (e) { return 'threw' } })()"
+    expect: threw

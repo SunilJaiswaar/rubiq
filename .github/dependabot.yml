@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the whole dev toolchain rather than eight — these move together
+      # and are not shipped to visitors.
+      dev-tooling:
+        patterns: ["eslint*", "@eslint/*", "typescript-eslint", "vitest", "@vitest/*", "@testing-library/*", "jsdom", "typescript"]
+        update-types: [minor, patch]
+      build:
+        patterns: ["vite", "@vitejs/*", "tailwindcss", "@tailwindcss/*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

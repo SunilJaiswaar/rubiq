@@ -1,0 +1,134 @@
+passScore: 0.7
+questions:
+  - id: one-method
+    kind: choice
+    concept: enumerable
+    prompt: What is the minimum you must implement to get Enumerable's methods on your own class?
+    options:
+      - text: "`each`, which yields each element — then `include Enumerable`"
+        correct: true
+        feedback: >-
+          That is all. Optionally define `<=>` on the elements so `sort`, `min` and `max`
+          have an ordering to use.
+      - text: "`each`, `map` and `select` at minimum"
+        feedback: "`map` and `select` are *built from* `each`. You get them for free."
+      - text: "`to_a`, so Enumerable has an array to work with"
+        feedback: >-
+          That would defeat the point — it would force every collection to materialise
+          itself, making infinite and streaming sources impossible.
+    explanation: >-
+      `Enumerable` is written entirely in terms of `each`. Its `map` calls your `each` and
+      yields into the caller's block. This is duck typing doing real work: the module has
+      never heard of your class, and does not need to.
+
+  - id: to-enum
+    kind: choice
+    concept: enumerator
+    prompt: "Why does a well-written `each` start with `return to_enum(:each) unless block_given?`"
+    options:
+      - text: So that calling `each` without a block returns an Enumerator, which `each_with_index`, `each_slice` and `lazy` all need
+        correct: true
+        feedback: >-
+          Right — one line, and a large amount of capability depends on it.
+      - text: To avoid a LocalJumpError when `each` is called with no block
+        feedback: >-
+          It does avoid that, but returning an Enumerator is the point. Returning `nil`
+          would also avoid the error and would break composition.
+      - text: To make `each` thread-safe
+        feedback: It has nothing to do with concurrency.
+    explanation: >-
+      Methods like `each_with_index`, `each_slice`, `each_cons` and `lazy` are implemented
+      by calling `each` with no block and chaining onto the resulting Enumerator. Omit
+      that line and all of them raise on your class — a confusing failure, because `each`
+      itself works fine.
+
+  - id: lazy-when
+    kind: multi
+    concept: lazy-evaluation
+    prompt: When is `lazy` the right choice?
+    options:
+      - text: The source is infinite, like `(1..Float::INFINITY)`
+        correct: true
+        feedback: Here it is not an optimisation — eager would simply never return.
+      - text: The source is far too large to hold in memory
+        correct: true
+        feedback: Streaming a multi-gigabyte file is the canonical case.
+      - text: You will discard most of what the pipeline computes
+        correct: true
+        feedback: "`first(3)` after a `map` over 100,000 items computes 100,000 results to use three."
+      - text: You want a short array pipeline to run faster
+        feedback: >-
+          For small collections lazy is *slower* — there is per-element overhead at every
+          stage.
+    explanation: >-
+      Laziness converts a push pipeline into a pull pipeline, so it wins when production
+      is expensive or unbounded and consumption is small. It loses on small collections,
+      where the per-element overhead of the lazy machinery exceeds the cost of just doing
+      the work.
+
+  - id: terminal
+    kind: multi
+    concept: lazy-evaluation
+    prompt: Which of these force a lazy chain to actually run?
+    options:
+      - text: "`first(3)`"
+        correct: true
+        feedback: Terminal — it needs three real values.
+      - text: "`to_a`"
+        correct: true
+        feedback: Terminal, and `force` is an alias for it.
+      - text: "`reduce`"
+        correct: true
+        feedback: Terminal — it must visit everything to fold it.
+      - text: "`select`"
+        feedback: Lazy — it returns another `Enumerator::Lazy` and computes nothing.
+      - text: "`map`"
+        feedback: Also lazy. A chain of `map` and `select` does no work at all on its own.
+    explanation: >-
+      `map`, `select`, `reject`, `take`, `drop`, `flat_map` and `filter_map` are lazy —
+      they describe work. `first`, `to_a`/`force`, `each`, `reduce` and `include?` are
+      terminal — they demand values. A lazy chain with no terminal operation is just a
+      description that never executes, which is a common source of "my code does nothing".
+
+  - id: map-vs-each
+    kind: choice
+    concept: enumerable
+    prompt: "You see `results = []; items.each { |i| results << i.name }`. What should it be?"
+    options:
+      - text: "`results = items.map(&:name)`"
+        correct: true
+        feedback: >-
+          Right. Declaring an array and pushing to it inside `each` is the signature of a
+          `map` written the long way.
+      - text: "`results = items.select(&:name)`"
+        feedback: "`select` filters by truthiness; it returns the items, not their names."
+      - text: "`results = items.each(&:name)`"
+        feedback: "`each` returns the original collection and discards the block's values."
+    explanation: >-
+      `each` is for side effects and returns the receiver; `map` collects the block's
+      return value into a new array. Declaring an accumulator above an `each` and pushing
+      into it is almost always a `map` — or, if you are also filtering, a `filter_map`,
+      which does both in one pass with one allocation.
+
+  - id: explain-enumerable
+    kind: recall
+    concept: duck-typing
+    prompt: >-
+      You are wrapping a paginated HTTP API. Callers want to write
+      `customers.select { ... }.first(5)` and not think about pages. Explain your design.
+    key_points:
+      - Expose an object that includes Enumerable and defines `each`
+      - "`each` fetches a page at a time and yields each record, continuing until a page comes back empty"
+      - "`return to_enum(:each) unless block_given?` so chaining and `lazy` work"
+      - Callers then get map/select/first and the whole Enumerable vocabulary for free
+      - Combine with `lazy` so that `first(5)` stops fetching pages as soon as it has five matches
+      - "`Enumerator.new` with a yielder is the compact way to express this"
+    model: >-
+      Expose an object that includes `Enumerable` and implements `each`: it requests page
+      one, yields each record, then page two, and stops when a page comes back empty.
+      Start it with `return to_enum(:each) unless block_given?` so the object chains and
+      supports `lazy`. Callers then get the entire Enumerable vocabulary for free and never
+      see pagination. The important detail is combining it with `lazy` — written that way,
+      `customers.lazy.select { ... }.first(5)` stops issuing HTTP requests the moment it
+      has five matches, instead of downloading every page first. `Enumerator.new` with a
+      yielder block is the compact way to write the generator part.

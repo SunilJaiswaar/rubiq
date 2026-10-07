@@ -1,0 +1,50 @@
+name: Request a lesson
+description: Something you wanted to learn here and could not
+labels: [content, request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The curriculum is much smaller than what the project is aiming at — see
+        [ROADMAP.md](https://github.com/SunilJaiswaar/rubiq/blob/main/ROADMAP.md).
+        Requests help decide what comes next.
+
+  - type: input
+    id: topic
+    attributes:
+      label: Topic
+      placeholder: Database transactions and isolation levels
+    validations:
+      required: true
+
+  - type: textarea
+    id: stuck
+    attributes:
+      label: What specifically is hard about it
+      description: >-
+        This is the most useful field. "Explain transactions" is a topic; "I do not
+        understand why READ COMMITTED still lets two transactions see different data"
+        is a lesson. The second one tells a writer where to start.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who is it for
+      options:
+        - Someone who has never programmed
+        - Someone learning their first language
+        - A working developer with a gap
+        - Someone preparing for interviews
+        - A senior engineer going deeper
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: offer
+    attributes:
+      label: Could you write it?
+      options:
+        - label: I could write a first draft
+        - label: I could review a draft for technical accuracy

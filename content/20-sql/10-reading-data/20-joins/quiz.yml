@@ -1,0 +1,166 @@
+passScore: 0.7
+questions:
+  - id: inner-vs-left
+    kind: choice
+    concept: joins
+    prompt: "`users` has 100 rows. 60 users have at least one order. How many rows does `SELECT u.id FROM users u INNER JOIN orders o ON o.user_id = u.id` return?"
+    options:
+      - text: At least 60 — one row per matching order, so more if any user has several
+        correct: true
+        feedback: >-
+          Right on both counts: the 40 with no orders are dropped, and users with multiple
+          orders appear multiple times.
+      - text: Exactly 60
+        feedback: >-
+          Only if every one of those 60 has exactly one order. A join multiplies by match
+          cardinality.
+      - text: Exactly 100
+        feedback: That would be a LEFT JOIN, and only if each user had at most one order.
+    explanation: >-
+      An inner join drops the 40 non-matching users and emits one row per
+      (user, matching order) pair. So the count is the number of orders belonging to
+      those 60 users — at least 60, and more whenever someone has ordered twice.
+      Row count is driven by cardinality, not by table size.
+
+  - id: on-vs-where
+    kind: choice
+    concept: joins
+    prompt: >-
+      You write `FROM users LEFT JOIN orders ON users.id = orders.user_id WHERE orders.total > 300`
+      and users with no orders disappear. Why?
+    options:
+      - text: The LEFT JOIN produced NULL for those rows, and `WHERE NULL > 300` is UNKNOWN, so WHERE dropped them
+        correct: true
+        feedback: >-
+          Exactly — move the condition into the `ON` clause so it applies during the join
+          instead of after it.
+      - text: LEFT JOIN does not keep non-matching rows when a WHERE clause is present
+        feedback: >-
+          It does keep them — the join works correctly. It is the subsequent `WHERE` that
+          removes them.
+      - text: "`orders.total` must be wrapped in COALESCE for LEFT JOIN to work"
+        feedback: >-
+          `COALESCE` would also fix the symptom, but the real fix is putting the condition
+          where it belongs.
+    explanation: >-
+      `ON` decides what counts as a match; `WHERE` filters the already-assembled result.
+      The LEFT JOIN correctly emits the user with NULL order columns, then the `WHERE`
+      evaluates `NULL > 300` as UNKNOWN and discards the row — quietly converting your
+      LEFT JOIN into an INNER JOIN. Writing
+      `ON users.id = orders.user_id AND orders.total > 300` keeps it a LEFT JOIN.
+
+  - id: fan-out
+    kind: choice
+    concept: cardinality
+    prompt: "Why is `SELECT SUM(u.credit_limit) FROM users u JOIN orders o ON o.user_id = u.id` usually wrong?"
+    options:
+      - text: The join duplicates each user once per order, so their credit limit is counted repeatedly
+        correct: true
+        feedback: >-
+          This is the classic revenue-inflation bug. Aggregate before joining, or group on
+          the user key.
+      - text: "`SUM` cannot be used with a JOIN"
+        feedback: It can — the problem is what the join did to the rows before SUM saw them.
+      - text: "`credit_limit` needs to be in a GROUP BY"
+        feedback: >-
+          Adding a GROUP BY changes the shape of the result but does not by itself fix
+          double counting of the one-side column.
+    explanation: >-
+      A one-to-many join fans out the one side: a user with three orders appears in three
+      rows, so `SUM` adds their credit limit three times. The tell is that the result has
+      more rows than `users` does. Fix it by aggregating the many side in a subquery first,
+      or by grouping on the user's key so each user contributes one group.
+
+  - id: anti-join
+    kind: multi
+    concept: anti-joins
+    prompt: Which of these correctly find users who have never placed an order?
+    options:
+      - text: "`LEFT JOIN orders ON ... WHERE orders.id IS NULL`"
+        correct: true
+        feedback: "The standard anti-join: join everything, then keep the non-matches."
+      - text: "`WHERE NOT EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)`"
+        correct: true
+        feedback: >-
+          Usually the better choice — it states the intent directly and is not broken by
+          NULLs.
+      - text: "`WHERE users.id NOT IN (SELECT user_id FROM orders)`"
+        feedback: >-
+          Looks right, and returns zero rows if any `orders.user_id` is NULL. This is why
+          `NOT EXISTS` is preferred.
+      - text: "`INNER JOIN orders ON ... WHERE orders.id IS NULL`"
+        feedback: >-
+          An inner join has already dropped every non-matching row, so there is nothing
+          left for `IS NULL` to find. Always empty.
+    explanation: >-
+      The LEFT JOIN plus `IS NULL` pattern and `NOT EXISTS` both work. `NOT IN` against a
+      subquery is the trap: a single NULL in the subquery's result makes the condition
+      unsatisfiable for every row, so the query returns nothing — with no error. An inner
+      join cannot work at all, since it discards exactly the rows you are looking for.
+
+  - id: sum-null
+    kind: choice
+    concept: joins
+    prompt: "In a LEFT JOIN report, what does `SUM(orders.total)` return for a user with no orders?"
+    options:
+      - text: "NULL — so wrap it in `COALESCE(SUM(orders.total), 0)` if you mean zero"
+        correct: true
+        feedback: >-
+          Right. A report displaying "NULL" where it means "nothing yet" looks broken to
+          whoever reads it.
+      - text: "0, since there is nothing to add"
+        feedback: >-
+          Intuitive, but SQL distinguishes "no rows to sum" from "sums to zero". The result
+          is NULL.
+      - text: It raises an error
+        feedback: No error — just NULL, which is easy to miss until it reaches a dashboard.
+    explanation: >-
+      `SUM` over an empty set is NULL, not zero, because SQL treats "no data" as unknown
+      rather than as zero. `COUNT`, by contrast, does return 0. In any LEFT JOIN report,
+      `COALESCE(SUM(x), 0)` is the habit worth forming.
+
+  - id: fk-index
+    kind: choice
+    concept: joins
+    prompt: A join that was fast in development is very slow in production. What is the first thing to check?
+    options:
+      - text: Whether the foreign key column being joined on has an index
+        correct: true
+        feedback: >-
+          Most databases index primary keys automatically but not the referencing column.
+          It is the single most common cause.
+      - text: Whether the tables need to be denormalised
+        feedback: >-
+          A big change to reach for before checking the cheap fix that usually solves it.
+      - text: Whether the join should be a LEFT JOIN
+        feedback: That changes the result, not the speed.
+    explanation: >-
+      PostgreSQL and most other databases create an index for the primary key but not for
+      columns that reference it. Without one, a nested-loop join scans the entire right
+      table for every left row — work proportional to the product of the two row counts.
+      In development, with a few hundred rows, that is invisible. In production it is not.
+
+  - id: explain-joins
+    kind: recall
+    concept: cardinality
+    prompt: >-
+      A finance dashboard reports monthly revenue about 30% higher than the accounting
+      system. The query joins `invoices`, `line_items` and `customers` and sums
+      `invoices.amount`. What do you suspect, and how do you prove it?
+    key_points:
+      - The join to `line_items` fans out — one row per line item per invoice
+      - "`SUM(invoices.amount)` therefore counts each invoice once per line item"
+      - Prove it by comparing the joined query's row count against `COUNT(*) FROM invoices`
+      - Or by summing invoices alone, with no joins, and comparing
+      - Fix by aggregating line items in a subquery before joining, or by summing a distinct set of invoices
+      - The 30% excess is a clue: it suggests most invoices have one line item and some have several
+    model: >-
+      The join to `line_items` is almost certainly fanning out. An invoice with four line
+      items produces four rows, and `SUM(invoices.amount)` then adds that invoice's amount
+      four times. I would prove it two ways: compare the joined query's row count against
+      `SELECT COUNT(*) FROM invoices` for the same period — if it is higher, the fan-out is
+      confirmed — and run `SELECT SUM(amount) FROM invoices` with no joins at all to get
+      the true figure. The 30% overage is itself a clue, suggesting most invoices have a
+      single line item while a minority have several. The fix is to aggregate line items in
+      a subquery first so each invoice contributes exactly one row, or to drop the
+      `line_items` join entirely if the dashboard does not actually need it.

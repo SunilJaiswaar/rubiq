@@ -1,0 +1,24 @@
+language: sql
+notes: >-
+  Five users. Note that Eli's age and Fay's city are NULL — the lesson's NULL examples
+  depend on them, so you can reproduce every surprise yourself.
+starter: |
+  -- Change anything here and press Run.
+  SELECT name, city, age
+  FROM users
+  ORDER BY name;
+seed:
+  tables:
+    - name: users
+      columns:
+        - { name: id, type: integer }
+        - { name: name, type: text }
+        - { name: city, type: text }
+        - { name: age, type: integer }
+      rows:
+        - [1, "Asha", "Pune", 31]
+        - [2, "Bo", "Pune", 24]
+        - [3, "Cal", "Delhi", 45]
+        - [4, "Dee", "Delhi", 24]
+        - [5, "Eli", "Kochi", null]
+        - [6, "Fay", null, 38]

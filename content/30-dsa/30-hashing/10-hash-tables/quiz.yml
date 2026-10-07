@@ -1,0 +1,185 @@
+passScore: 0.7
+questions:
+  - id: how-o1
+    kind: choice
+    concept: hash-tables
+    prompt: What makes hash table lookup O(1)?
+    options:
+      - text: The key is converted to an array index, so the entry is read directly without searching
+        correct: true
+        feedback: >-
+          Right — and bounding the load factor by resizing is what keeps the collision
+          chains short enough for that to hold on average.
+      - text: The keys are kept sorted, so it can binary search
+        feedback: That is a B-tree. A hash table maintains no order at all.
+      - text: Modern CPUs have a hardware instruction for hash lookups
+        feedback: No — the O(1) comes from the data structure, not the hardware.
+    explanation: >-
+      Array indexing is already O(1); the hash function's job is to produce the index from
+      the key. No search happens. The "average" caveat exists because collisions mean a
+      bucket can hold several entries — and keeping that number constant as `n` grows is
+      what the load factor and resizing are for.
+
+  - id: collisions-inevitable
+    kind: choice
+    concept: collisions
+    prompt: Why are hash collisions unavoidable?
+    options:
+      - text: There are more possible keys than buckets, so by the pigeonhole principle some must share
+        correct: true
+        feedback: >-
+          Exactly. The design question is never how to avoid collisions, only how to handle
+          them.
+      - text: Because hash functions are imperfect and a better one would avoid them
+        feedback: >-
+          No hash function can avoid them. Mapping a larger set into a smaller one must
+          collide.
+      - text: Because of floating-point rounding in the modulo
+        feedback: Hashing uses integers; there is no rounding involved.
+    explanation: >-
+      The set of possible keys is vastly larger than the number of buckets, so collisions
+      are a mathematical certainty rather than an implementation flaw. A good hash function
+      makes them *uniformly distributed* — which keeps chains short — but cannot eliminate
+      them. Chaining and open addressing are the two standard resolutions.
+
+  - id: load-factor
+    kind: choice
+    concept: load-factor
+    prompt: A hash table with 1,000 buckets holds 3,000 entries. What is the average lookup cost, roughly?
+    options:
+      - text: About 4 probes — average chain length is the load factor, which is 3
+        correct: true
+        feedback: >-
+          Right, and this is why implementations resize rather than letting the load factor
+          climb.
+      - text: 1 probe — hash lookup is O(1) by definition
+        feedback: >-
+          O(1) holds only while the load factor is bounded. At load factor 3 the chains
+          really are three long on average.
+      - text: About 1,000 probes
+        feedback: That would be the whole bucket array, not one bucket's chain.
+    explanation: >-
+      Average chain length equals entries ÷ buckets, so lookup cost is roughly
+      `1 + load_factor`. At 3.0 that is about 4 probes. Implementations keep this bounded
+      by resizing when the load factor crosses a threshold — 0.75 in Java, about 0.66 in
+      Python — which is precisely the mechanism that makes the complexity O(1) rather than
+      growing with `n`.
+
+  - id: eq-hash-contract
+    kind: choice
+    concept: hashing
+    prompt: You define `==` on a class but not `hash` or `eql?`. What breaks?
+    options:
+      - text: Two equal objects hash to different buckets, so the table treats them as distinct keys
+        correct: true
+        feedback: >-
+          The rule in every language with hash collections: equal objects must have equal
+          hashes.
+      - text: "`==` stops working"
+        feedback: "`==` works fine. It is hash-based collections that misbehave."
+      - text: Nothing — the default `hash` delegates to `==`
+        feedback: >-
+          The default `hash` is based on object identity, so two distinct-but-equal objects
+          get different hashes.
+    explanation: >-
+      A hash table locates an entry by hash first, then confirms with equality. If two
+      equal objects hash differently they land in different buckets and are never compared,
+      so both get stored and lookups miss. In Ruby you must define `hash` and `eql?`
+      (commonly `alias eql? ==`). The converse is not required: unequal objects may share a
+      hash, which is simply a collision.
+
+  - id: mutated-key
+    kind: choice
+    concept: hashing
+    prompt: "You insert `h[key] = v` with an array as the key, then mutate that array. What happens to the entry?"
+    options:
+      - text: It is still stored but unreachable — it was filed under the old hash
+        correct: true
+        feedback: >-
+          `h.rehash` recovers it. Better still, use immutable keys — which is most of why
+          symbols exist.
+      - text: It is automatically re-filed under the new hash
+        feedback: >-
+          The table has no way to know the key changed. Nothing re-files it.
+      - text: Mutating a hash key raises an error
+        feedback: >-
+          Ruby only freezes *string* literals used as keys. An array key can be mutated
+          freely, and silently.
+    explanation: >-
+      The entry's bucket was chosen from the key's hash at insertion time. Change the key
+      and lookups compute a different bucket, so the value is present but unreachable —
+      visible in `h.values`, absent from `h[key]`. `Hash#rehash` rebuilds the index. The
+      durable fix is immutable keys, which is why Ruby freezes string literals used as hash
+      keys and why symbols are interned and immutable.
+
+  - id: hash-flooding
+    kind: choice
+    concept: collisions
+    prompt: What is hash flooding, and why do runtimes randomise their hash seeds?
+    options:
+      - text: An attacker sends keys crafted to collide, making inserts O(n²); a random per-process seed makes the collisions unpredictable
+        correct: true
+        feedback: >-
+          A real disclosed vulnerability across PHP, Java, Python, Ruby and Node in
+          2011–2012.
+      - text: It is a flood of requests that exhausts the hash table's memory
+        feedback: >-
+          That is ordinary resource exhaustion. Flooding exploits the *collision* path
+          specifically, with very little data.
+      - text: A theoretical attack that has never been demonstrated
+        feedback: >-
+          It was demonstrated against several major runtimes and prompted coordinated fixes.
+    explanation: >-
+      If the hash function is deterministic and public, an attacker can construct thousands
+      of distinct keys that share a bucket. Every insert then scans a growing chain, so `n`
+      insertions cost O(n²) — a few hundred kilobytes of request body can occupy a CPU core
+      for minutes. Randomising the seed per process makes bucket assignment unpredictable.
+      Java added a second defence: a chain longer than 8 is converted to a red-black tree,
+      capping the worst case at O(log n).
+
+  - id: wrong-structure
+    kind: multi
+    concept: hash-tables
+    prompt: For which of these is a hash table the wrong structure?
+    options:
+      - text: "\"All events between 14:00 and 15:00\""
+        correct: true
+        feedback: A range query — a hash would have to examine every key.
+      - text: "\"The 10 highest scores\""
+        correct: true
+        feedback: Needs ordering. A heap or sorted structure.
+      - text: "\"The next scheduled job\""
+        correct: true
+        feedback: Needs the minimum. A priority queue.
+      - text: "\"Has this user id been seen before?\""
+        feedback: Exact-match membership — precisely what a hash is best at.
+    explanation: >-
+      Hash tables trade ordering away for O(1) exact-match access. Any question involving
+      ranges, minimum, maximum, nearest or sorted traversal needs a structure that
+      maintains order. This is why PostgreSQL defaults to B-tree indexes and hash indexes
+      are rarely used: O(1) over O(log n) is a small win next to losing range queries,
+      `ORDER BY` and prefix matching.
+
+  - id: explain-index-by
+    kind: recall
+    concept: hash-tables
+    prompt: >-
+      You find a loop that calls `users.find { |u| u.id == order.user_id }` for each of
+      50,000 orders. Explain the problem, the fix, and what the fix costs.
+    key_points:
+      - "`find` is a linear scan, so the loop is O(orders × users) — quadratic"
+      - Build a hash from id to user once, up front, in O(users)
+      - Each lookup then becomes O(1), making the loop O(orders)
+      - "`index_by(&:id)` in Rails, or `to_h { |u| [u.id, u] }` in plain Ruby"
+      - The cost is O(users) extra memory for the index
+      - Worth stating that the trade is memory for time, and that it is almost always correct at this scale
+    model: >-
+      `find` scans the users array linearly, so running it once per order makes the loop
+      O(orders × users) — with 50,000 orders and a comparable number of users, that is
+      billions of comparisons. The fix is to index once: build a hash from user id to user
+      with `users.index_by(&:id)`, which costs a single O(n) pass, and then each lookup is
+      O(1), so the loop becomes O(orders). The cost is O(users) of extra memory to hold the
+      index, and one more pass over the users. At this scale that trade is overwhelmingly
+      worth it, and it is worth saying out loud that it *is* a trade — if users were far
+      too large to hold in memory I would instead sort both sides by id and walk them
+      together, which is O(n log n) time and O(1) extra space.

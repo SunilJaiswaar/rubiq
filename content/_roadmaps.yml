@@ -1,0 +1,81 @@
+# Role-oriented learning paths.
+#
+# A roadmap is an *ordering*, not a container: it names tracks in the order they pay off
+# for a given destination. The app combines it with measured progress to decide what a
+# particular learner should do next (see src/engines/roadmap.ts).
+#
+# Adding a roadmap needs no code change. Every `tracks:` entry must name a directory
+# under content/ — CI rejects a dangling reference.
+
+roadmaps:
+  - id: backend-ruby
+    title: Backend Engineer (Ruby)
+    role: Backend Engineer
+    experience: none
+    summary: >-
+      The route most Ruby backend engineers actually take: learn the language properly,
+      learn the database properly, then learn the framework. Rails is deliberately last.
+      Rails is a set of answers; without the language and the database you cannot tell
+      which question each answer is for, and you end up pattern-matching instead of
+      engineering.
+    stages:
+      - title: Write code that works
+        goal: Express an idea in Ruby without fighting the syntax.
+        tracks: [ruby]
+        skills: [syntax, objects, methods, blocks, collections]
+        milestone: Build a command-line tool that reads a file and reports on it.
+      - title: Talk to data
+        goal: Get exactly the rows you need, and know what it cost.
+        tracks: [sql]
+        skills: [select, joins, aggregates, indexes, query plans]
+        milestone: Answer five business questions about a dataset in one query each.
+      - title: Reason about cost
+        goal: Choose a data structure on purpose, and defend the choice.
+        tracks: [dsa]
+        skills: [complexity, arrays, hashing, searching]
+        milestone: Solve a problem two ways and explain why one is faster.
+
+  - id: sde-one
+    title: SDE I — first engineering job
+    role: SDE I
+    experience: student
+    summary: >-
+      What interview loops for a first engineering role actually test: can you write
+      correct code, can you query a database, and can you reason about the cost of what
+      you wrote. Breadth comes later; these three are load-bearing.
+    stages:
+      - title: Language fluency
+        goal: Stop thinking about syntax so you can think about the problem.
+        tracks: [ruby]
+        milestone: Implement a small class hierarchy with tests.
+      - title: Algorithmic reasoning
+        goal: Know why one solution is faster, not just that it is.
+        tracks: [dsa]
+        milestone: Explain a solution's complexity out loud before coding it.
+      - title: Data layer
+        goal: Write queries you can defend in a code review.
+        tracks: [sql]
+        milestone: Find and fix a slow query using its plan.
+
+  - id: senior-upgrade
+    title: Mid → Senior Engineer
+    role: Senior Software Engineer
+    experience: mid
+    summary: >-
+      The gap between mid and senior is rarely more syntax. It is judgement under
+      constraint: knowing what breaks first, what it costs, and what you are trading
+      away. Start where most working engineers have the biggest unexamined gap — the
+      database — then the cost reasoning that makes design discussions productive.
+    stages:
+      - title: Know your database
+        goal: Stop treating the query planner as weather.
+        tracks: [sql]
+        milestone: Explain a production query's plan to a teammate.
+      - title: Cost intuition
+        goal: Estimate before you measure, then measure.
+        tracks: [dsa]
+        milestone: Predict the bottleneck in a design before profiling it.
+      - title: Language depth
+        goal: Understand the runtime you ship on.
+        tracks: [ruby]
+        milestone: Explain what your framework does on your behalf, and what that costs.

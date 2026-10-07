@@ -1,0 +1,110 @@
+passScore: 0.7
+questions:
+  - id: falsy
+    kind: multi
+    concept: objects
+    prompt: Which of these are falsy in Ruby?
+    options:
+      - text: "`nil`"
+        correct: true
+        feedback: Correct — one of exactly two falsy values.
+      - text: "`false`"
+        correct: true
+        feedback: Correct — the other one.
+      - text: "`0`"
+        feedback: "`0` is truthy in Ruby. This is the classic trap for people arriving from JavaScript, Python or C."
+      - text: '`""` (empty string)'
+        feedback: Also truthy. Use `.empty?` if emptiness is what you mean.
+    explanation: >-
+      Ruby has exactly two falsy values — `false` and `nil`. Everything else is truthy,
+      including `0`, `""`, `[]` and `{}`. This matters in real code: `if user.age` is
+      true for someone aged 0, so guarding on a numeric value usually needs `.nil?` or
+      an explicit comparison.
+
+  - id: operator-method
+    kind: choice
+    concept: message-passing
+    prompt: "What is `5 + 3` in Ruby, mechanically?"
+    options:
+      - text: "A method call — `5.+(3)` — dispatched on Integer"
+        correct: true
+        feedback: Exactly. That is why you can define `+` on your own classes.
+      - text: A built-in arithmetic operation the parser handles directly
+        feedback: >-
+          The parser does recognise `+` specially to give it infix syntax, but it compiles
+          to a method send. Try `5.+(3)` — it works.
+      - text: A compiler intrinsic that cannot be redefined
+        feedback: >-
+          It can be redefined. Try defining `+` on a class of your own; Rails and many
+          gems do exactly this.
+    explanation: >-
+      Operators in Ruby are method names with infix syntax. `5 + 3` sends `+` to `5` with
+      `3` as the argument. This is what lets `Array#+` concatenate, `String#*` repeat, and
+      your own `Money#+` add amounts — one mechanism, not a special case per type.
+
+  - id: nil-object
+    kind: choice
+    concept: nil
+    prompt: "Why does `nil.to_a` return `[]` rather than raising an error?"
+    options:
+      - text: "`nil` is an object — the single instance of `NilClass` — and `NilClass` defines `to_a`"
+        correct: true
+        feedback: Right. `nil` can answer messages because there is a real object there.
+      - text: Ruby special-cases `nil` in the interpreter to avoid crashes
+        feedback: >-
+          No special case is needed. `nil` is an ordinary object whose class happens to
+          define a few convenient conversions.
+      - text: "`to_a` is a global function that checks for null before converting"
+        feedback: "`to_a` is an instance method, and Ruby has no null pointer for it to check."
+    explanation: >-
+      Unlike a null pointer, `nil` is a real object. `NilClass` defines `to_a`, `to_s`,
+      `to_i` and `nil?`, so `nil` can participate in ordinary method dispatch. The
+      trade-off is that a `nil` where you expected a `User` travels silently until
+      something asks it for a method `NilClass` does not have.
+
+  - id: immediates
+    kind: choice
+    concept: objects
+    prompt: "`5.frozen?` returns `true`. What does that tell you about how Ruby stores small integers?"
+    options:
+      - text: They are immediate values stored in the VALUE word itself, with no heap object to mutate
+        correct: true
+        feedback: >-
+          Correct. There is no per-object state, so there is nothing to freeze or unfreeze —
+          it is reported as frozen because it is immutable by construction.
+      - text: Ruby freezes all integer objects at startup to save memory
+        feedback: >-
+          There are no integer objects to freeze. The value lives in the machine word,
+          tagged, with nothing allocated.
+      - text: It is a quirk with no deeper meaning
+        feedback: >-
+          It is a direct consequence of the implementation — and the same reason
+          `5.instance_variable_set(:@x, 1)` raises.
+    explanation: >-
+      Small integers, symbols, `nil`, `true` and `false` are immediate values: the data
+      sits in the tagged machine word rather than on the heap. With no object to hold
+      state, they are immutable by construction — hence `frozen?` is `true`, and hence
+      you cannot attach instance variables to them.
+
+  - id: explain-back
+    kind: recall
+    concept: message-passing
+    prompt: >-
+      A colleague coming from Java asks why Ruby bothered making integers objects when
+      primitives are faster. Answer them in your own words.
+    key_points:
+      - One kind of value means one set of rules, so there is less language to learn and no primitive/wrapper split
+      - Operators become ordinary methods, so user classes can define `+`, `<=>`, `[]` and participate fully
+      - Libraries can extend built-in types — `5.days.ago` is possible because Integer is an open class
+      - The performance objection is answered by implementation, not by semantics — immediate values keep small integers off the heap
+      - The real cost is giving up compile-time guarantees, not speed — a `nil` satisfies every variable
+    model: >-
+      Making everything an object buys uniformity: there is one rule — values receive
+      messages — so there is no primitive/wrapper distinction to remember, operators are
+      just methods your own classes can define, and libraries can extend `Integer` to
+      give you things like `5.days.ago`. The speed objection is answered at the
+      implementation level rather than the language level: small integers, symbols, `nil`
+      and booleans are immediate values packed into the tagged machine word, so they never
+      allocate. The cost Ruby really pays is not speed but type safety — because `nil` is
+      a valid object of every type, a missing value travels silently until something calls
+      a method it does not have.

@@ -1,0 +1,163 @@
+passScore: 0.7
+questions:
+  - id: declarative
+    kind: choice
+    concept: declarative-queries
+    prompt: What is the practical consequence of SQL being declarative rather than procedural?
+    options:
+      - text: The same query can get faster when you add an index, without being rewritten
+        correct: true
+        feedback: >-
+          Exactly — the planner picks the strategy, so improving the circumstances
+          improves the query.
+      - text: SQL queries always run in the order the clauses are written
+        feedback: >-
+          The opposite. The planner is free to reorder work entirely; written order is
+          not execution order.
+      - text: SQL is slower than procedural code because it has to be interpreted
+        feedback: >-
+          Usually the reverse — the planner has statistics about your data that your
+          hand-written loop does not.
+    explanation: >-
+      You describe the result; the query planner decides how to produce it, using
+      statistics about your actual data. That indirection is why adding an index speeds up
+      existing queries, and why the planner can switch join strategies as a table grows.
+      The cost is that when something is slow you must ask `EXPLAIN` what it decided
+      rather than reading the code.
+
+  - id: null-equals
+    kind: choice
+    concept: "null"
+    prompt: "`SELECT * FROM users WHERE age = NULL` returns no rows, even though one user's age is NULL. Why?"
+    options:
+      - text: NULL means "unknown", so the comparison evaluates to UNKNOWN, and WHERE keeps only TRUE
+        correct: true
+        feedback: >-
+          Right. Two unknown values cannot be shown to be equal, so the honest answer is
+          UNKNOWN — which is not TRUE.
+      - text: "`=` does not work on integers that might be null"
+        feedback: "`=` works fine; the issue is what NULL *means*, not the operator."
+      - text: You must write `== NULL` with two equals signs
+        feedback: SQL has no `==`. The correct test is `IS NULL`.
+    explanation: >-
+      NULL is a marker for an unknown value, so comparing it to anything yields UNKNOWN
+      rather than TRUE or FALSE. `WHERE` keeps a row only when the predicate is TRUE, so
+      the row is dropped — including rows where the column really is NULL. `IS NULL` is a
+      dedicated test rather than a comparison, which is why it works.
+
+  - id: not-in-null
+    kind: choice
+    concept: three-valued-logic
+    prompt: "`SELECT * FROM orders WHERE user_id NOT IN (SELECT id FROM banned)` — and `banned` contains one row whose `id` is NULL. What comes back?"
+    options:
+      - text: Zero rows, always
+        correct: true
+        feedback: >-
+          Correct, and this is a notorious production bug: valid SQL, passes review, works
+          in test, returns nothing the day a NULL appears.
+      - text: All orders, since NULL matches nothing
+        feedback: >-
+          The reverse. The NULL makes the whole condition unsatisfiable rather than
+          irrelevant.
+      - text: Orders whose user_id is not among the non-NULL banned ids
+        feedback: >-
+          That is the intent, but not the behaviour — SQL cannot ignore the NULL for you.
+    explanation: >-
+      `NOT IN (1, 2, NULL)` expands to `user_id <> 1 AND user_id <> 2 AND user_id <> NULL`.
+      The last term is UNKNOWN, and `TRUE AND UNKNOWN` is UNKNOWN, so the conjunction can
+      never be TRUE and every row is dropped. `NOT EXISTS` does not behave this way, which
+      is why experienced engineers default to it for anti-joins.
+
+  - id: partition
+    kind: choice
+    concept: "null"
+    prompt: "A table has 100 rows. `WHERE city = 'Pune'` returns 30. How many does `WHERE city <> 'Pune'` return?"
+    options:
+      - text: 70 minus however many rows have a NULL city
+        correct: true
+        feedback: >-
+          Right — the two queries do not partition the table, and nothing warns you about
+          the gap.
+      - text: Exactly 70
+        feedback: >-
+          Only if `city` is NOT NULL. Any NULL city is excluded from *both* results.
+      - text: 70, because NULL counts as "not Pune"
+        feedback: >-
+          NULL is unknown, not "something other than Pune" — so the comparison is UNKNOWN
+          and the row is dropped.
+    explanation: >-
+      Rows with a NULL `city` satisfy neither `= 'Pune'` nor `<> 'Pune'`, so the two sets
+      do not add up to the table. To include the unknowns you must say so:
+      `WHERE city <> 'Pune' OR city IS NULL`. The sturdier fix is a `NOT NULL` constraint
+      wherever "unknown" has no real meaning.
+
+  - id: count-star
+    kind: choice
+    concept: "null"
+    prompt: "What is the difference between `COUNT(*)` and `COUNT(age)`?"
+    options:
+      - text: "`COUNT(*)` counts rows; `COUNT(age)` counts rows where `age` is not NULL"
+        correct: true
+        feedback: >-
+          And the gap between the two is a quick way to measure how many values are
+          unknown.
+      - text: They are identical; `*` is just shorthand
+        feedback: >-
+          Not identical — try both on a column with NULLs and compare.
+      - text: "`COUNT(age)` sums the ages"
+        feedback: That is `SUM(age)`.
+    explanation: >-
+      `COUNT(*)` counts rows regardless of content. `COUNT(column)` counts non-NULL values
+      in that column. Running both in one query —
+      `SELECT COUNT(*), COUNT(age) FROM users` — tells you immediately how many rows have
+      an unknown age, which is often the first useful step in debugging a wrong row count.
+
+  - id: order-by
+    kind: choice
+    concept: select
+    prompt: Your query returns rows in a convenient order without an `ORDER BY`. Can you rely on it?
+    options:
+      - text: No — row order without `ORDER BY` is an accident of the chosen plan and can change at any time
+        correct: true
+        feedback: >-
+          And it usually changes at the worst moment: after an index is added or the table
+          grows.
+      - text: Yes, if it is consistent across many runs
+        feedback: >-
+          Consistency today reflects the current plan, not a guarantee. The same query can
+          reorder after an index is added.
+      - text: Yes, rows always come back in primary key order
+        feedback: >-
+          Not guaranteed. An index scan, a parallel sequential scan, or a hash join can
+          each produce a different order.
+    explanation: >-
+      Without `ORDER BY`, the database makes no promise about order — what you observe is
+      a side effect of the execution plan. Adding an index, growing the table, enabling
+      parallel query or upgrading the server can all change it. The failure mode is
+      particularly unpleasant because the code appears correct for months first.
+
+  - id: explain-null
+    kind: recall
+    concept: "null"
+    prompt: >-
+      A report that should list all customers outside your home region has been quietly
+      missing people for months. Explain the likely cause and how you would confirm it.
+    key_points:
+      - The filter probably uses `<>` or `NOT IN` on a nullable column
+      - Rows with NULL in that column satisfy neither the positive nor the negative comparison, so they vanish from both
+      - Confirm by comparing `COUNT(*)` with `COUNT(region)`, or by querying `WHERE region IS NULL` directly
+      - "Fix at read time with `OR region IS NULL`, or `COALESCE`"
+      - Fix properly by making the column NOT NULL, or by deciding what unknown means
+      - Prefer `NOT EXISTS` over `NOT IN` so a single NULL cannot empty the result
+    model: >-
+      Almost certainly the filter is `region <> 'home'` or a `NOT IN` against a nullable
+      column. Any customer whose region is NULL satisfies neither `= 'home'` nor
+      `<> 'home'`, because comparing to an unknown yields UNKNOWN and `WHERE` keeps only
+      TRUE — so those rows disappear from both the inclusive and the exclusive report, with
+      no error. I would confirm it with
+      `SELECT COUNT(*), COUNT(region) FROM customers`: if those numbers differ, the gap is
+      exactly the missing people. The immediate fix is `OR region IS NULL`, or `COALESCE`
+      to an explicit placeholder. The real fix is at the schema level — decide whether
+      "unknown region" is meaningful, and if it is not, add a NOT NULL constraint. And if
+      a `NOT IN` subquery is involved, switch to `NOT EXISTS`, which is not sensitive to
+      NULLs.

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" class="">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#4338ca" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)" />
+
+    <title>Rubiq — learn software engineering, properly</title>
+    <meta
+      name="description"
+      content="A free, open-source platform for learning software engineering from zero to professional. Structured tracks, runnable exercises, spaced review and interview practice — no account needed."
+    />
+    <link rel="canonical" href="https://suniljaiswaar.github.io/rubiq/" />
+    <meta property="og:url" content="https://suniljaiswaar.github.io/rubiq/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Rubiq — learn software engineering, properly" />
+    <meta
+      property="og:description"
+      content="Structured learning paths for Ruby, SQL and algorithms. Every lesson explains why the thing exists before how to use it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!--
+      Apply the stored theme before first paint. Without this, a dark-mode user sees a
+      white flash on every cold load, which is the single most noticeable polish failure
+      in a themed application.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('rubiq:theme');
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (stored === 'dark' || stored === 'light') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.backgroundColor = dark ? '#0f1115' : '#ffffff';
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="padding: 2rem; font-family: system-ui, sans-serif; max-width: 42rem; margin: 0 auto">
+        <h1>Rubiq needs JavaScript</h1>
+        <p>
+          The lessons, code playground and quizzes all run in your browser — there is no
+          server rendering them. Enable JavaScript, or read the course content directly in
+          the repository, where every lesson is a Markdown file.
+        </p>
+        <p><a href="https://github.com/SunilJaiswaar/rubiq/tree/main/content">Browse the lessons on GitHub</a></p>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,3 @@
+title: Making it fast
+summary: Indexes, query plans, and the cost model that explains why the database chose what it chose.
+level: intermediate

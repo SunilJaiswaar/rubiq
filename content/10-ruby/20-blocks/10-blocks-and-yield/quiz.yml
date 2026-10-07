@@ -1,0 +1,188 @@
+passScore: 0.7
+questions:
+  - id: why-blocks
+    kind: choice
+    concept: blocks
+    prompt: What structural problem do blocks solve that ordinary function arguments cannot?
+    options:
+      - text: Reusing code that wraps *around* a varying middle — acquire, run something, release
+        correct: true
+        feedback: >-
+          Exactly. The fixed part is on both sides of the varying part, so you must be able
+          to pass the middle in.
+      - text: Passing more than one argument to a method
+        feedback: Ordinary arguments already do that. The difficulty is specifically about code in the middle.
+      - text: Avoiding the need for loops
+        feedback: >-
+          Blocks do make iteration a library concern, but that is a consequence. The
+          motivating problem is resource handling.
+      - text: Making methods run faster
+        feedback: >-
+          Blocks are cheap, but speed was not the motivation — correctness of cleanup was.
+    explanation: >-
+      The acquire/release pattern cannot be extracted into a normal function, because the
+      code you want to vary sits between two pieces of code you want to reuse. Blocks let
+      the library own the `begin/ensure` and accept the middle as a parameter. Java's
+      `try-with-resources` and Python's `with` are narrower, syntax-level solutions to the
+      same problem.
+
+  - id: ensure-ordering
+    kind: choice
+    concept: ensure
+    prompt: |
+      ```ruby
+      def with_file(name)
+        puts "open"
+        yield
+      ensure
+        puts "close"
+      end
+
+      begin
+        with_file("x") { raise "boom" }
+      rescue => e
+        puts "caught"
+      end
+      ```
+      What is the output order?
+    options:
+      - text: "open, close, caught"
+        correct: true
+        feedback: >-
+          Right. `ensure` runs as the exception travels out, before the `rescue` that
+          eventually handles it.
+      - text: "open, caught, close"
+        feedback: >-
+          `ensure` runs before control leaves `with_file`, so it happens first. This is
+          precisely what makes the cleanup guarantee reliable.
+      - text: "open, caught"
+        feedback: "`ensure` always runs — that is its entire purpose."
+    explanation: >-
+      `ensure` executes as the exception propagates out of `with_file`, so the resource is
+      released before the caller's `rescue` sees anything. That ordering is what makes
+      `File.open`-with-a-block safe: the handle is closed whether the block succeeds,
+      raises, or returns early.
+
+  - id: yield-no-block
+    kind: choice
+    concept: yield
+    prompt: What happens when a method calls `yield` but was invoked without a block?
+    options:
+      - text: It raises `LocalJumpError`
+        correct: true
+        feedback: Correct — guard optional yields with `block_given?`.
+      - text: "`yield` returns `nil`"
+        feedback: >-
+          That would hide the mistake. Ruby raises so you find out at the call, not later.
+      - text: The method returns early
+        feedback: No — an exception is raised.
+    explanation: >-
+      `yield` with no block raises `LocalJumpError: no block given (yield)`. When the block
+      is optional, check `block_given?` first. The idiomatic version of this is
+      `return to_enum(:each) unless block_given?`, which is how every iterator in Ruby's
+      standard library behaves.
+
+  - id: yield-vs-amp-block
+    kind: choice
+    concept: blocks
+    prompt: "Why is `def f; yield; end` faster than `def f(&b); b.call; end`?"
+    options:
+      - text: "`yield` is a single VM instruction on a block pointer, while `&b` allocates a Proc object"
+        correct: true
+        feedback: >-
+          Right. `&block` *reifies* the block into an object so it can be stored or passed
+          on — and you pay an allocation for that.
+      - text: "`block.call` has to re-parse the block body each time"
+        feedback: The body is compiled once either way. The difference is allocation and call path.
+      - text: They are identical; the difference is only style
+        feedback: >-
+          Measurably not identical — the benchmark in the lesson shows the gap. Use
+          `&block` only when you need the block as a value.
+    explanation: >-
+      A block is passed on a dedicated slot in the call frame as a pointer to an
+      instruction sequence plus an environment. `yield` jumps straight to it with
+      `invokeblock` and allocates nothing. Writing `&block` builds a real `Proc` so you can
+      store it, forward it, or inspect its `arity` — useful, but only pay for it when you
+      need it.
+
+  - id: closure-scope
+    kind: choice
+    concept: closures
+    prompt: |
+      ```ruby
+      def run_twice
+        yield
+        yield
+      end
+
+      total = 0
+      run_twice { total += 10 }
+      puts total
+      ```
+      What prints, and why?
+    options:
+      - text: "20 — the block closes over `total` in the scope where it was written"
+        correct: true
+        feedback: >-
+          Correct. `run_twice` never sees `total`; the block carries a reference to its
+          defining scope.
+      - text: "0 — the block gets its own copy of `total`"
+        feedback: >-
+          A closure captures the *binding*, not a copy of the value, so mutations are
+          visible outside.
+      - text: It raises NameError because `run_twice` cannot see `total`
+        feedback: >-
+          `run_twice` does not need to see it. The block does, because it was written where
+          `total` is in scope.
+    explanation: >-
+      A block is a closure: it carries the variable bindings from where it was defined, not
+      where it is called. This is why `results = []; items.each { |i| results << i }` works.
+      It is also how closures leak memory — a block stored in a long-lived object keeps its
+      entire captured scope alive.
+
+  - id: return-in-block
+    kind: choice
+    concept: blocks
+    prompt: "What does `return` do inside a block passed to `each`?"
+    options:
+      - text: Returns from the enclosing method, abandoning the iteration
+        correct: true
+        feedback: >-
+          Right — which is usually what you want, and is also the behaviour that differs in
+          a lambda.
+      - text: Returns from the block only, continuing the iteration
+        feedback: >-
+          That is `next`. It is also what `return` does inside a *lambda* — the distinction
+          the next lesson is about.
+      - text: Raises LocalJumpError
+        feedback: >-
+          Only if the block has outlived its defining method. Inside a normal `each`, it
+          returns from the method.
+    explanation: >-
+      A block is not a self-contained function — it can tear down the frame around it.
+      `return` exits the method the block was written in, which makes
+      `items.each { |i| return i if i.even? }` a natural way to write an early-exit
+      search. Convert the same code to a lambda and the behaviour changes.
+
+  - id: explain-blocks
+    kind: recall
+    concept: blocks
+    prompt: >-
+      You are reviewing a teammate's new library. It exposes `Client#connect` and the
+      README says "remember to call `disconnect` when you are done". What do you suggest,
+      and why?
+    key_points:
+      - Offer a block form — `Client.connect { |c| ... }` — that yields the connection
+      - Close it in an `ensure` so the connection is released on exception and early return
+      - Documentation asks users to be careful; a block form makes carefulness unnecessary
+      - Keep the non-block form for callers who genuinely need to manage the lifetime, returning an Enumerator or the object
+      - Name the precedent — `File.open`, `transaction`, `synchronize`, `with_connection` all work this way
+    model: >-
+      Suggest adding a block form: `Client.connect { |c| ... }` which yields the connected
+      client and closes it in an `ensure`. Right now every caller has to remember cleanup
+      on every path — including early returns and exceptions — and a README cannot enforce
+      that. With the block form, the library owns the guarantee and the caller cannot get
+      it wrong. Keep the bare `connect` for callers who really need to control the
+      lifetime, but make the block form the documented default. This is exactly the shape
+      of `File.open`, `ActiveRecord::Base.transaction`, `Mutex#synchronize` and
+      `with_connection`, so it will also be immediately familiar.

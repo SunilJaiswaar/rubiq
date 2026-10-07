@@ -1,0 +1,145 @@
+passScore: 0.7
+questions:
+  - id: include-vs-class
+    kind: choice
+    concept: method-lookup
+    prompt: |
+      ```ruby
+      module M
+        def go; "module"; end
+      end
+
+      class C
+        include M
+        def go; "class"; end
+      end
+      ```
+      What does `C.new.go` return?
+    options:
+      - text: '"class"'
+        correct: true
+        feedback: Right — `include` puts the module *after* the class in the chain, so the class wins.
+      - text: '"module"'
+        feedback: >-
+          That would be true for `prepend`. With `include`, the chain is
+          `[C, M, Object, ...]` — `C` is checked first.
+      - text: It raises an ambiguity error
+        feedback: >-
+          Ruby never has ambiguity here: the chain is linear, so there is always exactly
+          one first match.
+    explanation: >-
+      `C.ancestors` is `[C, M, Object, Kernel, BasicObject]`. Lookup walks left to right
+      and stops at the first `go`, which is `C`'s. An included module is a *fallback*:
+      it supplies behaviour the class does not already define.
+
+  - id: prepend-order
+    kind: choice
+    concept: modules
+    prompt: Which construct lets a module wrap a class's existing method and call the original via `super`?
+    options:
+      - text: "`prepend`"
+        correct: true
+        feedback: Correct — the module lands before the class, so `super` reaches the class's version.
+      - text: "`include`"
+        feedback: >-
+          `include` lands after the class, so the class's method wins and the module's is
+          never reached.
+      - text: "`extend`"
+        feedback: >-
+          `extend` adds the module's methods as *singleton* methods of the receiver —
+          useful, but a different job.
+      - text: "`alias_method`"
+        feedback: >-
+          That is the old `alias_method_chain` technique `prepend` replaced. It works but
+          breaks down when two libraries do it to the same method.
+    explanation: >-
+      `prepend` inserts the module ahead of the class, so `Thing.ancestors` becomes
+      `[Wrapper, Thing, ...]`. The module's method runs first and `super` resumes the
+      search at `Thing`. This is the standard way to add instrumentation or logging to
+      code you do not own.
+
+  - id: super-meaning
+    kind: choice
+    concept: super
+    prompt: What does `super` actually do?
+    options:
+      - text: Resumes the search for the same method name at the next entry in the ancestor chain
+        correct: true
+        feedback: >-
+          Exactly — which is why a module's `super` can reach a class, and a prepended
+          module's `super` can reach the class it wraps.
+      - text: Calls the same method on the superclass
+        feedback: >-
+          Close but importantly wrong. The next chain entry is often a *module*, not the
+          superclass. Thinking in parent/child terms is what makes `prepend` confusing.
+      - text: Calls the method defined in `Object`
+        feedback: It resumes at the *next* entry, not at the top of the chain.
+    explanation: >-
+      `super` means "keep walking". Ruby continues the same linear search from the entry
+      after the one currently executing. Because modules occupy entries in that chain, a
+      module method's `super` frequently lands on a class — and that is normal, not a
+      special case.
+
+  - id: lookup-order
+    kind: order
+    concept: ancestors
+    prompt: >-
+      Put these in the order Ruby checks them when resolving a method call on an instance
+      of a class that has a singleton method, a prepended module, an included module, and
+      a superclass.
+    items:
+      - The object's singleton class
+      - Prepended modules
+      - The class itself
+      - Included modules
+      - The superclass
+    explanation: >-
+      Singleton first (behaviour attached to this one object), then prepended modules
+      (decorators), then the class, then included modules (fallbacks), then up to the
+      superclass where the same pattern repeats. Printing `.ancestors` shows everything
+      except the singleton class.
+
+  - id: debug-tools
+    kind: multi
+    concept: method-lookup
+    prompt: A method is running but it is not the definition you were reading. Which of these tell you which code will actually run?
+    options:
+      - text: "`obj.method(:name).owner`"
+        correct: true
+        feedback: Names the class or module that owns the winning definition.
+      - text: "`obj.method(:name).source_location`"
+        correct: true
+        feedback: Gives the file and line — the fastest way to end this kind of hunt.
+      - text: "`Klass.ancestors`"
+        correct: true
+        feedback: Shows the full resolution order, so you can see what is shadowing what.
+      - text: "`obj.class`"
+        feedback: >-
+          Tells you where lookup *starts*, but not where it lands — which is exactly the
+          thing in question.
+    explanation: >-
+      `method(:name).owner` and `.source_location` answer "which code runs" directly, and
+      `ancestors` shows why. Together they turn a guessing game into two lines in a
+      console — and they work on gem code as well as your own.
+
+  - id: explain-prepend
+    kind: recall
+    concept: modules
+    prompt: >-
+      You need to log every call to a method in a third-party gem, without forking the
+      gem. Explain what you would do and why it works.
+    key_points:
+      - Define a module with a method of the same name
+      - Use `prepend` so the module sits ahead of the class in the ancestor chain
+      - Call `super` inside it to invoke the original implementation
+      - Use `ensure` so the timing or log still happens if the original raises
+      - Mention that `prepend` replaced `alias_method_chain`, which broke when two libraries wrapped the same method
+    model: >-
+      Define a module whose method has the same name, do the logging there, and call
+      `super` to reach the gem's implementation — then `prepend` the module onto the gem's
+      class. It works because `prepend` inserts the module *ahead* of the class in the
+      ancestor chain, so lookup finds my method first, and `super` resumes the search at
+      the class itself. Wrapping the `super` call with `ensure` means the log happens even
+      if the original raises. This is the modern replacement for `alias_method_chain`,
+      which renamed methods out of the way and produced unreadable stacks when two
+      libraries wrapped the same method.

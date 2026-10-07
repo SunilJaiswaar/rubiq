@@ -1,0 +1,17 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# Generated from content/ on every build — never committed, so a stale copy can
+# never be the thing that ships. Run `npm run content:build` after a checkout.
+src/generated/
+
+# TypeScript incremental build state
+*.tsbuildinfo
+
+# Local overrides and editor noise
+*.local
+.env.local
+.DS_Store
+.vite/

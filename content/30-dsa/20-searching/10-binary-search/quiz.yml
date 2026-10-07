@@ -1,0 +1,174 @@
+passScore: 0.7
+questions:
+  - id: requirements
+    kind: multi
+    concept: binary-search
+    prompt: What must be true of the input for binary search to be O(log n)?
+    options:
+      - text: The data is sorted by the key you are searching on
+        correct: true
+        feedback: Sorted order is what lets one comparison eliminate half the candidates.
+      - text: Random access is O(1)
+        correct: true
+        feedback: >-
+          Right — on a linked list, reaching the midpoint is O(n), so the whole thing
+          degrades to worse than a scan.
+      - text: The values are unique
+        feedback: >-
+          Duplicates are fine for exact-match search. They only matter when you want the
+          *first* or *last* occurrence.
+      - text: The array fits in memory
+        feedback: >-
+          Not required — a B-tree index is binary search over disk pages. Random access
+          just has to be cheap relative to scanning.
+    explanation: >-
+      Two requirements: sorted order and cheap random access. Drop the first and you get
+      wrong answers with no error; drop the second and the complexity collapses — on a
+      linked list binary search is O(n) *plus* the comparisons, so it loses to a plain
+      scan.
+
+  - id: overflow
+    kind: choice
+    concept: overflow
+    prompt: "Why write `mid = low + (high - low) / 2` instead of `mid = (low + high) / 2`?"
+    options:
+      - text: "`low + high` can overflow a fixed-width integer; `high - low` cannot"
+        correct: true
+        feedback: >-
+          This was the bug in `java.util.Arrays.binarySearch` for nine years.
+      - text: It is faster — one fewer division
+        feedback: Both forms do one division. The difference is overflow safety.
+      - text: It rounds differently
+        feedback: >-
+          They are algebraically identical for non-negative values in the valid range.
+          Only the overflow behaviour differs.
+    explanation: >-
+      With `low` and `high` both near a 32-bit integer's maximum, their sum overflows to a
+      negative number, `mid` goes out of bounds, and the access throws. `high - low` is
+      always smaller than `high`, so it cannot overflow. Joshua Bloch found this exact bug
+      in the JDK in 2006, nine years after it shipped — and in Jon Bentley's own published
+      implementation.
+
+  - id: termination
+    kind: choice
+    concept: loop-termination
+    prompt: "You write `low = mid` instead of `low = mid + 1`. What happens?"
+    options:
+      - text: An infinite loop, because the range can stop shrinking
+        correct: true
+        feedback: >-
+          With `low = 1, high = 2`, `mid` is 1, and `low = mid` leaves everything
+          unchanged — forever.
+      - text: An off-by-one error in the returned index
+        feedback: >-
+          That is the `<` versus `<=` bug. This one does not return at all.
+      - text: Nothing — `mid` has already been checked, so it is equivalent
+        feedback: >-
+          `mid` has been checked, but excluding it is what guarantees progress. Leaving it
+          in means the range may never get smaller.
+    explanation: >-
+      The `+ 1` is the termination guarantee. `mid` is always within `low..high`, so if an
+      update does not exclude it, the range can repeat identically — same `mid`, same
+      comparison, same assignment. A process that hangs rather than returning a wrong
+      answer is arguably worse, because there is nothing in the output to debug.
+
+  - id: single-element
+    kind: choice
+    concept: invariants
+    prompt: "Using `while low < high` instead of `while low <= high` in exact-match binary search causes what?"
+    options:
+      - text: The last remaining candidate is never examined, so some targets are reported absent
+        correct: true
+        feedback: >-
+          When `low == high` the range holds exactly one index — and `<` exits without
+          checking it.
+      - text: An infinite loop
+        feedback: >-
+          No — it terminates early. Too early. The infinite loop comes from dropping the
+          `+ 1`.
+      - text: Nothing, the two conditions are equivalent
+        feedback: >-
+          Try finding `5` in `[1, 3, 5]`, or any target in a single-element array.
+    explanation: >-
+      `low == high` describes a range containing one candidate index, not an empty one. The
+      strict `<` exits while that candidate is still unexamined, so the search fails for any
+      target that happens to land there. It works for most inputs, which is exactly what
+      makes it survive code review.
+
+  - id: lower-bound-high
+    kind: choice
+    concept: invariants
+    prompt: "In the `lower_bound` variant, why is `high` initialised to `array.length` rather than `array.length - 1`?"
+    options:
+      - text: Because "insert after the last element" is a valid answer, and that index is `length`
+        correct: true
+        feedback: >-
+          Right — the invariant uses an exclusive upper bound, which is why the loop
+          condition and the update also change.
+      - text: To leave room for the element being inserted
+        feedback: >-
+          Nothing is being inserted. The function returns a position, and `length` is a
+          legitimate one.
+      - text: It is a bug that happens not to matter
+        feedback: >-
+          It is required. With `length - 1`, a target larger than everything returns the
+          wrong index.
+    explanation: >-
+      `lower_bound` answers "where does this belong?", and for a target larger than every
+      element the answer is `length`. That makes the upper bound exclusive, which in turn
+      makes `while low < high` correct (so `low == high` means "found") and `high = mid`
+      correct (so `mid` stays a candidate). All three differences follow from one changed
+      invariant — which is why patching the exact-match template does not get you here.
+
+  - id: when-not
+    kind: multi
+    concept: binary-search
+    prompt: When is binary search the wrong choice on sorted data?
+    options:
+      - text: The collection has fewer than about 50 elements
+        correct: true
+        feedback: >-
+          A sequential scan of contiguous memory is cache-friendly; a few binary-search
+          jumps are a few cache misses.
+      - text: You need exact-match membership only, and memory is available
+        correct: true
+        feedback: A hash set is O(1), beating O(log n) — and needs no sort.
+      - text: The data is in a linked list
+        correct: true
+        feedback: Reaching the midpoint is O(n), so the result is worse than a plain scan.
+      - text: You need to find the nearest value, or a range
+        feedback: >-
+          That is where binary search *wins* over hashing — order-based queries are exactly
+          what a hash cannot answer.
+    explanation: >-
+      Binary search earns its place when you need order: nearest value, ranges, "first
+      element after X", or sorted iteration. For pure exact-match lookups a hash is
+      asymptotically better. On small or non-random-access collections, a scan wins. This
+      is also why databases use B-trees rather than hash indexes for most columns — range
+      queries and `ORDER BY` need the ordering.
+
+  - id: explain-invariant
+    kind: recall
+    concept: invariants
+    prompt: >-
+      A colleague's binary search works in all their tests but returns `nil` for the last
+      element of some arrays. Explain what you would look for and how you would describe
+      the underlying cause.
+    key_points:
+      - Suspect `while low < high` instead of `low <= high`
+      - "`low == high` is a range of one candidate, not an empty range"
+      - The strict comparison exits before examining that candidate
+      - "Name the invariant: if the target is present, it is within `low..high`"
+      - The loop must continue while the range is non-empty, and `low == high` is non-empty
+      - Note that it passes most tests, which is why reasoning beats testing here
+    model: >-
+      I would look at the loop condition first — almost certainly `while low < high` where
+      it should be `low <= high`. The invariant the algorithm maintains is "if the target
+      is present, its index is in `low..high`", and that range is non-empty when
+      `low == high` — it contains exactly one candidate. The strict `<` exits at that
+      point, so the final candidate is never compared, and the search reports absent for
+      any target that happens to land there. The reason it passes their tests is that it
+      only fails when the target lands on that last unexamined index, which depends on the
+      array's size and the value's position. That is the real lesson: boundary bugs here
+      cannot be found reliably by testing, so the condition has to be derived from the
+      invariant rather than adjusted until the tests go green.

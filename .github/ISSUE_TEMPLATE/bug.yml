@@ -1,0 +1,55 @@
+name: The application is broken
+description: Something in the app itself misbehaves
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open /learn/sql/indexes
+        2. Scroll to the playground
+        3. Click the `kind` column to add an index
+        4. Press Run
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Firefox 142 on Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Any console errors
+      description: Open devtools, reload, and paste anything red.
+      render: text
+
+  - type: checkboxes
+    id: progress
+    attributes:
+      label: Before you file
+      options:
+        - label: >-
+            I understand that progress is stored only in my browser, and that clearing
+            site data or using a private window will reset it. (This is by design — there
+            is no account and no server.)
+          required: true

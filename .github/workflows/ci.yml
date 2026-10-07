@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch supersedes the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  content:
+    name: Content
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Runs first and on its own, because a content error is the most likely
+      # failure on a content pull request and the author should see it immediately
+      # rather than after a four-minute build.
+      - name: Validate content
+        run: npm run content:validate
+
+      - name: Compile content
+        run: npm run content:build
+
+  app:
+    name: Types, lint and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run content:build
+
+      - name: Type-check
+        run: npx tsc -b
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and component tests
+        run: npx vitest run --reporter=dot
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # The build enforces the initial-payload budget in scripts/postbuild.mjs, so a
+      # regression that makes Monaco or a route eager fails here rather than shipping.
+      - name: Build
+        run: npm run build
+
+      - name: Upload build for the smoke job
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1
+
+  smoke:
+    name: Browser smoke test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 22 exposes WebSocket globally, which the smoke harness needs and
+          # which keeps it dependency-free.
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Serve the built site
+        run: npx vite preview --port 4317 --strictPort &
+
+      - name: Wait for the server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://localhost:4317/; then
+              echo "server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not start within 30s" >&2
+          exit 1
+
+      # Drives real Chrome over the DevTools protocol and asserts that lessons render,
+      # modes filter, the sandbox executes code, and the SQL index demo changes the
+      # row count. These are the claims the project is built on; they are checked.
+      - name: Smoke test
+        run: node scripts/smoke.mjs http://localhost:4317
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Everything here is either a build tool or ships to a static page with no
+      # server, so there is no runtime to attack — but a known-vulnerable dependency
+      # is still a signal worth acting on.
+      - name: Audit
+        run: npm audit --audit-level=moderate

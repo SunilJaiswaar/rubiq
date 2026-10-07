@@ -1,0 +1,172 @@
+passScore: 0.7
+questions:
+  - id: what-bigo-says
+    kind: choice
+    concept: big-o
+    prompt: What does it mean to say an algorithm is O(n)?
+    options:
+      - text: The operation count grows proportionally with the input size
+        correct: true
+        feedback: >-
+          Right — and notice it says nothing about how long one operation takes.
+      - text: It takes n seconds to run
+        feedback: >-
+          Big-O says nothing about time. An O(n) algorithm whose operations are network
+          calls can take hours.
+      - text: It is faster than an O(n²) algorithm
+        feedback: >-
+          Only for large enough n. Below the crossover point the O(n²) version is often
+          faster, because Big-O discards the constant factor.
+    explanation: >-
+      Big-O describes *growth*: double the input, double the operations. It deliberately
+      discards constants, which is what makes it portable across machines and languages
+      and what makes it incomplete. "O(n) is faster than O(n²)" is only true beyond the
+      crossover point, and the crossover can be large.
+
+  - id: nested-loops
+    kind: choice
+    concept: complexity
+    prompt: |
+      ```ruby
+      array.each { |x| puts x }
+      array.each { |x| array.each { |y| puts x + y } }
+      ```
+      What is the total complexity?
+    options:
+      - text: O(n²)
+        correct: true
+        feedback: >-
+          Right — O(n) + O(n²) = O(n²). Lower-order terms are dropped because they cannot
+          change the answer at scale.
+      - text: O(n² + n)
+        feedback: >-
+          Correct arithmetic, but not how Big-O is written. The `n` is dominated by the
+          `n²` and is dropped.
+      - text: O(n³)
+        feedback: >-
+          Sequential blocks add; they do not multiply. Only nesting multiplies.
+    explanation: >-
+      Sequential blocks add and the larger term wins; nested loops multiply. So
+      O(n) + O(n²) is O(n²). The practical form of this rule: when scanning code for
+      performance, find the most deeply nested loop over the largest collection — that is
+      your complexity, and everything else is noise.
+
+  - id: amortised
+    kind: choice
+    concept: amortised-analysis
+    prompt: "Why is appending to a dynamic array O(1) amortised, when a resize copies every element?"
+    options:
+      - text: The array doubles its capacity, so resizes get rarer at the same rate their cost grows
+        correct: true
+        feedback: >-
+          Exactly. Total copying to reach n items is about 2n, spread over n appends.
+      - text: Resizes are fast because memory allocation is cheap
+        feedback: >-
+          Copying n elements is genuinely O(n). The reason it averages out is the
+          *frequency* of resizes, not their cost.
+      - text: The language optimises the copy away
+        feedback: >-
+          The copy really happens. The analysis, not an optimisation, is what makes the
+          average O(1).
+    explanation: >-
+      Doubling is the whole mechanism: after a resize to capacity 2n, the next resize is n
+      appends away, and the costs sum to about 2n for n appends — O(1) each on average. If
+      the array grew by a fixed amount instead, resizes would happen every k appends and
+      the total would be O(n²). Any individual append can still cost O(n), which matters
+      when you have a latency budget rather than a throughput one.
+
+  - id: include-in-loop
+    kind: choice
+    concept: complexity
+    prompt: "`needles.count { |n| haystack.include?(n) }` where both have n elements. Complexity?"
+    options:
+      - text: O(n²), because `include?` on an array is O(n) and it runs n times
+        correct: true
+        feedback: >-
+          And converting `haystack` to a Set first makes it O(n) — a one-line change that
+          moves complexity class.
+      - text: O(n), because there is only one visible loop
+        feedback: >-
+          `include?` contains a hidden loop. Built-in methods are not free, and this is the
+          most common accidental O(n²) in real code.
+      - text: O(n log n), because `include?` uses binary search
+        feedback: >-
+          Binary search needs sorted data. `Array#include?` scans linearly.
+    explanation: >-
+      `Array#include?` is a linear scan, so calling it inside a loop over a comparable
+      collection is quadratic. This is the single most common accidental O(n²) in
+      application code because the nesting is invisible — there is only one `each` on the
+      page. Building a Set or Hash first costs O(n) once and makes every lookup O(1).
+
+  - id: bigo-limits
+    kind: choice
+    concept: big-o
+    prompt: >-
+      Loop A is O(n) and makes one 10ms database call per iteration. Loop B is O(n²) doing
+      1ns array reads. At n = 1,000, which is faster?
+    options:
+      - text: B, by roughly four orders of magnitude
+        correct: true
+        feedback: >-
+          B does a million 1ns reads — about 1ms. A does a thousand 10ms calls — about 10
+          seconds.
+      - text: A, because O(n) always beats O(n²)
+        feedback: >-
+          Only beyond the crossover, which here is around n = 100 million. Constants are
+          real.
+      - text: They are comparable
+        feedback: 10 seconds versus 1 millisecond is not comparable.
+    explanation: >-
+      This is the honest limitation of Big-O: it describes how cost grows, not how large
+      the cost is. The N+1 query problem is exactly this shape — asymptotically linear and
+      operationally terrible — which is why "what is the complexity?" is a necessary
+      question and never a sufficient one.
+
+  - id: unshift
+    kind: choice
+    concept: complexity
+    prompt: You are building a list in reverse order. Which is better, and why?
+    options:
+      - text: "`push` in a loop then `reverse` — two O(n) passes"
+        correct: true
+        feedback: >-
+          Right. `unshift` in a loop is O(n²) because every call shifts every existing
+          element.
+      - text: "`unshift` in a loop — it avoids the extra pass"
+        feedback: >-
+          Each `unshift` must move every existing element to make room at the front, so
+          the loop is quadratic. The extra `reverse` pass is far cheaper.
+      - text: They are equivalent
+        feedback: Benchmark them — `unshift` loses by a wide margin even with ten times fewer iterations.
+    explanation: >-
+      `unshift` is O(n) per call because inserting at the front shifts every existing
+      element, making the loop O(n²). `push` is amortised O(1), and a single `reverse` is
+      O(n), so the total is O(n). The same reasoning applies to `shift` in a loop, and to
+      `insert(0, x)`.
+
+  - id: two-size-test
+    kind: recall
+    concept: complexity
+    prompt: >-
+      You inherit a report generator that takes 4 seconds in staging and times out in
+      production. Describe how you would determine whether the problem is the algorithm's
+      complexity or its constant factor — and why that distinction changes your fix.
+    key_points:
+      - Run it at two input sizes, n and 2n, and compare the times
+      - Roughly 2× means linear — the problem is the constant factor
+      - Roughly 4× means quadratic — the problem is the algorithm
+      - If it is the constant factor, look for per-iteration I/O such as a query or HTTP call in a loop
+      - If it is complexity, look for a lookup inside a loop over a comparable collection
+      - The fixes are different — batching versus changing data structure — so the diagnosis has to come first
+    model: >-
+      Time it at two input sizes, n and 2n, and look at the ratio. About 2× means it scales
+      linearly and the problem is the constant factor per item — so I would look for I/O
+      inside the loop, typically a database query or HTTP call per record, and fix it by
+      batching or preloading. About 4× means it is quadratic and the algorithm itself is
+      wrong — so I would look for a lookup inside a loop over a comparable collection
+      (`include?`, `find`, `index`) and fix it by building a hash or set first. The
+      distinction matters because the two fixes are completely different: batching an
+      O(n²) algorithm still times out at scale, and changing data structures does nothing
+      for an N+1 query. Staging being fine is itself a clue — it suggests production has
+      enough more data to cross a threshold, which fits either diagnosis, so the two-size
+      test is what actually settles it.

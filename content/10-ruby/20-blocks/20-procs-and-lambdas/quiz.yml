@@ -1,0 +1,134 @@
+passScore: 0.7
+questions:
+  - id: two-differences
+    kind: multi
+    concept: lambdas
+    prompt: Which of these genuinely differ between a proc and a lambda?
+    options:
+      - text: How strictly arguments are checked
+        correct: true
+        feedback: Yes — a proc pads with `nil` and drops extras; a lambda raises ArgumentError.
+      - text: What `return` returns from
+        correct: true
+        feedback: Yes — local in a lambda, enclosing method in a proc.
+      - text: Their class
+        feedback: Both are `Proc`. The difference is the `lambda?` flag, not the type.
+      - text: Whether they are closures
+        feedback: Both capture their defining binding. Closure behaviour is identical.
+    explanation: >-
+      Exactly two differences matter: argument strictness and `return` semantics. In both
+      cases the proc behaves like a block and the lambda behaves like a method — which is
+      the mnemonic, and also the historical reason. Class, `call`, `curry` and closure
+      capture are all the same.
+
+  - id: proc-splat
+    kind: choice
+    concept: procs
+    prompt: "What does `proc { |a, b| [a, b] }.call([1, 2])` return?"
+    options:
+      - text: "`[1, 2]` — the array is auto-splatted into `a` and `b`"
+        correct: true
+        feedback: >-
+          Right, and this is the mechanism that makes `hash.each { |k, v| }` work, because
+          `Hash#each` yields one two-element array.
+      - text: "`[[1, 2], nil]` — the array goes into `a`"
+        feedback: >-
+          That is what a *lambda* would do. Procs destructure a single array argument
+          across multiple parameters.
+      - text: It raises ArgumentError
+        feedback: Procs never raise on argument count — that is the lambda behaviour.
+    explanation: >-
+      Procs auto-splat: a single array argument is destructured across the parameters.
+      This is why you can write `{ a: 1 }.each { |key, value| ... }` even though `each`
+      yields a single `[key, value]` array per iteration. A lambda would bind the whole
+      array to `a` and complain that `b` is missing.
+
+  - id: local-jump
+    kind: choice
+    concept: procs
+    prompt: |
+      ```ruby
+      def make
+        proc { return 1 }
+      end
+      make.call
+      ```
+      What happens?
+    options:
+      - text: Raises `LocalJumpError`
+        correct: true
+        feedback: >-
+          Correct — the proc tries to return from `make`, whose frame is already gone. This
+          is the bug that makes lambdas the right default for stored callables.
+      - text: Returns `1`
+        feedback: >-
+          That is the lambda behaviour. A proc's `return` targets the frame that created it.
+      - text: Returns `nil`
+        feedback: An exception is raised rather than a value returned.
+    explanation: >-
+      A proc's `return` is a non-local jump to the frame that created it. `make` has
+      already returned, so that frame no longer exists and Ruby raises `LocalJumpError`.
+      Any callable you store, return from a method, or hand to a library should be a
+      lambda for exactly this reason.
+
+  - id: ampersand
+    kind: choice
+    concept: procs
+    prompt: "What does `&` do in `[1,2].map(&:to_s)`?"
+    options:
+      - text: Calls `to_proc` on the object and passes the result as the block
+        correct: true
+        feedback: >-
+          Right — and because it is just `to_proc`, any object defining `to_proc` works
+          with `&`.
+      - text: It is special syntax that only works with symbols
+        feedback: >-
+          It works with lambdas, `Method` objects, and anything else defining `to_proc`.
+      - text: It dereferences a pointer to the method
+        feedback: Ruby has no pointers here — `&` is a conversion to a block.
+    explanation: >-
+      `&obj` calls `obj.to_proc` and passes the result as the method's block.
+      `Symbol#to_proc` returns a proc that sends that symbol to its argument. The same
+      mechanism makes `&method(:puts)` and `&MyClass.new` work, provided `to_proc` is
+      defined.
+
+  - id: captured-block-kind
+    kind: choice
+    concept: procs
+    prompt: "In `def f(&block); end`, is `block` a proc or a lambda?"
+    options:
+      - text: A proc — so `return` inside the original block is a non-local jump
+        correct: true
+        feedback: >-
+          Right, and it is why a library that stores your captured block can turn your
+          `return` into a `LocalJumpError` with a stack trace pointing at the library.
+      - text: A lambda, because it was explicitly captured
+        feedback: >-
+          Capturing does not change semantics. `capture { }.lambda?` is `false`.
+      - text: Neither — it is a `Block` object
+        feedback: Ruby has no `Block` class. A captured block is a `Proc`.
+    explanation: >-
+      `&block` reifies the block into a `Proc` with proc semantics — `lambda?` is `false`.
+      The one exception worth remembering is `Method#to_proc`, which *is* a lambda, so
+      `method(:puts).to_proc.lambda?` returns `true`.
+
+  - id: scope-lambda
+    kind: recall
+    concept: lambdas
+    prompt: >-
+      A teammate writes `scope :recent, where("created_at > ?", 1.week.ago)` in a Rails
+      model — without the lambda. What goes wrong, and why does the lambda fix it?
+    key_points:
+      - Without the lambda the expression is evaluated once, when the class is loaded
+      - "`1.week.ago` is therefore frozen at boot time and never advances"
+      - In a long-running server the scope silently returns the wrong rows, and gets more wrong the longer the process lives
+      - The lambda defers evaluation so the timestamp is computed on each call
+      - In development it looks fine because the class reloads on every request — it only breaks in production
+    model: >-
+      Without the lambda, `1.week.ago` is evaluated once when the class is loaded, so the
+      cutoff is frozen at the moment the server booted. A process running for a month
+      would still be filtering against a month-old timestamp, and the results get
+      progressively more wrong — with no error anywhere. Wrapping it in a lambda defers
+      evaluation: the body runs on every call, so `1.week.ago` is recomputed each time.
+      The nasty part is that development hides it, because code reloading re-evaluates the
+      class on nearly every request; it only shows up in a long-lived production process.

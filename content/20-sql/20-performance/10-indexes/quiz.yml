@@ -1,0 +1,178 @@
+passScore: 0.7
+questions:
+  - id: btree-depth
+    kind: choice
+    concept: btree
+    prompt: Roughly how many page reads does a B-tree point lookup need on a table with one million rows?
+    options:
+      - text: About 3 or 4
+        correct: true
+        feedback: >-
+          Right — each node is a page holding hundreds of keys, so the tree is wide and
+          shallow.
+      - text: About 20, since log₂(1,000,000) ≈ 20
+        feedback: >-
+          That would be the answer for a binary tree. A B-tree node holds hundreds of
+          keys, not two, so the base of the logarithm is large.
+      - text: About 1,000, the square root
+        feedback: No — depth is logarithmic, and with a high branching factor it is very shallow.
+    explanation: >-
+      B-trees are deliberately wide: one node fills one disk page and holds hundreds of
+      keys, so the branching factor is in the hundreds rather than 2. A million rows is
+      typically three or four levels deep, and a hundred million is four or five. That
+      shallowness is the entire reason indexes work on large tables.
+
+  - id: selectivity
+    kind: choice
+    concept: selectivity
+    prompt: >-
+      You index a column, then query for a value that matches 90% of the table. The planner
+      ignores your index. Is it wrong?
+    options:
+      - text: No — a sequential scan is genuinely cheaper, because using the index would mean fetching 90% of the rows by random access
+        correct: true
+        feedback: >-
+          Correct. Sequential reads are far cheaper per page than scattered random reads,
+          so the planner is making the right call.
+      - text: Yes — an index lookup is always faster than a scan
+        feedback: >-
+          Not when you are going to fetch most of the table anyway. The index adds a tree
+          descent *and* makes the row reads random instead of sequential.
+      - text: Yes, and you should force the index with a hint
+        feedback: >-
+          Forcing it here makes the query slower. If the planner's estimate of how many
+          rows match is accurate, trust it.
+    explanation: >-
+      Using an index to fetch 90% of a table means descending the tree and then doing
+      ~90,000 scattered single-row reads. A sequential scan reads pages in physical order,
+      which storage and read-ahead handle far better. The usual threshold is around 5–10%:
+      below it an index helps, above it a scan wins. The planner knows the distribution
+      from its statistics, which is why keeping statistics fresh matters more than
+      overriding its choices.
+
+  - id: function-wrapped
+    kind: choice
+    concept: indexes
+    prompt: "You have an index on `email`. Why does `WHERE LOWER(email) = 'a@b.com'` not use it?"
+    options:
+      - text: The index stores the original values, so the database would have to transform every row to know which match
+        correct: true
+        feedback: >-
+          Right. The fix is an index on the expression — `CREATE INDEX ON users (LOWER(email))` —
+          or storing the value already normalised.
+      - text: "`LOWER` is too slow to use in a WHERE clause"
+        feedback: "`LOWER` is cheap. The problem is that it defeats the index, not that it costs much."
+      - text: Indexes never work with string functions
+        feedback: >-
+          An expression index on `LOWER(email)` works fine. The limitation is about
+          matching the stored form.
+    explanation: >-
+      A B-tree on `email` is sorted by the raw values, so there is no contiguous range of
+      it corresponding to `LOWER(email) = 'a@b.com'` — the database would have to compute
+      the function for every row to find out. Create an index on the expression, or
+      normalise on write and compare against the stored form. Implicit type casts cause
+      the same problem: comparing an integer column to a string literal can discard the
+      index silently.
+
+  - id: composite-prefix
+    kind: choice
+    concept: indexes
+    prompt: "You have an index on `(user_id, created_at)`. Which query can use it?"
+    options:
+      - text: "`WHERE user_id = 5 AND created_at > '2026-01-01'`"
+        correct: true
+        feedback: >-
+          Seeks on the leading column, then scans a contiguous range within it — the ideal
+          case for a composite index.
+      - text: "`WHERE created_at > '2026-01-01'`"
+        feedback: >-
+          The leftmost-prefix rule: `created_at` values are sorted only *within* each
+          `user_id` group, so there is no single range to seek to.
+      - text: "`WHERE created_at > '2026-01-01' AND user_id > 5`"
+        feedback: >-
+          A range on the leading column means the index can only be partially used, and a
+          range on both is the weakest case of all.
+    explanation: >-
+      A composite index sorts by its first column, then by the second within each first
+      value. So it serves `(a)`, `(a, b)` and `(a, b, c)` — the leftmost prefix — but not
+      `b` alone. Put the equality column first and the range column second. This is why
+      column order in a composite index is a design decision: an index on `(a, b)` makes a
+      separate index on `(a)` redundant, but not one on `(b)`.
+
+  - id: index-cost
+    kind: multi
+    concept: indexes
+    prompt: What does adding an index cost you?
+    options:
+      - text: Every INSERT, UPDATE and DELETE must maintain it
+        correct: true
+        feedback: A table with eight indexes does roughly nine writes per insert.
+      - text: Disk space, often 20–40% of the table for a text column
+        correct: true
+        feedback: And that space competes with table data for cache.
+      - text: Cache pressure — index pages evict table pages you may need
+        correct: true
+        feedback: Which is why an unused index is not harmless.
+      - text: Slower reads on the indexed column
+        feedback: >-
+          Reads on that column get faster — that is the point. The cost lands on writes,
+          space and cache.
+    explanation: >-
+      Indexes trade write throughput, disk and cache for read speed on specific access
+      paths. That trade is usually excellent for columns you filter, join or sort on, and
+      pure loss for columns you never query. Auditing `pg_stat_user_indexes` for indexes
+      with `idx_scan = 0` is often the fastest available performance win on a mature
+      database.
+
+  - id: estimated-vs-actual
+    kind: choice
+    concept: query-plans
+    prompt: "In `EXPLAIN ANALYZE` output, a step estimates `rows=1` but actually returns `rows=90000`. What does that tell you?"
+    options:
+      - text: The planner's statistics are stale or inadequate, so it chose its plan on bad information
+        correct: true
+        feedback: >-
+          Run `ANALYZE` on the table. A bad plan is usually a symptom of bad statistics
+          rather than a bad planner.
+      - text: The query has a bug
+        feedback: >-
+          The query may be fine. The discrepancy is about the planner's *estimate*, not the
+          result's correctness.
+      - text: The index is corrupt
+        feedback: >-
+          Corruption is rare and looks different. A large estimate/actual gap points at
+          statistics.
+    explanation: >-
+      The gap between estimated and actual row counts is the most valuable number in a
+      plan. The planner picks join strategies and access paths based on how many rows it
+      expects; if it expects one row and gets ninety thousand, every downstream choice was
+      made on a false premise. Refresh statistics with `ANALYZE`, and consider raising the
+      statistics target on skewed columns.
+
+  - id: explain-slow-query
+    kind: recall
+    concept: query-plans
+    prompt: >-
+      A query that lists the 20 most recent orders for a customer has become slow as the
+      orders table grew to 50 million rows. Walk through how you would diagnose and fix it.
+    key_points:
+      - Start with `EXPLAIN ANALYZE` rather than guessing
+      - Look for a Seq Scan or a large Sort on the orders table
+      - Compare estimated rows against actual rows to check whether statistics are stale
+      - The access pattern is equality on customer_id plus ordering by created_at — so a composite index on `(customer_id, created_at DESC)` matches it
+      - That index serves both the filter and the ORDER BY, so the LIMIT can stop after 20 index entries instead of sorting 50 million rows
+      - Build it with `CREATE INDEX CONCURRENTLY` to avoid locking writes
+      - Check whether an existing index is now redundant
+    model: >-
+      First `EXPLAIN ANALYZE` it — never guess. I would expect to see either a sequential
+      scan on `orders` or, more likely, an index scan on `customer_id` followed by a large
+      Sort, because the database is finding every order for that customer and then sorting
+      all of them to get the newest 20. I would also compare estimated against actual rows
+      to rule out stale statistics. The access pattern is equality on `customer_id` plus an
+      ordering on `created_at`, so the right fix is a composite index on
+      `(customer_id, created_at DESC)`: it seeks to the customer, and because the index is
+      already sorted within that customer, the `LIMIT 20` can stop after reading 20 index
+      entries instead of sorting a customer's entire history. I would create it with
+      `CREATE INDEX CONCURRENTLY` so it does not lock out writers, then check whether a
+      plain index on `customer_id` has become redundant — the new one's leftmost prefix
+      covers it, so keeping both is pure write cost.

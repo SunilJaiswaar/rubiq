@@ -1,0 +1,295 @@
+/*
+ * Lesson prose.
+ *
+ * The HTML here is produced at build time by scripts/lib/markdown.mjs, so these
+ * selectors are a contract with that file. The `data-block` attributes are what make
+ * the learning modes (WHY / UNDER THE HOOD / REAL WORLD / FAILURE / INTERVIEW) work:
+ * a mode is a CSS-level filter over real content, never separately authored text.
+ */
+
+.prose {
+  color: var(--color-ink);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  /* A measure of ~68 characters. Longer lines measurably hurt reading comprehension,
+     and this is a reading application. */
+  max-width: 68ch;
+}
+
+.prose > * + * { margin-top: 1.15em; }
+
+.prose h2 {
+  font-size: 1.5rem;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin-top: 2.5em;
+  padding-top: 0.6em;
+  border-top: 1px solid var(--color-border);
+}
+.prose h2:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+
+.prose h3 {
+  font-size: 1.2rem;
+  font-weight: 650;
+  line-height: 1.35;
+  margin-top: 2em;
+}
+
+.prose h4 { font-size: 1.05rem; font-weight: 650; margin-top: 1.6em; }
+
+.prose a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.prose a:hover { color: var(--color-accent-hover); }
+
+.prose strong { font-weight: 650; color: var(--color-ink); }
+
+.prose ul, .prose ol { padding-left: 1.5rem; }
+.prose ul { list-style: disc; }
+.prose ol { list-style: decimal; }
+.prose li + li { margin-top: 0.4em; }
+.prose li::marker { color: var(--color-ink-faint); }
+
+.prose blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 1rem;
+  color: var(--color-ink-muted);
+  font-style: italic;
+}
+
+/* Inline code. Deliberately distinct from block code so a mention of `yield`
+   does not read as a snippet you could run. */
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  white-space: nowrap;
+}
+
+/* Heading anchors appear on hover but are always reachable by keyboard. */
+.prose .heading-anchor {
+  margin-left: 0.4em;
+  color: var(--color-ink-faint);
+  text-decoration: none;
+  opacity: 0;
+  font-weight: 400;
+  transition: opacity 120ms ease;
+}
+.prose h2:hover .heading-anchor,
+.prose h3:hover .heading-anchor,
+.prose .heading-anchor:focus-visible { opacity: 1; }
+
+/* ------------------------------------------------------------------ tables */
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  /* Horizontal scroll inside a bordered box, rather than a page-level overflow —
+     narrow screens must never scroll the whole document sideways. */
+  -webkit-overflow-scrolling: touch;
+}
+.prose table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+.prose thead { background: var(--color-surface); }
+.prose th {
+  text-align: left;
+  font-weight: 650;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.prose td { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+.prose tbody tr:last-child td { border-bottom: 0; }
+
+/* -------------------------------------------------------------- code blocks */
+
+.prose .code {
+  position: relative;
+  margin: 1.5em 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.prose .code__lang {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-faint);
+  padding: 0.4rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-canvas);
+}
+
+.prose .code__pre {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+.prose .code__pre code {
+  font-family: var(--font-mono);
+  background: none;
+  border: 0;
+  padding: 0;
+  white-space: pre;
+}
+
+.prose .code__copy {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.4rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  color: var(--color-ink-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.prose .code:hover .code__copy,
+.prose .code__copy:focus-visible { opacity: 1; }
+.prose .code__copy[data-copied="true"] { color: var(--color-positive); opacity: 1; }
+
+/* A fence tagged `runnable` is marked so, and the reader attaches a Run control. */
+.prose .code[data-runnable="true"] { border-color: var(--color-accent); }
+.prose .code[data-runnable="true"] .code__lang::after {
+  content: " · runnable";
+  color: var(--color-accent);
+}
+
+/* ASCII diagrams carry a lot of the teaching weight, so plain `text` fences get
+   slightly tighter leading and no language chrome competing for attention. */
+.prose .code[data-lang="text"] .code__pre { line-height: 1.5; font-size: 0.78125rem; }
+
+/* ----------------------------------------------------- pedagogical blocks */
+
+.prose .lesson-block {
+  margin: 1.75em 0;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  background: var(--color-surface);
+  padding: 1rem 1.15rem;
+}
+
+.prose .lesson-block__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.prose .lesson-block__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0;
+}
+
+.prose .lesson-block__icon {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.prose .lesson-block__body > :first-child { margin-top: 0; }
+.prose .lesson-block__body > * + * { margin-top: 1em; }
+
+/* Tone drives the accent colour. Defined per tone so adding a block to
+   scripts/lib/blocks.mjs with an existing tone needs no CSS change. */
+.prose .lesson-block[data-tone="why"]        { border-left-color: var(--color-why); background: var(--color-why-soft); }
+.prose .lesson-block[data-tone="why"] .lesson-block__title,
+.prose .lesson-block[data-tone="why"] .lesson-block__icon { color: var(--color-why); }
+
+.prose .lesson-block[data-tone="internals"]  { border-left-color: var(--color-internals); background: var(--color-internals-soft); }
+.prose .lesson-block[data-tone="internals"] .lesson-block__title,
+.prose .lesson-block[data-tone="internals"] .lesson-block__icon { color: var(--color-internals); }
+
+.prose .lesson-block[data-tone="realworld"]  { border-left-color: var(--color-realworld); background: var(--color-realworld-soft); }
+.prose .lesson-block[data-tone="realworld"] .lesson-block__title,
+.prose .lesson-block[data-tone="realworld"] .lesson-block__icon { color: var(--color-realworld); }
+
+.prose .lesson-block[data-tone="failure"]    { border-left-color: var(--color-failure); background: var(--color-failure-soft); }
+.prose .lesson-block[data-tone="failure"] .lesson-block__title,
+.prose .lesson-block[data-tone="failure"] .lesson-block__icon { color: var(--color-failure); }
+
+.prose .lesson-block[data-tone="security"]   { border-left-color: var(--color-security); background: var(--color-security-soft); }
+.prose .lesson-block[data-tone="security"] .lesson-block__title,
+.prose .lesson-block[data-tone="security"] .lesson-block__icon { color: var(--color-security); }
+
+.prose .lesson-block[data-tone="interview"]  { border-left-color: var(--color-interview); background: var(--color-interview-soft); }
+.prose .lesson-block[data-tone="interview"] .lesson-block__title,
+.prose .lesson-block[data-tone="interview"] .lesson-block__icon { color: var(--color-interview); }
+
+.prose .lesson-block[data-tone="checkpoint"] { border-left-color: var(--color-checkpoint); background: var(--color-checkpoint-soft); }
+.prose .lesson-block[data-tone="checkpoint"] .lesson-block__title,
+.prose .lesson-block[data-tone="checkpoint"] .lesson-block__icon { color: var(--color-checkpoint); }
+
+.prose .lesson-block[data-tone="neutral"] .lesson-block__title,
+.prose .lesson-block[data-tone="neutral"] .lesson-block__icon { color: var(--color-ink-muted); }
+
+/* Code inside a block adopts the block's surface so it does not look pasted on. */
+.prose .lesson-block .code { background: var(--color-canvas); }
+.prose .lesson-block .code__lang { background: var(--color-surface-raised); }
+
+/* ------------------------------------------------------------------ modes */
+/*
+ * This is the mechanism behind §68–§72 of the brief. `data-mode` on the article
+ * dims everything that is not part of the active mode, instead of removing it —
+ * the surrounding prose stays available as context, and no content is hidden from
+ * a screen reader or from in-page search.
+ */
+
+.prose[data-mode]:not([data-mode="full"]) > *:not(.lesson-block) {
+  opacity: 0.32;
+  transition: opacity 160ms ease;
+}
+.prose[data-mode]:not([data-mode="full"]) > .lesson-block:not([data-active="true"]) {
+  opacity: 0.25;
+  transition: opacity 160ms ease;
+}
+.prose[data-mode]:not([data-mode="full"]) > .lesson-block[data-active="true"] {
+  opacity: 1;
+  /* Give the blocks in focus a little more presence than they have in full view. */
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.07), 0 8px 24px -8px rgb(0 0 0 / 0.1);
+}
+/* Hovering or focusing dimmed prose restores it, so a mode never traps the reader. */
+.prose[data-mode]:not([data-mode="full"]) > *:hover,
+.prose[data-mode]:not([data-mode="full"]) > *:focus-within {
+  opacity: 1 !important;
+}
+
+/* --------------------------------------------------------------- hljs theme */
+/*
+ * A single highlight theme defined in tokens, so syntax colours track the
+ * light/dark switch with everything else rather than needing two stylesheets.
+ */
+.hljs { color: var(--color-ink); }
+.hljs-comment, .hljs-quote { color: var(--color-ink-faint); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: var(--color-security); }
+.hljs-string, .hljs-regexp, .hljs-addition { color: var(--color-realworld); }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: var(--color-why); }
+.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id { color: var(--color-accent); font-weight: 600; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable { color: var(--color-internals); }
+.hljs-built_in, .hljs-class .hljs-title { color: var(--color-checkpoint); }
+.hljs-meta { color: var(--color-ink-faint); }
+.hljs-deletion { color: var(--color-danger); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }

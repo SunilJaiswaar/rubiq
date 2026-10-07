@@ -1,0 +1,23 @@
+title: Data Structures & Algorithms
+tagline: Choose on purpose. Defend the choice.
+category: Computer Science
+icon: graph
+accent: amber
+difficulty: basic
+order: 30
+prerequisites: [ruby]
+description: >-
+  This track is not interview trivia with a complexity label stapled on. The point of
+  knowing that a hash lookup is O(1) and a list scan is O(n) is that it changes what you
+  build — which data structure you reach for, which loop you refuse to write, and where
+  you expect a system to fall over under load.
+
+
+  Every topic here starts from a problem that gets slow, shows the slow solution, and then
+  derives the fast one. You write the code, run it, and watch the operation count.
+outcomes:
+  - Estimate the cost of a loop before running it
+  - Pick a data structure from the access pattern, not from habit
+  - Recognise when sorting first makes the rest of a problem easy
+  - Write binary search correctly, including the edge cases
+  - Explain a solution's complexity convincingly in an interview

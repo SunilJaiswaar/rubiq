@@ -1,0 +1,50 @@
+name: Something in a lesson is wrong
+description: A factual error, a broken example, or an explanation that does not work
+labels: [content, bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you — this is the most valuable kind of report.
+
+        **If you already know the fix,** every lesson page has an "Improve this lesson"
+        link that opens the source file on GitHub. A pull request is faster than an issue
+        for both of us.
+
+  - type: input
+    id: lesson
+    attributes:
+      label: Which lesson
+      placeholder: /learn/sql/indexes — or paste the URL
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong
+      description: Quote the passage if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: correct
+    attributes:
+      label: What would be correct
+      description: >-
+        If you know, say so — and a link to primary documentation is worth a lot. If you
+        only know that something is off, that is still worth reporting.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem
+      options:
+        - Factually wrong
+        - Code example does not run, or does not produce the stated output
+        - Explanation is confusing or assumes unstated knowledge
+        - Out of date for the current version
+        - Quiz answer or feedback is wrong
+        - Typo or formatting
+    validations:
+      required: true

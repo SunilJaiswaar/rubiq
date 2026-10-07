@@ -1,0 +1,24 @@
+title: SQL & Databases
+tagline: Get the rows you need, and know what they cost.
+category: Data
+icon: database
+accent: cyan
+difficulty: beginner
+order: 20
+prerequisites: []
+description: >-
+  Most engineers learn enough SQL to get the right answer and never learn what the
+  answer cost. That is the gap this track closes. Every lesson here runs real queries
+  against real tables in your browser — and reports the row count the database had to
+  examine, so the difference between a query that scales and one that does not is
+  something you watch happen rather than something you are told.
+
+
+  You will write SELECT statements, joins and aggregates, then look at the query plan
+  and explain why the database chose it.
+outcomes:
+  - Write SELECT, JOIN, GROUP BY and HAVING without looking them up
+  - Read a query plan and say which part is expensive
+  - Explain when an index helps, when it does not, and what it costs
+  - Recognise the shape of a query that will get slower as data grows
+  - Debug a query that returns the wrong number of rows

@@ -1,0 +1,37 @@
+language: sql
+notes: >-
+  `events` has 100,000 rows, generated deterministically. Exactly one has `kind = 'rare'`;
+  the rest are `'common'`. Toggle the index on `events.kind` and watch "rows examined"
+  change — the query text never does. `small_lookup` is there to show that on a tiny table
+  an index buys nothing.
+starter: |
+  -- Toggle the index on events.kind above, then run this both ways.
+  -- Watch "rows examined" under the result.
+  SELECT * FROM events WHERE kind = 'rare';
+# Start with no index, so the learner sees the slow case first and turns it on themselves.
+indexes: {}
+seed:
+  tables:
+    - name: events
+      columns:
+        - { name: id, type: integer }
+        - { name: kind, type: text }
+        - { name: amount, type: integer }
+        - { name: occurred_on, type: date }
+      generate:
+        count: 100000
+        columns:
+          - { kind: sequence, start: 1 }
+          # Row 61,234 (0-indexed) is the single 'rare' event.
+          - { kind: rare, at: [61234], value: rare, otherwise: common }
+          - { kind: random_int, min: 1, max: 999, seed: 17 }
+          - { kind: date_series, start: "2024-01-01", unit: hour, step: 1 }
+    - name: small_lookup
+      columns:
+        - { name: code, type: text }
+        - { name: label, type: text }
+      rows:
+        - ["A", "Alpha"]
+        - ["B", "Bravo"]
+        - ["C", "Charlie"]
+        - ["D", "Delta"]

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/SunilJaiswaar/rubiq/security/advisories/new
+    about: Report privately, not as a public issue. See SECURITY.md.
+  - name: How to write a lesson
+    url: https://github.com/SunilJaiswaar/rubiq/blob/main/CONTENT_GUIDE.md
+    about: The full format, the block vocabulary, and the quality bar.
+  - name: What is planned
+    url: https://github.com/SunilJaiswaar/rubiq/blob/main/ROADMAP.md
+    about: Check here before requesting a topic — it may already be queued.
