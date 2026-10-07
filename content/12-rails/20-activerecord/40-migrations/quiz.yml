@@ -1,0 +1,134 @@
+passScore: 0.7
+questions:
+  - id: index-lock
+    kind: choice
+    concept: locks
+    prompt: "Why can `add_index` on a large table take down an entire Rails app, not just that table?"
+    options:
+      - text: Writes queue behind the lock, each holding a connection, so the shared pool fills and unrelated requests cannot get one
+        correct: true
+        feedback: >-
+          Which is why the symptom looks like a general outage rather than a migration
+          problem.
+      - text: Rails pauses all queries during any migration
+        feedback: Rails does not; the lock is taken by Postgres on that one table.
+      - text: The index build consumes all available CPU
+        feedback: Resource use is secondary — connection pool exhaustion is the mechanism.
+    explanation: >-
+      The lock blocks writes to one table, but each blocked request holds a database
+      connection while it waits. The pool is shared across the whole application, so once it
+      is full every request fails regardless of which tables it touches. That indirection is
+      why the incident looks unrelated to the migration.
+
+  - id: concurrently-cost
+    kind: multi
+    concept: zero-downtime
+    prompt: "What does `add_index ... algorithm: :concurrently` cost you?"
+    options:
+      - text: It cannot run inside a transaction, so the migration needs `disable_ddl_transaction!`
+        correct: true
+        feedback: Which also means a failure part-way cannot be rolled back automatically.
+      - text: It is several times slower in wall-clock time
+        correct: true
+        feedback: Two passes over the table, plus waiting for existing transactions.
+      - text: It can fail and leave an invalid index that queries ignore but writes still pay for
+        correct: true
+        feedback: "Check `pg_index WHERE NOT indisvalid` and drop it before retrying."
+      - text: The resulting index is less efficient for queries
+        feedback: The finished index is identical — only the build process differs.
+    explanation: >-
+      Concurrent index builds trade build time and operational complexity for not blocking
+      writes. The failure mode is the part people forget: an interrupted build leaves an
+      invalid index that no query will use and every write must still maintain. So it needs
+      verification afterwards rather than being fire-and-forget.
+
+  - id: rename-deploy
+    kind: choice
+    concept: zero-downtime
+    prompt: "Why is `rename_column` unsafe even though it is fast?"
+    options:
+      - text: During a rolling deploy, old processes still serving traffic query a column that no longer exists
+        correct: true
+        feedback: >-
+          It is a deploy problem, not a locking one — which is why expand-and-contract takes
+          several deploys.
+      - text: Renaming rewrites the table
+        feedback: >-
+          In Postgres a rename is a metadata change and is instant. Speed is not the issue.
+      - text: Rails cannot generate a reversible `down` for it
+        feedback: It is perfectly reversible. The problem is the window where both code versions run.
+    explanation: >-
+      A rolling deploy means old and new code serve traffic simultaneously, sometimes for
+      minutes. The instant the column is renamed, every request handled by a not-yet-restarted
+      process fails. This is a different category of danger from locking: the migration itself
+      is harmless and the *combination* with a rolling deploy is not. Hence expand and
+      contract — add, dual-write, backfill, switch, ignore, drop.
+
+  - id: null-false-default
+    kind: choice
+    concept: migrations
+    prompt: "Is `add_column :orders, :status, :string, null: false, default: \"pending\"` safe on 40M rows?"
+    options:
+      - text: Yes on Postgres 11+, where the default is stored as metadata rather than written to every row
+        correct: true
+        feedback: >-
+          On Postgres 10 and earlier this rewrote the whole table, which is where the old
+          "never do this" advice came from.
+      - text: No — it must write the default to every existing row
+        feedback: True before Postgres 11. Modern versions store it in the catalog and apply it on read.
+      - text: "No — `null: false` always requires a table scan"
+        feedback: >-
+          Not when a default is supplied, since no existing row can violate it.
+    explanation: >-
+      This is a case where the correct answer changed. Before Postgres 11, adding a column
+      with a default rewrote every row under a lock. Since 11 the default is recorded in the
+      catalog and materialised lazily, so the operation is metadata-only and instant at any
+      size. Advice written before 2018 says the opposite, which is one reason to use a tool
+      that knows your version rather than remembered rules.
+
+  - id: backfill
+    kind: choice
+    concept: migrations
+    prompt: "Why backfill a new column in batches rather than one `UPDATE`?"
+    options:
+      - text: A single UPDATE locks every row it touches for the whole transaction, blocking writes and bloating WAL and replication lag
+        correct: true
+        feedback: >-
+          Batches with a short pause let other queries and replicas keep up.
+      - text: Rails has a row limit on `update_all`
+        feedback: There is no limit — it will happily attempt all 40 million.
+      - text: Batching is faster in total
+        feedback: Usually slightly slower overall; the point is not blocking everything else.
+    explanation: >-
+      One large UPDATE holds row locks until it commits, generates a huge amount of
+      write-ahead log in a single transaction, and can push replicas minutes behind. Batching
+      with `in_batches` and a small sleep keeps each transaction short so other work
+      interleaves and replication keeps pace. It also means a failure loses one batch rather
+      than everything.
+
+  - id: explain-rename
+    kind: recall
+    concept: zero-downtime
+    prompt: >-
+      A colleague wants to rename a column on a high-traffic table in a single migration.
+      Explain the risk and the alternative — and when they would be right.
+    key_points:
+      - Rolling deploys mean old and new code run simultaneously for minutes
+      - Old processes query the old name and every request fails during that window
+      - The schema has already changed, so rolling back is not straightforward
+      - Expand and contract — add, dual-write, backfill in batches, switch reads, ignored_columns, drop
+      - That is several deploys, which is the real cost of zero downtime
+      - They would be right for a low-traffic internal tool where a maintenance window is cheap
+    model: >-
+      The risk is not the migration, which is instant — it is the deploy. A rolling deploy
+      leaves old and new processes serving traffic at the same time, sometimes for several
+      minutes, and the moment the column is renamed every request handled by a not-yet-restarted
+      process fails. Rolling back is awkward too, because the schema has already moved. The
+      alternative is expand and contract: add the new column, have the application write both,
+      backfill in batches with a pause, switch reads over, add the old name to `ignored_columns`
+      so Active Record stops selecting it, and only then drop it. That is five or six deploys
+      to rename a column, which is genuinely the cost of not having downtime. Where I would
+      agree with them is on scale: if this is an internal tool with twenty users and a
+      maintenance window is free, six deploys is wasted effort and the single migration is the
+      right call. The mistake is applying either answer without asking what downtime costs
+      here.

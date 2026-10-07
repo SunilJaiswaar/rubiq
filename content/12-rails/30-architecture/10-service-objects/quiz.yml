@@ -1,0 +1,145 @@
+passScore: 0.7
+questions:
+  - id: fat-model-meaning
+    kind: choice
+    concept: service-objects
+    prompt: '"Fat model, skinny controller" is often misread. What did it actually mean?'
+    options:
+      - text: "Not in the controller — because controller code is unreachable from jobs, tasks and imports"
+        correct: true
+        feedback: >-
+          It was never an argument for a 2,000-line model; that is a different problem with
+          the same cause.
+      - text: Models should contain all application logic
+        feedback: >-
+          Which produces a `User` class knowing about billing, notifications and GDPR export —
+          with no boundaries anywhere.
+      - text: Controllers should have no code at all
+        feedback: >-
+          Controllers legitimately choose status codes, formats and redirects. That is their
+          job.
+    explanation: >-
+      The advice solved a real problem: logic in a controller can only be reached by an HTTP
+      request, so a job, a rake task or an importer has to duplicate it. Moving it to the
+      model fixed reachability and said nothing about where it should go once the model grew
+      past comprehension. The third place — a plain class per operation — is what the advice
+      never mentioned.
+
+  - id: service-object-test
+    kind: choice
+    concept: service-objects
+    prompt: What is the test for whether an operation deserves a service object?
+    options:
+      - text: Could it be triggered by something other than an HTTP request? If so it needs a home every caller can reach
+        correct: true
+        feedback: >-
+          Placing an order comes from a controller, an admin tool, an API, an import and a
+          retry job.
+      - text: Is the controller action longer than twenty lines?
+        feedback: A useful signal, but a symptom rather than the criterion.
+      - text: Does it touch more than one model?
+        feedback: >-
+          Common for service objects but not definitive — a single-model operation with side
+          effects also qualifies.
+    explanation: >-
+      The criterion is reachability. An operation triggered from five different entry points
+      cannot live in any one of them, and an `after_create` callback is reachable by *too*
+      much — it runs in every test that builds the record and every data import. A plain class
+      is reachable by exactly the callers that want it and nothing else.
+
+  - id: concerns-coupling
+    kind: choice
+    concept: concerns
+    prompt: "Why does splitting a 2,000-line model into eight concerns not help?"
+    options:
+      - text: The methods still run in the model's context with access to all its state, so coupling is unchanged — and now you open nine files
+        correct: true
+        feedback: >-
+          Real decomposition needs a separate object with its own state and a narrow
+          interface.
+      - text: Concerns are slower than methods defined directly
+        feedback: >-
+          Module inclusion has negligible cost. The problem is that nothing was decoupled.
+      - text: Rails deprecated concerns
+        feedback: They are current and genuinely useful — for shared behaviour across unrelated models.
+    explanation: >-
+      A concern is a module mixed into the class, so every method it defines executes with
+      full access to the model's state and every other method. Nothing is encapsulated and no
+      dependency is removed; the same 2,000 lines of behaviour is now spread across nine files,
+      so answering "what does `User` respond to" is harder than before. Concerns earn their
+      place for behaviour shared by models with nothing else in common — soft deletion,
+      timestamping — where the alternative is duplication.
+
+  - id: form-object
+    kind: choice
+    concept: service-objects
+    prompt: >-
+      A signup form has `accepted_terms`, which is not a database column. Where does its
+      validation belong?
+    options:
+      - text: A form object including `ActiveModel::Model`, so the validation exists without inventing a column
+        correct: true
+        feedback: >-
+          It also lets one form create a Company and a User together, inside a transaction.
+      - text: "An `attr_accessor` plus a validation on `User`"
+        feedback: >-
+          Workable, and it puts a form concern permanently on the model — where it applies to
+          every save, including imports.
+      - text: A migration adding `accepted_terms` to users
+        feedback: >-
+          Storing it may be a legal requirement, but that is a separate decision from where
+          the validation lives.
+    explanation: >-
+      A form object is an `ActiveModel` that validates a *submission* rather than a record. It
+      is the right home for fields that exist only in the UI, and for a form spanning several
+      models — creating a Company and its first User in one transaction. Putting form-only
+      validations on the model means they apply to every save forever, including data imports
+      that legitimately have no terms acceptance.
+
+  - id: result-object
+    kind: choice
+    concept: service-objects
+    prompt: "Why should a service object return a result object rather than `true`/`false`?"
+    options:
+      - text: The caller needs to know why it failed to render a useful message or choose a status code
+        correct: true
+        feedback: >-
+          A boolean forces the controller to re-derive the reason, usually by reaching back
+          into the model.
+      - text: Booleans cannot be returned from Ruby methods
+        feedback: They can; they are just not enough information.
+      - text: Rails requires service objects to return objects
+        feedback: Rails has no opinion — service objects are not a framework concept.
+    explanation: >-
+      The controller has to decide between a redirect and a re-render, choose a status code,
+      and show the user something specific. A boolean tells it only that something went wrong,
+      so it ends up reaching back into the model for errors — which recouples the two. A small
+      result struct carrying success, the record and the errors keeps the interface explicit
+      and the controller thin.
+
+  - id: explain-when-not
+    kind: recall
+    concept: single-responsibility
+    prompt: >-
+      A colleague wants to introduce service objects for every action in a small CRUD admin
+      panel. Respond.
+    key_points:
+      - These patterns are responses to specific pressure, not defaults
+      - For plain CRUD the controller plus model is already the clearest expression
+      - Each extraction adds a file, a name to invent and a hop for the reader
+      - Without framework guidance, teams diverge on call/perform, result objects vs exceptions
+      - Name the concrete signals to wait for — long actions, untestable models, "and" in a name
+      - Agree to introduce them where the pressure already exists rather than uniformly
+    model: >-
+      I would push back on applying it uniformly, and agree on applying it where there is
+      pressure. For plain CRUD — create, update, destroy with no side effects — the controller
+      plus the model already is the clearest expression, and a `CreateWidget` service that
+      calls `Widget.create` is a file, a class name and an extra hop for the reader in exchange
+      for nothing. There is also a consistency cost that shows up later: Rails gives no
+      guidance here, so teams diverge on whether the method is `call` or `perform` and whether
+      failure is a result object or an exception, and a codebase with both is worse than one
+      with neither. What I would suggest instead is waiting for concrete signals and then
+      extracting: a controller action past about twenty lines, a model you cannot test without
+      elaborate setup, an operation triggered from more than one entry point, or an "and" in a
+      method name. Those are the cases where the indirection pays for itself, and in a small
+      admin panel most actions will never hit any of them.

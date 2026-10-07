@@ -1,0 +1,159 @@
+passScore: 0.7
+questions:
+  - id: params-source
+    kind: choice
+    concept: mass-assignment
+    prompt: "Your form has fields for `name` and `email`. Why can `params[:user]` contain `admin`?"
+    options:
+      - text: "`params` comes from the request, and nothing requires the client to use your form"
+        correct: true
+        feedback: >-
+          A form is a suggestion to a browser. curl, a modified page, or any HTTP client can
+          send whatever it likes.
+      - text: Rails adds all model columns to params automatically
+        feedback: Rails parses only what was sent; it adds nothing.
+      - text: Only if the column has a default value
+        feedback: Defaults are irrelevant — the attacker supplies the value.
+    explanation: >-
+      The threat model is the thing to internalise: `params` is attacker-controlled, and the
+      form constrains only a cooperating browser. This is why `Model.new(params[:model])` is
+      dangerous and why the interesting attributes are precisely the ones *not* in your form —
+      `admin`, `role`, `verified`, `balance`, any foreign key.
+
+  - id: default-deny
+    kind: choice
+    concept: strong-parameters
+    prompt: "Why is an allow list better than a list of forbidden attributes?"
+    options:
+      - text: A deny list stops being correct the moment someone adds a column, turning a migration into a privilege-escalation bug
+        correct: true
+        feedback: >-
+          Default-deny fails the safe way: you forget to permit something and the feature
+          visibly does not work.
+      - text: Allow lists are shorter
+        feedback: Often longer, actually. Correctness under change is the argument.
+      - text: Deny lists cannot express nested attributes
+        feedback: A secondary limitation; the failure mode under schema change is the real one.
+    explanation: >-
+      Rails 2 had `attr_protected`, a deny list. It was correct until a migration added a
+      sensitive column that nobody thought to add to it — introducing an exploit via a schema
+      change, in a file no reviewer associates with security. Default-deny inverts the failure:
+      forgetting to permit a field means the feature does not work, which you notice in the
+      first minute of testing.
+
+  - id: filter-halt
+    kind: choice
+    concept: filters
+    prompt: |
+      ```ruby
+      before_action :require_admin
+      def require_admin
+        return unless current_user&.admin?
+      end
+      ```
+      What happens for a non-admin?
+    options:
+      - text: The action runs anyway — only rendering or redirecting halts the chain
+        correct: true
+        feedback: "`head :forbidden` or `redirect_to` is what actually stops it."
+      - text: The chain halts because the filter returned early
+        feedback: >-
+          A bare `return` just ends that filter. Rails continues to the next one and then
+          the action.
+      - text: Rails raises because the filter produced no response
+        feedback: No error — the request proceeds, which is the dangerous part.
+    explanation: >-
+      A `before_action` halts the chain only by producing a response — `render`, `redirect_to`
+      or `head`. Returning early simply finishes the filter. This reads like an
+      authorisation check and enforces nothing, which makes it one of the more dangerous
+      Rails mistakes because the code looks right.
+
+  - id: scoped-find
+    kind: choice
+    concept: controllers
+    prompt: "Why `current_user.orders.find(params[:id])` rather than `Order.find(params[:id])`?"
+    options:
+      - text: It enforces ownership in the query, so another user's order raises RecordNotFound and becomes a 404
+        correct: true
+        feedback: >-
+          And a 404 leaks less than a 403 — the attacker cannot distinguish "not yours" from
+          "does not exist".
+      - text: It is faster, because the query is narrower
+        feedback: Marginal at best. Authorisation is the point.
+      - text: "`Order.find` does not work inside a controller"
+        feedback: It works perfectly, and returns anyone's order to any logged-in user.
+    explanation: >-
+      Scoping the lookup through the owner makes authorisation part of the query rather than
+      a separate check that can be forgotten. It also chooses the better failure: 404 rather
+      than 403, so an attacker enumerating ids cannot tell which records exist. Unscoped
+      `find` on a user-supplied id is the most common authorisation hole in Rails codebases.
+
+  - id: unprocessable
+    kind: choice
+    concept: controllers
+    prompt: "Why must a failed form re-render use `status: :unprocessable_entity`?"
+    options:
+      - text: Turbo only replaces the page on a 4xx/5xx — a 200 makes the form appear to do nothing
+        correct: true
+        feedback: >-
+          It also makes the response honest: a validation failure is not a success.
+      - text: Rails raises if you omit it
+        feedback: It defaults to 200 silently, which is the problem.
+      - text: It is required for CSRF token rotation
+        feedback: Unrelated to CSRF.
+    explanation: >-
+      `render :new` defaults to 200, telling the client the submission succeeded. Turbo takes
+      that at face value and does not swap in the response, so the user sees an unchanged form
+      with no errors and no feedback. Beyond the Turbo requirement, 422 is simply the accurate
+      status for a well-formed request that failed validation.
+
+  - id: param-strings
+    kind: choice
+    concept: controllers
+    prompt: 'A checkbox submits `active=false`. What does `if params[:active]` evaluate to?'
+    options:
+      - text: "Truthy — all params are strings, and `\"false\"` is a non-empty string"
+        correct: true
+        feedback: >-
+          Compare explicitly, or cast with `ActiveModel::Type::Boolean.new.cast`.
+      - text: Falsy, because Rails casts boolean-looking params
+        feedback: Rails casts on *assignment to a typed column*, not on reading params.
+      - text: "`nil`, because unchecked boxes are omitted"
+        feedback: >-
+          True for an unchecked box with no hidden field — but here the value "false" was
+          explicitly sent.
+    explanation: >-
+      Everything arriving in a query string or form body is a string. Ruby treats every
+      non-empty string as truthy, so `"false"`, `"0"` and `"no"` all pass a bare truthiness
+      check. Active Record casts correctly when assigning to a boolean column, but reading
+      `params` directly does not. Compare to `"true"` explicitly or use the boolean type
+      caster.
+
+  - id: explain-controller-scope
+    kind: recall
+    concept: controllers
+    prompt: >-
+      In review you find a 90-line `create` action computing prices, adjusting inventory and
+      sending email. Explain what you would change and why.
+    key_points:
+      - A controller translates HTTP to a method call and back; nothing here is HTTP
+      - The test is whether the rule could apply outside a request — pricing applies in a job, a rake task, an import
+      - As written it is untestable without simulating a request
+      - Extract to a service object, leaving the controller to choose status and format
+      - Inventory and email are side effects that may belong in a job or a transaction
+      - Note that "fat model" is not the answer either — that trades one dumping ground for another
+    model: >-
+      None of the 90 lines is about HTTP. The controller's job is to turn a request into a
+      method call and the result into a response — choosing a status code, picking a format,
+      setting a redirect — and pricing, inventory and email are none of those. The practical
+      test I would give is whether the rule could ever apply outside a request: pricing
+      applies in a rake task, a background job and a CSV import, so it cannot live somewhere
+      only an HTTP request can reach. As written it is also untestable without simulating a
+      full request, which means it probably is not tested. I would extract it to a
+      `PlaceOrder` service returning a result object, and leave the controller choosing
+      between redirect and render based on success. I would also look at the inventory
+      decrement and the email separately: the decrement likely belongs inside the same
+      transaction as the order, and the email almost certainly belongs in a background job so
+      a mail outage does not fail the request. And I would be clear that moving all 90 lines
+      into the `Order` model is not the fix — that trades a fat controller for a fat model and
+      the logic is still not isolated.

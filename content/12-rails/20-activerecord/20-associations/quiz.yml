@@ -1,0 +1,138 @@
+passScore: 0.7
+questions:
+  - id: which-side
+    kind: choice
+    concept: associations
+    prompt: "In `Order belongs_to :user`, which table holds the foreign key?"
+    options:
+      - text: "`orders` — it has `user_id`"
+        correct: true
+        feedback: "`belongs_to` is always on the table holding the key. Everything else follows."
+      - text: "`users` — it has `order_id`"
+        feedback: That would be `has_one`/`has_many` on User, pointing the other way.
+      - text: A join table between them
+        feedback: That is the `:through` / HABTM shape, for many-to-many.
+    explanation: >-
+      The mnemonic worth keeping: `belongs_to` lives on the side with the foreign key.
+      `has_many` and `has_one` mean the key is on the *other* table. Getting this backwards
+      produces a migration that adds the column to the wrong table, and the error surfaces at
+      runtime rather than at boot.
+
+  - id: through-vs-habtm
+    kind: choice
+    concept: join-tables
+    prompt: "Why prefer `has_many :through` over `has_and_belongs_to_many`?"
+    options:
+      - text: The join is a real model, so the relationship can have attributes — a role, an inviter, a joined-at date
+        correct: true
+        feedback: >-
+          And migrating out of HABTM later means a new model, a renamed table, a new primary
+          key and rewritten queries.
+      - text: "`:through` is faster"
+        feedback: The generated SQL is essentially the same.
+      - text: HABTM is deprecated
+        feedback: It still works. The argument is about where it leads, not support.
+    explanation: >-
+      HABTM is a bet that the relationship will never need an attribute, and that bet
+      usually loses — within a year someone wants roles or audit data. The migration out is
+      not a one-liner: the bare join table has no primary key and no model, so you create
+      both and rewrite every query that used the association. Starting with `:through` costs
+      one extra file.
+
+  - id: unindexed-fk
+    kind: choice
+    concept: foreign-keys
+    prompt: "You add `user_id` with `add_column :orders, :user_id, :bigint`. What is now slow?"
+    options:
+      - text: "`user.orders` and every join — there is no index on `orders.user_id`"
+        correct: true
+        feedback: >-
+          `t.references` indexes by default inside `create_table`; `add_column` does not. This
+          is the classic production collapse.
+      - text: "`order.user`, because `users.id` needs an index"
+        feedback: >-
+          The primary key is already indexed. It is the *other* direction that scans.
+      - text: Nothing — Rails indexes foreign keys automatically
+        feedback: >-
+          Only via `t.references` or `add_reference`. A plain `add_column` leaves it unindexed.
+    explanation: >-
+      Looking up `order.user` uses `users.id`, which is the primary key and indexed. Looking up
+      `user.orders` filters `orders.user_id`, which needs its own index. Development with a few
+      dozen rows hides this completely; two million rows in production does not. Running the
+      unindexed-foreign-key query against an inherited database almost always returns rows.
+
+  - id: polymorphic-cost
+    kind: multi
+    concept: polymorphic
+    prompt: What do you give up with a polymorphic association?
+    options:
+      - text: Foreign key constraints — the database cannot enforce the reference
+        correct: true
+        feedback: >-
+          The target table varies per row, so there is nothing for a constraint to point at.
+          Orphans become an application concern.
+      - text: Straightforward joins — there is no single table to join against
+        correct: true
+        feedback: And eager loading issues one query per type.
+      - text: Stability when a class is renamed, since the type is stored as a string
+        correct: true
+        feedback: Rename the model and every existing row needs a data migration.
+      - text: The ability to have more than two parent types
+        feedback: >-
+          Handling many types is precisely what polymorphic is good at — that is the upside.
+    explanation: >-
+      Polymorphic buys one model and one table for many parent types. It costs referential
+      integrity, easy joins and rename-safety, because the parent is identified by a string
+      class name resolved at runtime. For two parent types, separate nullable foreign keys
+      are often better because the database can enforce them; for six, polymorphic wins.
+
+  - id: dependent
+    kind: choice
+    concept: associations
+    prompt: "A parent with `has_many :items` and no `dependent:` option is destroyed. What happens to the items?"
+    options:
+      - text: They remain, pointing at a parent that no longer exists — unless a foreign key constraint prevents the delete
+        correct: true
+        feedback: >-
+          Which is the constraint saving you, and a good argument for having one.
+      - text: Rails deletes them automatically
+        feedback: "Only with `dependent: :destroy` or `:delete_all`."
+      - text: The destroy raises
+        feedback: >-
+          It raises only if a foreign key constraint exists. Without one, it succeeds and
+          orphans the rows.
+    explanation: >-
+      Without `dependent:`, Rails does nothing to the children and you get orphans — rows whose
+      foreign key points nowhere. With a database foreign key constraint the delete raises
+      instead, which is the better failure because it is loud. `:destroy` loads each child and
+      runs callbacks (correct but slow), `:delete_all` issues one DELETE (fast, skips hooks),
+      and `:nullify` clears the key.
+
+  - id: explain-schema-audit
+    kind: recall
+    concept: foreign-keys
+    prompt: >-
+      You inherit a Rails app that is slow under load. Describe the first schema-level things
+      you would check and why.
+    key_points:
+      - Unindexed foreign keys, which there is a Postgres query to list
+      - Missing `null: false` where the model validates presence
+      - Missing foreign key constraints, allowing orphans
+      - HABTM join tables that will need attributes
+      - Associations declared without `inverse_of`, costing an extra query and object
+      - Missing `dependent:` leaving orphans on delete
+      - Note development data volume hides all of this
+    model: >-
+      The first thing is unindexed foreign keys, because it is the highest-impact and most
+      common problem and there is a Postgres query that lists them directly. `t.references`
+      indexes by default inside `create_table`, but a later `add_column` does not, so apps
+      accumulate these as they grow — and the symptom is exactly "fine in development, collapses
+      under real data", because a sequential scan over fifty rows is instant. Second, I would
+      compare the model's presence validations against the schema's `null: false` constraints,
+      since any disagreement means something has been writing NULLs through a path that skips
+      validations. Third, whether foreign key constraints exist at all, because without them a
+      missing `dependent:` silently orphans rows rather than raising. After that it is smaller
+      things: HABTM join tables that are going to need a role column, and associations without
+      `inverse_of`, which costs a redundant query and a duplicated object in memory. None of
+      these is visible in development, which is why a schema audit on an inherited app is worth
+      doing deliberately rather than waiting for the symptom.

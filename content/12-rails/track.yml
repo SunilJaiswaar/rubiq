@@ -1,0 +1,24 @@
+title: Ruby on Rails
+tagline: Rails is a set of answers. These lessons give you the questions first.
+category: Frameworks
+icon: layers
+accent: ruby
+difficulty: intermediate
+order: 12
+prerequisites: [ruby, sql]
+description: >-
+  Rails is a collection of very good answers to problems that web applications all have.
+  Learned answers-first, it produces developers who can generate a scaffold and cannot
+  debug it — because they never saw the problem each convention solves.
+
+
+  This track goes the other way. Every lesson starts from what you would have to build
+  yourself, shows what Rails does instead, and then shows what that convention costs. It
+  assumes you know Ruby and can write SQL, and it spends as much time on Active Record's
+  failure modes as on its features — because that is where the production incidents are.
+outcomes:
+  - Explain what happens between a request arriving and a response leaving
+  - Write Active Record queries that do not quietly issue a thousand queries
+  - Choose between a callback, a service object and a background job, and defend it
+  - Find and fix an N+1 query from the log alone
+  - Reason about what Rails is doing on your behalf, and what that costs

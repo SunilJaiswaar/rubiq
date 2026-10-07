@@ -205,6 +205,18 @@ function checkPlayground(where, pg, body) {
   }
 }
 
+/* ------------------------------------------------- YAML scalar pre-check */
+
+// Run before reporting, because js-yaml's error for this points at the wrong line
+// and says "bad indentation", which sends authors looking in the wrong place.
+for (const problem of await findUnquotedColons(CONTENT)) {
+  err(
+    `${problem.file}:${problem.line}`,
+    `"${problem.key}" ${problem.reason}. Wrap the value in double quotes or use a >- ` +
+    `block scalar.\n     ${problem.value}`,
+  )
+}
+
 /* -------------------------------------------------------------------- walk */
 
 const lessonIds = new Set()
@@ -367,18 +379,6 @@ if (existsSync(roadmapFile)) {
       }
     }
   }
-}
-
-/* ------------------------------------------------- YAML scalar pre-check */
-
-// Run before reporting, because js-yaml's error for this points at the wrong line
-// and says "bad indentation", which sends authors looking in the wrong place.
-for (const problem of await findUnquotedColons(CONTENT)) {
-  err(
-    `${problem.file}:${problem.line}`,
-    `"${problem.key}" ${problem.reason}. Wrap the value in double quotes or use a >- ` +
-    `block scalar.\n     ${problem.value}`,
-  )
 }
 
 /* ------------------------------------------------------------------ report */

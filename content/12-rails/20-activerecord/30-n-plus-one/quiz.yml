@@ -1,0 +1,162 @@
+passScore: 0.7
+questions:
+  - id: why-orm-causes
+    kind: choice
+    concept: n-plus-one
+    prompt: Why does an ORM make N+1 easy to write accidentally?
+    options:
+      - text: "`order.user` is syntactically a field access and semantically a query — nothing marks the boundary"
+        correct: true
+        feedback: >-
+          And ten seed rows against a local database makes the consequence imperceptible in
+          development.
+      - text: ORMs generate inefficient SQL
+        feedback: >-
+          Each individual query is usually fine and well-indexed. The problem is how many of
+          them there are.
+      - text: Rails caches associations incorrectly
+        feedback: >-
+          The per-record cache works correctly; it just cannot help across different records.
+    explanation: >-
+      The ORM's central promise is that rows look like objects, which means a database round
+      trip and an in-memory attribute read have identical syntax. That hides exactly the
+      distinction that matters for performance. Combined with development data being small
+      and the database being local, the bug has no visible symptom until production.
+
+  - id: per-query-cost
+    kind: choice
+    concept: n-plus-one
+    prompt: "Why is 500 small queries much worse than one query returning 500 rows?"
+    options:
+      - text: Each query pays connection checkout, parse, planning and a network round trip — and the round trip dominates
+        correct: true
+        feedback: >-
+          Which is why N+1 gets dramatically worse when the database moves further away, with
+          no code change at all.
+      - text: Because small queries are not indexed
+        feedback: They are usually primary-key lookups — individually about as fast as a query gets.
+      - text: Because Active Record instantiates objects more slowly in a loop
+        feedback: >-
+          Instantiation is a real cost but a minor one next to 500 sequential round trips.
+    explanation: >-
+      The overhead is per query, not per row, and most of it is latency. At 2ms round-trip
+      time, 500 queries is a full second of waiting while the database does almost no work.
+      This is why the same code can be acceptable against a local Postgres and a timeout
+      against one in another availability zone.
+
+  - id: preload-vs-eager
+    kind: choice
+    concept: eager-loading
+    prompt: "You need to filter orders by `users.country`. Which loading strategy?"
+    options:
+      - text: "`eager_load` — it produces a single LEFT JOIN, so the association is available in the WHERE clause"
+        correct: true
+        feedback: "`includes` would also work by switching to a join, but being explicit documents the intent."
+      - text: "`preload` — two queries is always better"
+        feedback: >-
+          `preload` runs separate queries, so `users.country` is not available to filter on and
+          the query fails.
+      - text: "`joins` — it filters efficiently"
+        feedback: >-
+          `joins` filters correctly but loads nothing, so reading `order.user` afterwards is
+          still an N+1.
+    explanation: >-
+      Filtering on an association requires it to be in the same SQL statement, which means a
+      join — `eager_load`, or `includes` switching to it. `preload` issues separate queries so
+      the column is not available to the WHERE clause. `joins` provides the filter without
+      loading, which is right when you will not read the association and wrong when you will.
+
+  - id: includes-limit-trap
+    kind: choice
+    concept: eager-loading
+    prompt: >-
+      `Order.includes(:items).where(items: { status: "shipped" }).limit(100)` returns fewer
+      than 100 orders. Why?
+    options:
+      - text: Referencing the association makes Rails switch to a LEFT JOIN, so the LIMIT applies to joined rows rather than orders
+        correct: true
+        feedback: >-
+          An order with five items occupies five joined rows. Be explicit, or filter by a
+          pre-computed id list.
+      - text: Some orders have no shipped items and are excluded
+        feedback: >-
+          True of the filter, but the specific surprise is the LIMIT counting joined rows.
+      - text: "`limit` is ignored when combined with `includes`"
+        feedback: It is applied — to the wrong thing.
+    explanation: >-
+      `includes` is adaptive: when it sees the association referenced in a `where` or `order`,
+      it switches from two queries to a single LEFT JOIN. With a `has_many` that multiplies
+      rows, so `LIMIT 100` caps joined rows rather than parent records. This is the main
+      argument for using `preload` and `eager_load` explicitly rather than letting `includes`
+      decide.
+
+  - id: size-count-length
+    kind: choice
+    concept: activerecord
+    prompt: "In a view rendering 100 orders, which of `count`, `length`, `size` should you use for item counts?"
+    options:
+      - text: "`size` — it uses a counter cache if present, the loaded array if loaded, and only falls back to COUNT"
+        correct: true
+        feedback: "`count` issues a query every single call, so twice in one template is two queries per order."
+      - text: "`count` — it is the most efficient, being a single COUNT(*)"
+        feedback: >-
+          A COUNT per order per call is exactly the N+1. Efficient per query, catastrophic in
+          aggregate.
+      - text: "`length` — it avoids a query"
+        feedback: >-
+          It avoids a COUNT by loading every associated record into memory instead, which is
+          usually worse.
+    explanation: >-
+      `count` always queries. `length` always loads the full association. `size` is adaptive:
+      counter cache if available, the already-loaded array if loaded, otherwise a COUNT. In a
+      loop that distinction is the difference between zero queries and two hundred, which is
+      why `size` is the right default in views.
+
+  - id: strict-loading
+    kind: choice
+    concept: n-plus-one
+    prompt: "What does `self.strict_loading_by_default = true` achieve?"
+    options:
+      - text: A lazy association load raises, so N+1 becomes a test failure rather than a production discovery
+        correct: true
+        feedback: >-
+          Raise in test and development, log in production — raising there would turn a slow
+          page into a 500.
+      - text: It automatically eager loads associations
+        feedback: >-
+          It does the opposite: it refuses to load them, forcing you to declare what you need.
+      - text: It caches associations across requests
+        feedback: No caching is involved; it is a guard against implicit queries.
+    explanation: >-
+      Strict loading inverts the failure mode. Instead of lazy loads silently working and
+      being slow, they raise `StrictLoadingViolationError` unless the association was eager
+      loaded — so the bug surfaces in the test suite where it is cheap. The sensible
+      configuration raises in development and test while logging in production, since raising
+      there converts a performance problem into an outage.
+
+  - id: explain-n1-diagnosis
+    kind: recall
+    concept: n-plus-one
+    prompt: >-
+      A dashboard is fast for most users and times out for a handful. Walk through your
+      diagnosis and fix.
+    key_points:
+      - The variable is data volume per user, which points at a per-record query
+      - Check the log for repeated identical queries differing only by id
+      - The affected users have far more associated records, so N is large for them
+      - Fix with eager loading — preload or eager_load depending on filtering needs
+      - Add pagination, because unbounded collections are a correctness problem not just UX
+      - Turn on strict_loading so the next one fails in test
+      - Consider counter_cache if only counts are displayed
+    model: >-
+      The fact that it depends on *which* user points straight at a per-record query: the code
+      is identical for everyone, so the variable must be how many associated records they
+      have. I would look at the log for one of the slow users and expect to see the signature
+      — the same query repeated with different ids. The fix is to declare what the view needs
+      with `preload`, or `eager_load` if anything filters on the association. But I would
+      treat the eager loading as half the fix: the deeper problem is an unbounded collection,
+      because a user with 4,000 orders will eventually be slow even with two queries, so
+      pagination is a correctness concern here rather than a presentation one. If the view only
+      shows counts I would use a counter cache instead of loading the records at all. And I
+      would turn on `strict_loading_by_default` for those models so the next instance of this
+      raises in the test suite rather than being found by a user.

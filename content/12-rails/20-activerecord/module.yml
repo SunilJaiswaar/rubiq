@@ -1,0 +1,3 @@
+title: Active Record
+summary: The ORM, its conveniences, and the specific ways each convenience becomes a performance problem.
+level: intermediate

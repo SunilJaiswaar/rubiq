@@ -1,0 +1,149 @@
+passScore: 0.7
+questions:
+  - id: key-based-expiration
+    kind: choice
+    concept: cache-invalidation
+    prompt: "Rails' answer to cache invalidation is key-based expiration. What does that mean?"
+    options:
+      - text: "The dependency is encoded in the key — usually `updated_at` — so a change produces a different key and the old entry becomes unreachable"
+        correct: true
+        feedback: >-
+          You never delete anything; you stop asking for it. The cost is wasted memory, which
+          is cheap.
+      - text: Entries expire on a timer and are deleted
+        feedback: >-
+          That is TTL expiry, which is a separate mechanism and does not track the data at
+          all.
+      - text: Rails tracks which records each cache entry depended on
+        feedback: >-
+          It cannot — that tracking is exactly what key-based expiration avoids needing.
+    explanation: >-
+      Manual invalidation requires every writer to know every cache derived from the data,
+      which is coupling that does not survive a growing codebase. Putting `updated_at` into
+      the key inverts it: a save changes the key, the next read misses and recomputes, and the
+      stale entry is simply never requested again. The template digest is in the key too, so
+      editing a view also changes it.
+
+  - id: stampede
+    kind: choice
+    concept: cache-stampede
+    prompt: "A popular cache entry expires under heavy traffic. What is the failure, and why is the timing bad?"
+    options:
+      - text: Every concurrent request misses at once and runs the same expensive query — and it happens to the most popular keys, so at peak traffic
+        correct: true
+        feedback: >-
+          The database is saturated at the moment the cache was protecting it, and nothing
+          completes to repopulate it.
+      - text: The cache store rejects the concurrent writes
+        feedback: The writes are not the problem; the simultaneous misses are.
+      - text: Requests queue behind a lock until the first finishes
+        feedback: >-
+          That is what `race_condition_ttl` approximates. Without it there is no coordination
+          at all.
+    explanation: >-
+      With no coordination, a thousand concurrent misses means a thousand identical expensive
+      computations hitting the database simultaneously — precisely the load the cache existed
+      to prevent. Because the effect scales with popularity it strikes the hottest keys at the
+      busiest moment, and once the database is saturated nothing completes to write the cache
+      back. `race_condition_ttl`, expiry jitter, or write-through from a scheduled job all
+      address it.
+
+  - id: personalised-key
+    kind: choice
+    concept: caching
+    prompt: '`Rails.cache.fetch("dashboard") { render_dashboard(current_user) }` — what is wrong?'
+    options:
+      - text: The key does not include the user, so one user's dashboard is served to everyone — a data leak, not just a stale read
+        correct: true
+        feedback: >-
+          Any cache key for personalised content must include the user and something that
+          changes when their data does.
+      - text: It needs an `expires_in`
+        feedback: >-
+          Worth having, and it would only limit how long the wrong data is served.
+      - text: "`fetch` cannot take a block with arguments"
+        feedback: The block form is correct; the key is the problem.
+    explanation: >-
+      A cache key is a claim that the same key implies the same output. Omitting
+      `current_user` makes that claim false in the most damaging way available: the first
+      user's rendered dashboard is returned to every subsequent user. This is the caching
+      mistake with the worst consequences, because the symptom is cross-customer data
+      exposure rather than a stale number.
+
+  - id: touch-true
+    kind: choice
+    concept: russian-doll-caching
+    prompt: "In Russian-doll caching, why does the child association need `touch: true`?"
+    options:
+      - text: Saving a child does not change the parent's `updated_at`, so the outer cache key is unchanged and stale HTML containing the old child is served
+        correct: true
+        feedback: >-
+          The cost is an extra UPDATE per child save, and contention on the parent row if
+          children change often.
+      - text: Without it the inner cache never expires
+        feedback: >-
+          The inner key uses the child's own `updated_at` and works fine. The outer one is the
+          problem.
+      - text: It is required for `cache` blocks to nest at all
+        feedback: Nesting works; it is just incorrect without the touch.
+    explanation: >-
+      The outer block's key comes from the parent's `updated_at`. If a child changes and the
+      parent is not touched, that key is identical, so the previously cached outer HTML — which
+      embeds the old child — is served. `touch: true` propagates the change upward so the
+      outer key moves. Forgetting it is the most common Russian-doll bug, and the symptom is
+      stale content that looks like a caching system working correctly.
+
+  - id: cache-vs-fix
+    kind: choice
+    concept: caching
+    prompt: "A query takes 900ms because of a missing index. Should you cache it?"
+    options:
+      - text: "No — add the index. Caching hides the slowness and you still pay it on every miss, deploy and stampede"
+        correct: true
+        feedback: >-
+          Make it fast first, then cache if it is still worth caching. Caching is the last
+          optimisation.
+      - text: Yes — caching is the general solution to slow queries
+        feedback: >-
+          It defers the cost rather than removing it, and adds staleness and a system to
+          operate.
+      - text: Both — cache it and add the index later
+        feedback: >-
+          In practice "later" does not arrive once the symptom is masked, and you have taken on
+          invalidation for nothing.
+    explanation: >-
+      Caching does not make the work cheaper; it makes it less frequent. A 900ms query behind
+      a cache is still 900ms on every miss — every cold start, every deploy that clears the
+      store, every stampede — and you have additionally acquired a staleness problem and
+      another service. Fixing the index takes it to 2ms permanently and may remove the need to
+      cache at all.
+
+  - id: explain-cache-strategy
+    kind: recall
+    concept: caching
+    prompt: >-
+      An admin dashboard aggregating millions of rows is slow and constantly refreshed by a
+      dozen staff. Design your approach.
+    key_points:
+      - First check whether the query can be made fast — indexes, a summary table, a materialised view
+      - A dozen users refreshing constantly is a stampede risk on one hot key
+      - Prefer write-through from a scheduled job so the entry is never cold for user traffic
+      - If read-through, use `race_condition_ttl` and jitter the expiry
+      - Key must include anything the output depends on, including any filters
+      - Staleness is a product question — ask how fresh it actually needs to be
+      - Consider a rollup table updated incrementally rather than caching an aggregate
+    model: >-
+      First I would ask whether it has to be slow: an aggregate over millions of rows is often
+      an indexing or modelling problem, and a rollup table updated incrementally — or a
+      materialised view — removes the cost permanently rather than deferring it. If it genuinely
+      must be computed, the shape of this traffic matters: a dozen people refreshing one
+      dashboard means a single very hot key, which is the classic stampede setup, and the moment
+      it expires all of them miss simultaneously. So I would not use read-through caching here.
+      I would write the entry from a scheduled job every few minutes, so the cache is populated
+      before anyone asks and is never cold for user traffic. If it had to be read-through I
+      would set `race_condition_ttl` so one request regenerates while the others serve slightly
+      stale data, and jitter the expiry so related keys do not all go at once. The key has to
+      include every input the output depends on, including any date range or filter the admin
+      selected, or someone sees another filter's numbers. And I would push the staleness
+      question back to whoever asked: a revenue figure that is five minutes old is almost
+      always fine, and knowing that is what makes the rest of the design easy.

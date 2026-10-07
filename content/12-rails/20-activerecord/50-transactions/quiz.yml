@@ -1,0 +1,148 @@
+passScore: 0.7
+questions:
+  - id: atomicity-not-isolation
+    kind: choice
+    concept: transactions
+    prompt: >-
+      A balance check and a balance update are wrapped in a transaction. Two concurrent
+      requests both pass the check and both update. Why?
+    options:
+      - text: "A transaction gives atomicity, not isolation from concurrent reads — READ COMMITTED permits a lost update"
+        correct: true
+        feedback: >-
+          Both transactions were all-or-nothing. Neither was isolated from the other's
+          read.
+      - text: The transaction was not committed properly
+        feedback: Both committed successfully. That is the problem.
+      - text: Rails does not actually open a transaction for `transaction do`
+        feedback: It does — BEGIN and COMMIT are issued.
+    explanation: >-
+      Atomicity means all-or-nothing for the statements inside. It says nothing about what
+      concurrent transactions can see. At READ COMMITTED — the Postgres and Rails default —
+      another transaction may commit between your SELECT and your UPDATE, so your write is
+      computed from a stale read. "Wrap it in a transaction" is the most common wrong answer
+      to a concurrency question.
+
+  - id: pessimistic-vs-optimistic
+    kind: choice
+    concept: optimistic-locking
+    prompt: >-
+      A user edits an article in a browser for twenty minutes before saving. Which locking
+      strategy?
+    options:
+      - text: Optimistic — a `lock_version` column, detecting the conflict at save time
+        correct: true
+        feedback: >-
+          You cannot hold a database row lock across user interaction; the deciding question
+          is how long the read is held.
+      - text: "Pessimistic — `lock.find` so nobody else can edit it"
+        feedback: >-
+          That holds a row lock for twenty minutes, blocking every other reader and
+          exhausting the connection pool.
+      - text: Neither — wrap the save in a transaction
+        feedback: A transaction does not prevent the lost update, as the previous question showed.
+    explanation: >-
+      The deciding factor is the duration of the gap between read and write. Milliseconds
+      means pessimistic locking is correct and the wait is negligible. Minutes means a lock
+      is impossible, so you take no lock, record the version you read, and check it at save
+      time — raising `StaleObjectError` if someone else committed first. The cost is that the
+      loser must retry or merge.
+
+  - id: deadlock-ordering
+    kind: choice
+    concept: pessimistic-locking
+    prompt: >-
+      Transfer A locks account 1 then 2; transfer B locks 2 then 1. What happens, and what
+      prevents it?
+    options:
+      - text: A deadlock — each waits on the other. Always acquire locks in a deterministic order, such as sorted by id
+        correct: true
+        feedback: >-
+          Postgres detects it and kills one transaction, so the symptom is intermittent
+          failures under load.
+      - text: One transaction simply waits for the other and then proceeds
+        feedback: >-
+          That is the non-deadlock case. Here each holds a lock the other needs, so neither
+          can progress.
+      - text: Postgres merges the two lock requests
+        feedback: Locks are not merged; the cycle is detected and broken by aborting one.
+    explanation: >-
+      A deadlock needs two transactions acquiring the same locks in opposite orders. Postgres
+      detects the cycle and aborts one with a deadlock error, so the symptom is sporadic
+      failures that appear only under concurrency. Sorting the ids before locking makes every
+      transaction acquire in the same sequence, which makes the cycle impossible rather than
+      merely unlikely.
+
+  - id: no-io-in-transaction
+    kind: choice
+    concept: transactions
+    prompt: "Why should a payment gateway call never happen inside a transaction?"
+    options:
+      - text: The row locks are held for the whole call, so a slow gateway blocks other requests and fills the connection pool
+        correct: true
+        feedback: >-
+          And the call cannot be rolled back, so a later failure leaves you charged with no
+          order.
+      - text: Rails forbids network calls inside transactions
+        feedback: Nothing forbids it — which is why it happens.
+      - text: Transactions have a hard timeout that HTTP exceeds
+        feedback: >-
+          There is no default transaction timeout. The problem is lock duration, not a limit.
+    explanation: >-
+      A transaction holds its locks from BEGIN to COMMIT, so any I/O inside extends that
+      window by the full latency of the call — including a 30-second timeout. Under load every
+      request touching those rows queues behind it. There is also a correctness problem: the
+      charge cannot be rolled back, so a subsequent failure inside the transaction leaves the
+      customer charged for an order that does not exist. Keep transactions to database work.
+
+  - id: nested-transaction
+    kind: choice
+    concept: transactions
+    prompt: >-
+      An inner `ActiveRecord::Base.transaction` block raises `ActiveRecord::Rollback`. What
+      happens by default?
+    options:
+      - text: Nothing is rolled back — the inner block joins the outer transaction, and `Rollback` is swallowed
+        correct: true
+        feedback: "`requires_new: true` creates a real savepoint, which is what makes the inner rollback work."
+      - text: Only the inner block's changes are rolled back
+        feedback: >-
+          That requires a savepoint, which Rails does not create unless you ask for one.
+      - text: Both inner and outer are rolled back
+        feedback: >-
+          `Rollback` raised in a joined inner block is discarded entirely; the outer commits.
+    explanation: >-
+      By default a nested `transaction` call does not open a new transaction — it joins the
+      enclosing one, because most databases have no true nesting. `ActiveRecord::Rollback` is
+      caught and discarded at that boundary, so the outer transaction commits as though
+      nothing happened. `requires_new: true` issues a SAVEPOINT, giving genuine partial
+      rollback. This matters when one service object calls another that uses transactions: the
+      isolation it appears to have is not there.
+
+  - id: explain-concurrency-choice
+    kind: recall
+    concept: transactions
+    prompt: >-
+      Stock is going negative under load despite the decrement being inside a transaction.
+      Explain the cause and your preferred fix.
+    key_points:
+      - The transaction gives atomicity, not isolation — READ COMMITTED allows a lost update
+      - Two requests both read the same stock value and both write a decrement from it
+      - Best fix is a single conditional UPDATE, which is atomic with no read to go stale
+      - Zero affected rows then means there was no stock
+      - Alternative is `lock.find` before reading, which is correct but makes requests wait
+      - Note that the check and the write must be the same statement, not two in a transaction
+    model: >-
+      The transaction is doing what it promises and the promise is the wrong one: it makes the
+      statements all-or-nothing but does not isolate my read from another transaction's
+      commit. At READ COMMITTED two requests both SELECT a stock of 1, both decide it is
+      sufficient, and both UPDATE to 0 — or compute from the stale value and go negative. The
+      fix I would prefer removes the read entirely:
+      `Item.where(id: id).where("stock > 0").update_all("stock = stock - 1")`. That is a single
+      atomic statement with nothing to go stale, and the number of affected rows is the answer
+      to "was there stock" — zero means no. It also needs no transaction, no lock and no retry
+      logic. If the operation genuinely cannot be expressed as one statement, the fallback is
+      `lock.find` before the read, which is correct but serialises concurrent requests for that
+      row, so I would sort ids before locking to avoid deadlocks. The general principle is that
+      a check and its act have to be the same statement or protected by a lock — putting two
+      statements in a transaction does neither.

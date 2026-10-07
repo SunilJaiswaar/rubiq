@@ -1,0 +1,145 @@
+passScore: 0.7
+questions:
+  - id: parameterisation-vs-escaping
+    kind: choice
+    concept: sql-injection
+    prompt: "Why is parameterisation stronger than escaping user input?"
+    options:
+      - text: The query is parsed before the value is bound, so the value never reaches the parser at all
+        correct: true
+        feedback: >-
+          Escaping tries to neutralise characters a parser treats as special; parameterisation
+          removes them from its input.
+      - text: Rails' escaping implementation has known bugs
+        feedback: >-
+          The argument is structural, not about implementation quality.
+      - text: Parameterised queries are faster
+        feedback: >-
+          Often true thanks to plan caching, and irrelevant to the security argument.
+    explanation: >-
+      With a placeholder the database receives the SQL and the value as separate things: it
+      parses the statement, then binds the value as data. There is no remaining parse step
+      for the value to influence. Escaping requires correctly identifying every special
+      character for every context and applying it every time — a much weaker position, which
+      is why "escape the input" is the wrong fix.
+
+  - id: identifiers-not-parameterisable
+    kind: choice
+    concept: sql-injection
+    prompt: "Why does `order(params[:sort])` need an allow list rather than a placeholder?"
+    options:
+      - text: "Placeholders bind values, not identifiers — `ORDER BY $1` is not valid SQL, so a column name must be validated"
+        correct: true
+        feedback: >-
+          And the direction needs validating too, which is the part people miss because it
+          looks too small to matter.
+      - text: "`order` escapes its argument, so a placeholder is unnecessary"
+        feedback: "`order` interpolates. That is exactly the problem."
+      - text: Rails already validates column names against the schema
+        feedback: >-
+          Rails 6.1+ raises on some unrecognised values, which helps and is not a substitute
+          for validation.
+    explanation: >-
+      A bind parameter is a value in an expression. A column name is part of the statement's
+      structure, so it has to be present when the query is parsed and cannot be a placeholder.
+      That makes an allow list the only safe handling — and the same applies to the sort
+      direction, which is a frequently-forgotten injection point because `asc`/`desc` seems
+      too trivial to be dangerous.
+
+  - id: html-safe
+    kind: choice
+    concept: xss
+    prompt: "What does `.html_safe` do?"
+    options:
+      - text: Marks the string as already safe so Rails skips escaping it — it sanitises nothing
+        correct: true
+        feedback: >-
+          Calling it on user input is the vulnerability. Use `sanitize` with an allow list
+          instead.
+      - text: Strips dangerous tags from the string
+        feedback: "That is `sanitize`. `html_safe` only sets a flag."
+      - text: Escapes the string more thoroughly
+        feedback: It prevents escaping entirely.
+    explanation: >-
+      `html_safe` is an assertion you are making to Rails, not a transformation. It flips a
+      flag that tells the view layer this string needs no escaping. On a trusted literal that
+      is fine; on anything derived from user input it is a direct XSS hole. `sanitize` with an
+      explicit tag and attribute allow list is the tool when you genuinely need to render user
+      HTML.
+
+  - id: csrf-get
+    kind: choice
+    concept: csrf
+    prompt: "Why is `get \"/subscriptions/:id/cancel\"` a CSRF vulnerability?"
+    options:
+      - text: Rails does not verify the token on GET, so any site can trigger it with an `<img>` tag
+        correct: true
+        feedback: >-
+          Which is the concrete reason the HTTP verbs matter rather than being a style
+          convention.
+      - text: GET requests do not send cookies cross-site
+        feedback: >-
+          Top-level and subresource GETs do send cookies under `SameSite=Lax`, which is why
+          this works.
+      - text: It is not a vulnerability if the action requires authentication
+        feedback: >-
+          Authentication is what makes it exploitable — the victim's cookie is attached
+          automatically.
+    explanation: >-
+      CSRF protection is applied to state-changing verbs and GET is assumed safe, so a
+      state-changing GET route bypasses it entirely. An `<img src="...">` on any page the
+      victim visits triggers it with their session cookie attached and no token required.
+      This is the practical reason to use POST or DELETE for state changes rather than it
+      being a REST aesthetic.
+
+  - id: authorisation-gap
+    kind: choice
+    concept: authorization
+    prompt: "Which security concern does Rails provide no default protection for?"
+    options:
+      - text: Authorisation — `Order.find(params[:id])` returns any order to any logged-in user
+        correct: true
+        feedback: >-
+          Scope through `current_user`, and use `after_action :verify_authorized` so a missing
+          check is an error.
+      - text: SQL injection
+        feedback: Parameterised by default through Active Record.
+      - text: CSRF
+        feedback: "`protect_from_forgery` is enabled by default."
+    explanation: >-
+      Rails handles injection, XSS, CSRF, mass assignment and session integrity by default.
+      Authorisation has no default, and unscoped lookups on a user-supplied id — insecure
+      direct object reference — are consistently among the most common real findings in Rails
+      applications. It is also invisible to tests that only exercise the owning user's data,
+      which is why it survives into production.
+
+  - id: explain-security-audit
+    kind: recall
+    concept: authorization
+    prompt: >-
+      You inherit a Rails app with no security review history. Describe what you would check
+      first and why that order.
+    key_points:
+      - Authorisation first, because it is the one with no framework default
+      - Grep for `find(params[` not scoped through current_user
+      - Then the explicit switch-offs — html_safe, raw, permit!, null_session
+      - Then interpolated SQL in where/order/group/select
+      - Run brakeman in CI so this is automated rather than remembered
+      - bundle-audit for dependency advisories
+      - Check for state-changing GET routes, which have no CSRF protection
+      - Check credentials are not in the repository
+    model: >-
+      I would start with authorisation, because it is the only item on the list where Rails
+      gives you nothing — injection, XSS, CSRF and mass assignment all have defaults you have
+      to actively defeat, whereas a missing ownership check is just code nobody wrote. So the
+      first pass is grepping for `find(params[` and anything not scoped through `current_user`,
+      since that class of bug is both the most common real finding and invisible to tests that
+      only use the owner's fixtures. Second, the explicit switch-offs, which are greppable:
+      `html_safe` and `raw` on anything derived from input, `permit!`, and `null_session` on a
+      controller that also accepts cookies. Third, interpolated SQL — a `where("...")` with no
+      placeholder, and user input reaching `order`, `group`, `select` or `pluck`, remembering
+      that the sort direction counts. I would also look for state-changing GET routes, which
+      have no CSRF check at all. Then I would stop doing this by hand: brakeman in CI catches
+      most of these patterns automatically and does not get tired, and `bundle-audit` covers
+      the dependency side. The manual pass is for finding what is already there; the automation
+      is for stopping it coming back.

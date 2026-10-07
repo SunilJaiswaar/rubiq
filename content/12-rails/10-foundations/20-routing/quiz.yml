@@ -1,0 +1,142 @@
+passScore: 0.7
+questions:
+  - id: seven-routes
+    kind: choice
+    concept: rest
+    prompt: "Why does `resources :orders` generate seven routes for four operations?"
+    options:
+      - text: "`new` and `edit` serve HTML forms, because a browser cannot submit PATCH or DELETE directly"
+        correct: true
+        feedback: "Which is why an API uses `only: [:index, :show, :create, :update, :destroy]`."
+      - text: Because REST defines seven verbs
+        feedback: HTTP has more verbs than that; seven is Rails' convention, not a protocol rule.
+      - text: "`index` and `show` are counted twice for HTML and JSON"
+        feedback: Format is negotiated per request, not by separate routes.
+    explanation: >-
+      Four conceptual operations — read, create, update, delete — plus `index` for the
+      collection, plus two form-serving routes. `new` and `edit` exist purely because HTML
+      forms can only issue GET and POST, so the form needs its own GET route. An API has no
+      forms and should drop them.
+
+  - id: shallow-nesting
+    kind: choice
+    concept: nested-resources
+    prompt: "Why is `shallow: true` preferred over deep nesting?"
+    options:
+      - text: Once a child id is unique, the parent id in the URL is redundant — so only the collection routes need the parent
+        correct: true
+        feedback: >-
+          `POST /orders/42/items` needs to know which order; `GET /items/7` does not.
+      - text: Deep nesting is slower to route
+        feedback: Routing cost is negligible. The problem is redundancy and unwieldy helper names.
+      - text: Rails cannot generate helpers past two levels
+        feedback: >-
+          It can — `order_item_comment_path` exists, and is exactly the kind of name that
+          argues against it.
+    explanation: >-
+      Nesting exists to express that a child belongs to a parent, which the collection
+      routes need (`POST /orders/42/items`). Member routes do not: item 7 is already
+      unique, so the order id adds nothing but length. `shallow: true` nests only the
+      collection actions, which keeps URLs short and helper names readable.
+
+  - id: nested-id-security
+    kind: choice
+    concept: nested-resources
+    prompt: >-
+      Route `/orders/:order_id/items/:id`, and the controller does
+      `Item.find(params[:id])`. What is wrong?
+    options:
+      - text: "`/orders/999/items/7` returns item 7 regardless of who owns order 999 — the URL implies a check that is not happening"
+        correct: true
+        feedback: >-
+          Scope through the parent: `current_user.orders.find(params[:order_id]).items.find(params[:id])`.
+      - text: Nothing — `params[:order_id]` is just extra context
+        feedback: >-
+          Then the URL is a lie, and an attacker can enumerate items under any order id.
+      - text: It will raise because two ids are present
+        feedback: It works fine, which is precisely the problem.
+    explanation: >-
+      A nested id that the controller ignores is worse than absent: the URL suggests an
+      ownership relationship that nothing enforces. Scoping the lookup through the parent —
+      and through `current_user` — makes the relationship real, and has the useful side
+      effect of returning 404 rather than 403, so an attacker cannot distinguish "exists but
+      not yours" from "does not exist".
+
+  - id: verb-with-state
+    kind: choice
+    concept: rest
+    prompt: >-
+      You need a "cancel order" operation that records who cancelled it and why. What is the
+      better route design?
+    options:
+      - text: "`POST /orders/42/cancellation` — a resource, because the verb has state"
+        correct: true
+        feedback: >-
+          And `DELETE` on it is then the obvious name for undoing it, with somewhere for the
+          reason and timestamp to live.
+      - text: "`POST /orders/42/cancel` — a member route is simpler"
+        feedback: >-
+          Fine for a stateless action. Here the cancellation has attributes and a lifecycle,
+          which a member route gives no home to.
+      - text: "`PATCH /orders/42` with a status parameter"
+        feedback: >-
+          Workable, but it hides a significant state transition inside a general update and
+          has nowhere to record the reason.
+    explanation: >-
+      The heuristic is: if the verb has state, it is a noun. A cancellation with a reason, a
+      timestamp and an actor is an entity, and modelling it as `CancellationsController`
+      gives those attributes a home, makes listing cancellations natural, and makes `destroy`
+      the obvious undo. A bare `cancel` action accretes that logic into a controller about
+      orders.
+
+  - id: route-order
+    kind: choice
+    concept: routing
+    prompt: |
+      ```ruby
+      get "/orders/:id", to: "orders#show"
+      get "/orders/new", to: "orders#new"
+      ```
+      What happens to `/orders/new`?
+    options:
+      - text: "It reaches `orders#show` with `params[:id] == \"new\"` — the first matching route wins, and nothing warns you"
+        correct: true
+        feedback: "`resources` orders them correctly, which is one more reason to prefer it."
+      - text: Rails detects the conflict at boot and raises
+        feedback: >-
+          There is no conflict detection. The shadowed route is simply unreachable.
+      - text: Both match, and Rails prefers the more specific one
+        feedback: Matching is strictly top-down with no specificity ranking.
+    explanation: >-
+      Routes are matched in declaration order and the first match wins, so a `:id` pattern
+      declared above a literal segment swallows it. Nothing warns you — the request just
+      goes somewhere unexpected. `bin/rails routes` shows the order, and `resources`
+      generates the correct sequence automatically.
+
+  - id: explain-rest-tradeoff
+    kind: recall
+    concept: rest
+    prompt: >-
+      A colleague argues REST is a bad fit because half your operations are not CRUD, and
+      wants RPC-style routes. Respond.
+    key_points:
+      - The value of REST is that names are not a decision — guessable for readers and consumers
+      - HTTP verbs carry meaning, so caching, retries and idempotency are inferable
+      - Agree that some operations are awkward; member routes handle one or two
+      - If the verb has state, model it as a resource rather than contorting
+      - RPC's cost is that every name is a decision, so it is inconsistent across a team
+      - GraphQL is the coherent form of the RPC argument, and it gives up HTTP caching
+    model: >-
+      I would agree with the observation and not the conclusion. The value of REST is not
+      that every operation is CRUD — it is that the names are not a decision, so a reader
+      opening an unfamiliar controller already knows what `show` does, and an API consumer can
+      guess the URL. The verbs also carry real meaning: an intermediary knows GET is safe to
+      cache and DELETE is not safe to retry, which with RPC has to be documented instead of
+      inferred. Where I would meet them is on the awkward cases, which are real: a member
+      route is fine for one or two, and when the verb has state — a cancellation with a
+      reason and an actor — I would model it as a resource rather than contort it, which is
+      cleaner than either option. The cost of going full RPC is that every endpoint name
+      becomes a judgement call, so it diverges across a team within months. If they genuinely
+      want that trade, GraphQL is the coherent version of it — one endpoint, all semantics in
+      the payload — and it is worth being explicit that it means giving up HTTP caching
+      almost entirely.

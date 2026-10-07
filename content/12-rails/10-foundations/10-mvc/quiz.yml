@@ -1,0 +1,147 @@
+passScore: 0.7
+questions:
+  - id: rack-contract
+    kind: choice
+    concept: rack
+    prompt: What is the complete Rack interface?
+    options:
+      - text: "An object with `call(env)` that returns `[status, headers, body]`"
+        correct: true
+        feedback: >-
+          That is all of it — which is why Rails, Sinatra and Hanami all run on Puma
+          without knowing about each other.
+      - text: A base class that frameworks inherit from
+        feedback: >-
+          Deliberately not inheritance. Any object answering `call` qualifies, which is
+          what lets middleware be composed at boot rather than compiled in.
+      - text: A configuration format for web servers
+        feedback: >-
+          `config.ru` is a file that uses Rack, but Rack itself is the `call(env)`
+          contract.
+    explanation: >-
+      Rack is a one-method interface. Because it is duck-typed rather than inheritance-based,
+      a lambda qualifies, every middleware qualifies, and Rails itself is a Rack application.
+      That is what decouples Ruby web frameworks from Ruby web servers and makes third-party
+      middleware possible.
+
+  - id: middleware-both-ways
+    kind: choice
+    concept: middleware
+    prompt: "In `status, headers, body = @app.call(env)`, what does the code after that line do?"
+    options:
+      - text: Runs on the way back up, so it can inspect or modify the response
+        correct: true
+        feedback: >-
+          Which is how `X-Runtime` gets set, how compression works, and how error reporters
+          catch exceptions.
+      - text: Nothing — the response has already been sent
+        feedback: >-
+          Nothing is written to the socket until the stack unwinds completely. Every layer
+          gets the response back.
+      - text: Runs only if the inner app raised
+        feedback: >-
+          It runs on the normal path too. Handling exceptions requires an explicit
+          begin/rescue.
+    explanation: >-
+      Middleware is a wrapper, so it executes twice per request: before `@app.call` on the
+      way down and after it on the way up. That is what makes timing, header injection,
+      compression and error capture possible in a single object — and it is why the stack is
+      drawn as nested boxes rather than a list.
+
+  - id: delete-middleware
+    kind: choice
+    concept: middleware
+    prompt: "Why would an API-only Rails app delete `ActionDispatch::Session::CookieStore`?"
+    options:
+      - text: Every request pays for every layer, and decrypting a session it will never use is pure cost
+        correct: true
+        feedback: >-
+          Visible with `bin/rails middleware` — and removable because the stack is data, not
+          a class hierarchy.
+      - text: Sessions are insecure in APIs
+        feedback: >-
+          They are not inherently insecure; they are simply unused if the API authenticates
+          by token.
+      - text: Rails requires it to be removed for `--api` mode
+        feedback: >-
+          `--api` mode already omits several, but an existing app can delete them
+          explicitly.
+    explanation: >-
+      The middleware stack runs in full on every request, including health checks and asset
+      requests. An API authenticating with bearer tokens gains nothing from cookie parsing,
+      session decryption and flash handling, and each one costs time on every call. Because
+      the stack is an ordered list you can inspect and mutate at boot, removing them is a
+      three-line config change.
+
+  - id: controller-job
+    kind: choice
+    concept: mvc
+    prompt: "What is the test for whether logic belongs in a controller?"
+    options:
+      - text: Could this rule ever apply outside an HTTP request? If yes, it does not belong there
+        correct: true
+        feedback: >-
+          Pricing applies in a rake task, a job and a CSV import — so it cannot live
+          somewhere only a request can reach.
+      - text: Is it more than ten lines?
+        feedback: >-
+          Length is a symptom. A three-line pricing rule in a controller is still in the
+          wrong place.
+      - text: Does it touch the database?
+        feedback: >-
+          Controllers legitimately load records. The question is who owns the *decisions*.
+    explanation: >-
+      A controller's job is translating HTTP into a method call and the result back into
+      HTTP. Anything that would also be correct in a background job, a rake task or an
+      importer is business logic, and putting it in a controller makes it unreachable from
+      those callers and untestable without simulating a request.
+
+  - id: middleware-ordering
+    kind: choice
+    concept: middleware
+    prompt: >-
+      You add middleware that reads `env["rack.session"]` and it is always empty. What is
+      most likely wrong?
+    options:
+      - text: It is inserted above the session middleware, so the session has not been decrypted yet
+        correct: true
+        feedback: "`config.middleware.insert_after ActionDispatch::Session::CookieStore, ...`"
+      - text: Sessions are not available to middleware at all
+        feedback: >-
+          They are — the session middleware puts them in `env` for everything below it.
+      - text: You need to call `session.load!` explicitly
+        feedback: >-
+          Position in the stack is the issue; nothing below the session middleware needs to
+          load it manually.
+    explanation: >-
+      Each middleware only sees what the layers above it have already added to `env`. A
+      middleware above `ActionDispatch::Session::CookieStore` runs before the cookie is
+      decrypted, so the session is not there yet. Ordering bugs like this are invisible in
+      the middleware's own code, which is why `bin/rails middleware` is the first thing to
+      check.
+
+  - id: explain-request-lifecycle
+    kind: recall
+    concept: request-lifecycle
+    prompt: >-
+      A teammate reports that a request returns 404 and their controller's logging never
+      runs. Explain how you would find the cause.
+    key_points:
+      - A 404 before the controller means the request did not reach it
+      - Candidates are the router (no matching route) or a middleware returning early
+      - "`bin/rails routes` to check the route exists with that method and path"
+      - "`bin/rails middleware` to see what sits above the router"
+      - "`ActionDispatch::Static` serves from public/ and can shadow a route"
+      - Host authorization rejects unknown Host headers, which looks like a routing failure
+      - Check the Rack env — method, path and host — rather than assuming
+    model: >-
+      If the controller's logging never ran, the request never reached the controller — so
+      the cause is above it in the stack, and there are only two categories: the router found
+      no match, or a middleware returned a response before the router. I would check
+      `bin/rails routes` first for a route matching that exact method and path, since a
+      mismatch on the verb is the most common version of this. If the route exists, I would
+      look at `bin/rails middleware` for layers above the router that can respond on their
+      own — `ActionDispatch::Static` will serve a same-named file out of `public/` and never
+      reach the route, and `HostAuthorization` rejects unexpected Host headers in a way that
+      looks like a routing problem. Both are invisible from the controller, which is the real
+      lesson: a 404 with no application logs is a stack question, not a controller question.

@@ -1,0 +1,135 @@
+passScore: 0.7
+questions:
+  - id: validation-not-guarantee
+    kind: choice
+    concept: validations
+    prompt: "Why is `validates :email, uniqueness: true` not a guarantee of uniqueness?"
+    options:
+      - text: It is a SELECT followed by an INSERT, so two concurrent requests can both pass and both insert
+        correct: true
+        feedback: "A unique index makes the check and the write atomic. Then handle `RecordNotUnique`."
+      - text: It only checks records created through the same model
+        feedback: >-
+          Also true, and a separate problem — but the race exists even with a single model and
+          a single process.
+      - text: It is case-sensitive by default
+        feedback: A real gotcha, but not why it fails to guarantee anything.
+    explanation: >-
+      The validation performs a check and then an act, with a window between them. Two
+      requests can interleave so both SELECTs find nothing and both INSERTs succeed. Only the
+      database can make that atomic, which is why the unique index is the guarantee and the
+      validation is there to produce a good error message most of the time.
+
+  - id: skipping-methods
+    kind: multi
+    concept: validations
+    prompt: Which of these skip validations?
+    options:
+      - text: "`update_column`"
+        correct: true
+        feedback: Goes straight to UPDATE — no validations, no callbacks.
+      - text: "`update_all`"
+        correct: true
+        feedback: One SQL statement; no model instance is involved at all.
+      - text: "`insert_all`"
+        correct: true
+        feedback: Bulk insert, bypassing the model entirely — which is why it is fast.
+      - text: "`save!`"
+        feedback: Validates and raises on failure. `save` validates and returns false.
+      - text: "`update`"
+        feedback: Validates and returns a boolean.
+    explanation: >-
+      Several ordinary Active Record methods write without validating — deliberately, because
+      bulk operations need to. They are the right tool for touching a million rows, and they
+      are also a hole in whatever the model claims to enforce. That hole is the argument for
+      database-level constraints rather than relying on validations alone.
+
+  - id: after-create-transaction
+    kind: choice
+    concept: callbacks
+    prompt: >-
+      An `after_create` sends a confirmation email. The surrounding transaction then rolls
+      back. What happened?
+    options:
+      - text: The email was sent for an order that no longer exists — `after_create` runs inside the transaction
+        correct: true
+        feedback: "`after_create_commit` runs after COMMIT, which is the minimum correct version."
+      - text: Rails cancels the email when the transaction rolls back
+        feedback: >-
+          Rails has no way to un-send mail. The callback already executed.
+      - text: The rollback re-runs the callback in reverse
+        feedback: There is no inverse-callback mechanism.
+    explanation: >-
+      `after_create` and `after_save` fire inside the transaction, before COMMIT. Any external
+      side effect there can outlive a rollback, leaving the outside world believing something
+      happened that did not. `after_create_commit` fires only after a successful commit, and
+      `deliver_later` additionally removes the mail provider from the request path.
+
+  - id: callback-test
+    kind: choice
+    concept: callbacks
+    prompt: "What is the test for whether a callback is acceptable?"
+    options:
+      - text: Does the effect leave the record? Normalising a column does not; sending email, calling an API or enqueuing a job does
+        correct: true
+        feedback: >-
+          Effects that leave the record belong at an explicit call site, where the caller can
+          see them.
+      - text: Is it fewer than five lines?
+        feedback: A one-line `deliver_now` has every problem described in the lesson.
+      - text: Does it run before or after the save?
+        feedback: Timing matters for transactions but does not decide whether it belongs there.
+    explanation: >-
+      The problem with callbacks is scope, not size: they make `save` do unbounded work that
+      is invisible at the call site. Normalising an attribute is intrinsic to the record and
+      has no external consequence, so it is fine. Anything reaching outside — mail, HTTP, jobs,
+      other tables — makes every test, import and console session do it too, and belongs in a
+      service object instead.
+
+  - id: throw-abort
+    kind: choice
+    concept: callbacks
+    prompt: "How do you halt a `before_save` callback chain in modern Rails?"
+    options:
+      - text: "`throw :abort`"
+        correct: true
+        feedback: "`return false` silently does nothing since Rails 5 — a quiet behaviour change."
+      - text: "`return false`"
+        feedback: >-
+          That worked before Rails 5 and now simply ends the method while the save proceeds.
+      - text: "`raise ActiveRecord::Rollback`"
+        feedback: >-
+          Rolls back a transaction rather than halting the callback chain, and is silently
+          swallowed.
+    explanation: >-
+      Rails 5 removed the "return false halts the chain" behaviour because it made every
+      accidental falsy return a silent cancellation. `throw :abort` is now explicit. The
+      migration was a common source of bugs precisely because the old form kept compiling and
+      stopped working.
+
+  - id: explain-validations-constraints
+    kind: recall
+    concept: database-constraints
+    prompt: >-
+      A production database has NULLs in a column the model validates for presence. Explain
+      how, and what you would do.
+    key_points:
+      - Validations run in the application, so anything else writing the table bypasses them
+      - Candidates — `update_column`, `update_all`, `insert_all`, data migrations, SQL console, another service
+      - The column almost certainly has no `null: false` constraint
+      - Fix forward — backfill the existing NULLs, then add the constraint
+      - Keep the validation for the error message; the constraint is the guarantee
+      - Note that adding NOT NULL to a large table needs care about locking
+    model: >-
+      Validations only run for saves that go through the model, so the NULLs came from
+      something that did not: `update_column` or `update_all`, a data migration, a rake task,
+      a SQL console session, or another service writing the same database. The model says the
+      column is required and the schema almost certainly does not. The fix has two parts and an
+      order. First backfill the existing NULLs to whatever the correct default is, because
+      adding the constraint will fail while they exist. Then add `null: false` so the database
+      enforces it for every writer regardless of how they arrived. I would keep the validation
+      as well — it is what produces a usable error message next to the right field — but be
+      clear that it is the user interface and the constraint is the guarantee. On a large table
+      I would also check how the migration acquires its lock, since adding NOT NULL can rewrite
+      the table and block writes; Postgres can validate an existing check constraint
+      concurrently to avoid that.

@@ -1,0 +1,148 @@
+passScore: 0.7
+questions:
+  - id: two-reasons
+    kind: multi
+    concept: background-jobs
+    prompt: What are the reasons for moving work off the request?
+    options:
+      - text: Latency — the user should not wait for work they do not care about
+        correct: true
+        feedback: And the request holds a web worker and a connection for all of it.
+      - text: Failure isolation — a third party's outage should not fail your checkout
+        correct: true
+        feedback: >-
+          The more important reason, and the one people omit. It converts a synchronous
+          dependency into a retried one.
+      - text: Jobs run faster than inline code
+        feedback: Same code, same speed. The request simply stops waiting for it.
+      - text: Jobs are automatically idempotent
+        feedback: The opposite — making them idempotent is work you must do on every one.
+    explanation: >-
+      Latency is the obvious reason and failure coupling is the significant one. Calling a
+      mail provider inline means its outage raises inside your checkout, so an order gets
+      created and the user still sees an error. Moving it to a job turns that into "mail is
+      delayed and will be retried", which is a far better failure.
+
+  - id: at-least-once
+    kind: choice
+    concept: idempotency
+    prompt: "Why must every job be idempotent?"
+    options:
+      - text: Queues are at-least-once — a killed worker or a lost acknowledgement causes a redelivery of work that may have succeeded
+        correct: true
+        feedback: >-
+          Exactly-once delivery is not available in a distributed system, and no mainstream
+          queue claims it.
+      - text: Because Rails retries all jobs three times by default
+        feedback: >-
+          Retry policy is configurable, but redelivery happens even with retries disabled —
+          the queue never learned the job finished.
+      - text: Because jobs can be enqueued twice by mistake
+        feedback: A real risk, but the unavoidable cause is delivery semantics rather than caller error.
+    explanation: >-
+      A worker can complete the work and then die before acknowledging, or the acknowledgement
+      can be lost — so the queue still believes the job is pending and redelivers it. Deploys,
+      OOM kills and spot-instance reclaims all produce this. Since exactly-once is not
+      achievable, correctness has to come from the job tolerating a second run.
+
+  - id: guard-insufficient
+    kind: choice
+    concept: idempotency
+    prompt: "Why is `return if order.paid?` not sufficient protection against a double charge?"
+    options:
+      - text: Two workers can both read "unpaid" before either writes — it is the same lost-update race as any check-then-act
+        correct: true
+        feedback: >-
+          The real protection is an idempotency key the gateway deduplicates on, where the
+          check and the act are atomic.
+      - text: "`paid?` may be stale because of caching"
+        feedback: >-
+          It reads from the database. The problem is the window between reading and writing,
+          not staleness.
+      - text: It is sufficient — nothing more is needed
+        feedback: >-
+          It handles the common case and loses the race, which is the case that costs money.
+    explanation: >-
+      The guard is a read followed by an act, with a gap. Two concurrent workers can both
+      pass it and both charge. It is still worth having as a cheap fast path, but the
+      guarantee has to come from somewhere the check and the act are a single operation: an
+      idempotency key the payment provider deduplicates on, or a unique constraint in your own
+      database that makes the second attempt fail harmlessly.
+
+  - id: enqueue-in-transaction
+    kind: choice
+    concept: background-jobs
+    prompt: "What goes wrong with `perform_later` inside a transaction?"
+    options:
+      - text: The queue is not in the transaction, so a worker can pick the job up before the COMMIT — or the transaction rolls back and the record never exists
+        correct: true
+        feedback: >-
+          Enqueue after the transaction, use `after_commit`, or use a database-backed queue so
+          the enqueue commits atomically.
+      - text: Rails raises an error if you enqueue inside a transaction
+        feedback: It does not, which is why the bug is common.
+      - text: The job is enqueued twice
+        feedback: >-
+          Enqueued once, possibly too early or for a record that will not exist.
+    explanation: >-
+      Redis knows nothing about your Postgres transaction. The enqueue takes effect
+      immediately, so a worker may call `Order.find` before the INSERT is visible, producing a
+      RecordNotFound that is nearly impossible to reproduce locally because it only appears
+      under load. If the transaction then rolls back, the job references a record that never
+      existed. A database-backed queue such as Solid Queue stores jobs in the same database, so
+      the enqueue is part of the transaction and the problem disappears — which is the main
+      reason Rails 8 made it the default.
+
+  - id: globalid
+    kind: choice
+    concept: background-jobs
+    prompt: "`perform_later(order)` serialises the order as a GlobalID. What follows from that?"
+    options:
+      - text: The worker reloads the record, so the job sees its state at run time rather than at enqueue time
+        correct: true
+        feedback: >-
+          So a job enqueued to confirm an order can email a confirmation for an order
+          cancelled in between.
+      - text: The full object is copied into the queue
+        feedback: >-
+          Only a `gid://app/Order/42` reference. Copying the object is what you do when you
+          pass attributes explicitly.
+      - text: The job cannot access associations
+        feedback: It reloads a normal record with full access.
+    explanation: >-
+      Active Job stores a GlobalID and the worker calls `find` on it, so the record is read
+      fresh when the job executes. That is usually what you want, and it is occasionally a bug:
+      the state may have changed since enqueueing, and if the record was deleted the
+      deserialisation raises — hence `discard_on ActiveJob::DeserializationError`. When the
+      point-in-time values matter, pass them as arguments instead of relying on the reload.
+
+  - id: explain-job-design
+    kind: recall
+    concept: idempotency
+    prompt: >-
+      You are asked to add "charge the customer" to a background job. Walk through your
+      design decisions.
+    key_points:
+      - Assume the job will run more than once, because queues are at-least-once
+      - A status guard is a fast path, not the guarantee
+      - Use an idempotency key the gateway deduplicates on, derived deterministically from the order
+      - Pass the id, not the object, and reload inside
+      - Enqueue after the transaction commits, never inside it
+      - Bound the retries and back off, so a struggling gateway is not hammered
+      - "`discard_on` deserialisation errors, since retrying cannot help"
+      - Put it on a separate high-priority queue so a report backlog does not delay it
+    model: >-
+      The first assumption is that this job will run more than once, because queues are
+      at-least-once and a worker can complete the charge and die before acknowledging. So the
+      design question is not "how do I avoid a second run" but "what makes a second run
+      harmless". A `return if order.paid?` guard is worth having as a cheap fast path but is not
+      the guarantee, because two workers can both read "unpaid". The guarantee is an idempotency
+      key derived deterministically from the order — something like `order-42-charge` — which the
+      gateway deduplicates on, so the check and the act happen in the one place that can be
+      atomic. I would pass the order id rather than the object and reload inside, so the job
+      works from current state. I would enqueue it after the transaction commits rather than
+      inside, because the queue is not in the transaction and the worker can otherwise run before
+      the row is visible. Retries bounded with polynomial backoff so a struggling gateway is not
+      hammered, `discard_on` for deserialisation errors since retrying a deleted record cannot
+      help, and a dedicated high-priority queue so a backlog of report jobs cannot delay a
+      payment.
