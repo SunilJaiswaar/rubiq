@@ -141,7 +141,7 @@ export function expandSeed(seed, where) {
         const { generate: _drop, ...rest } = table
         return { ...rest, rows: [...(table.rows ?? []), ...rows] }
       } catch (err) {
-        throw new Error(`${where}: table "${table.name}" — ${err.message}`)
+        throw new Error(`${where}: table "${table.name}" — ${err.message}`, { cause: err })
       }
     }),
   }

@@ -20,9 +20,19 @@ export default function Search() {
   const trackFilter = params.get('track') ?? ''
   const [engine, setEngine] = useState<SearchEngine | null>(null)
   const [input, setInput] = useState(query)
+  const [lastQuery, setLastQuery] = useState(query)
 
   useEffect(() => { void loadSearchEngine().then(setEngine) }, [])
-  useEffect(() => { setInput(query) }, [query])
+
+  // The input is the source of truth while typing, and the URL is the source when
+  // the learner arrives from elsewhere (the palette links here with ?q=...). React's
+  // recommended way to reconcile that is to adjust during render rather than in an
+  // effect: it re-renders immediately with the right value instead of painting the
+  // stale one first.
+  if (query !== lastQuery) {
+    setLastQuery(query)
+    setInput(query)
+  }
 
   // Debounce so the URL does not change on every keystroke.
   useEffect(() => {

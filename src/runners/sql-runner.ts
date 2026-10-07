@@ -533,7 +533,8 @@ export class SqlRunner implements CodeRunner {
     }
 
     const plan: string[] = []
-    let rowsScanned = 0
+    // Assigned by whichever scan branch runs below, before anything reads it.
+    let rowsScanned: number
 
     // --- scan, with index awareness so the cost is visible ---
     const indexedEquality = q.where ? findIndexableEquality(q.where, base) : null

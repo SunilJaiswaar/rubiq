@@ -100,8 +100,14 @@ const LANGUAGE_MAP: Record<string, string> = {
 export default function MonacoEditor({
   value, onChange, language, height = 320, readOnly, onRun, ariaLabel,
 }: CodeEditorProps) {
+  // The Cmd/Ctrl+Enter command is registered once on mount, so it reads the current
+  // handler through a ref. Updating that ref in an effect rather than during render:
+  // a render can be thrown away under concurrent rendering, and mutating a ref there
+  // is not safe.
   const runRef = useRef(onRun)
-  runRef.current = onRun
+  useEffect(() => {
+    runRef.current = onRun
+  }, [onRun])
 
   const isDark =
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark')

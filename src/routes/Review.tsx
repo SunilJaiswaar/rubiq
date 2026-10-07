@@ -34,8 +34,12 @@ export default function Review() {
 
   // Pick a question about this concept from a lesson that teaches it.
   useEffect(() => {
+    // Same shape as the lesson loader: clear, then fetch the question for this
+    // concept. Suspense is the effect-free answer; see ROADMAP.md.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!current) { setQuestion(null); return }
     let cancelled = false
+     
     setRevealed(false)
     void (async () => {
       const candidates = allLessons.filter((l) => l.concepts.includes(current.concept))

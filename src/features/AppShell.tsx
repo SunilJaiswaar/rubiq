@@ -32,8 +32,6 @@ export function AppShell() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [location.pathname, location.hash])
 
-  useEffect(() => setMenuOpen(false), [location.pathname])
-
   const openPalette = useCallback((event: KeyboardEvent) => {
     event.preventDefault()
     setPaletteOpen(true)
@@ -148,6 +146,10 @@ export function AppShell() {
                   <NavLink
                     key={item.to}
                     to={item.to}
+                    // Closed here rather than in an effect on the route change: the
+                    // click is the thing that dismisses the menu, so that is where
+                    // it belongs — and it avoids a second render.
+                    onClick={() => setMenuOpen(false)}
                     className={({ isActive }) =>
                       cx(
                         'px-3 py-2.5 rounded-md text-sm',
@@ -162,6 +164,7 @@ export function AppShell() {
                   href={REPO}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={() => setMenuOpen(false)}
                   className="px-3 py-2.5 rounded-md text-sm text-ink-muted"
                 >
                   GitHub ↗
@@ -241,11 +244,14 @@ export function AppShell() {
         </Page>
       </footer>
 
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        onNavigate={(to) => { setPaletteOpen(false); void navigate(to) }}
-      />
+      {/* Mounted only while open, so it starts from clean state every time
+          instead of resetting itself in effects. */}
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => setPaletteOpen(false)}
+          onNavigate={(to) => { setPaletteOpen(false); void navigate(to) }}
+        />
+      )}
     </div>
   )
 }

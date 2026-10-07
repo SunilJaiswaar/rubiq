@@ -39,38 +39,45 @@ const TRACK_ITEMS: Item[] = tracks.map((t) => ({
   kind: 'track',
 }))
 
+/**
+ * Rendered only while open — the parent does `{paletteOpen && <CommandPalette … />}`.
+ *
+ * That is deliberate. When this was always mounted it needed effects to clear the
+ * query, reset the highlighted row and refocus the input every time `open` flipped.
+ * Mounting fresh makes all of that the component's initial state instead, which is
+ * both less code and what React recommends over resetting state in an effect.
+ * Re-running `loadSearchEngine()` on each open is free: the promise is memoised at
+ * module level.
+ */
 export function CommandPalette({
-  open, onClose, onNavigate,
-}: { open: boolean; onClose: () => void; onNavigate: (to: string) => void }) {
+  onClose, onNavigate,
+}: { onClose: () => void; onNavigate: (to: string) => void }) {
   const [query, setQuery] = useState('')
   const [engine, setEngine] = useState<SearchEngine | null>(null)
-  const [loadingIndex, setLoadingIndex] = useState(false)
-  const [selected, setSelected] = useState(0)
+  const [loadingIndex, setLoadingIndex] = useState(true)
+  const [rawSelected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
 
-  useFocusTrap(dialogRef, open)
+  useFocusTrap(dialogRef, true)
 
+  // Focus the input and fetch the index, once, on mount.
   useEffect(() => {
-    if (!open) return
     inputRef.current?.focus()
-    if (engine || loadingIndex) return
-    setLoadingIndex(true)
+    let cancelled = false
     void loadSearchEngine()
-      .then(setEngine)
-      .finally(() => setLoadingIndex(false))
-  }, [open, engine, loadingIndex])
+      .then((loaded) => { if (!cancelled) setEngine(loaded) })
+      .finally(() => { if (!cancelled) setLoadingIndex(false) })
+    return () => { cancelled = true }
+  }, [])
 
   // Prevent the page behind the dialog from scrolling.
   useEffect(() => {
-    if (!open) return
     const previous = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = previous }
-  }, [open])
-
-  useEffect(() => { if (open) { setQuery(''); setSelected(0) } }, [open])
+  }, [])
 
   const items = useMemo<Item[]>(() => {
     const q = query.trim()
@@ -97,14 +104,14 @@ export function CommandPalette({
     return [...lessonMatches, ...staticMatches].slice(0, 14)
   }, [query, engine])
 
-  useEffect(() => { setSelected(0) }, [query])
+  // The highlighted row is clamped during render rather than reset in an effect,
+  // so a shorter result list can never leave the selection pointing past its end.
+  const selected = items.length === 0 ? 0 : Math.min(rawSelected, items.length - 1)
 
   // Keep the highlighted row in view while arrowing through a long list.
   useEffect(() => {
     listRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'nearest' })
   }, [selected])
-
-  if (!open) return null
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'ArrowDown') {

@@ -59,7 +59,7 @@ async function readYaml(file, { optional = false } = {}) {
   try {
     return loadYamlString(text) ?? {}
   } catch (err) {
-    throw new Error(`Invalid YAML in ${path.relative(ROOT, file)}: ${err.message}`)
+    throw new Error(`Invalid YAML in ${path.relative(ROOT, file)}: ${err.message}`, { cause: err })
   }
 }
 
@@ -83,7 +83,7 @@ async function buildLesson({ trackSlug, moduleSlug, lessonDir, lessonPath }) {
   try {
     meta = frontmatter ? (loadYamlString(frontmatter) ?? {}) : {}
   } catch (err) {
-    throw new Error(`Invalid frontmatter in ${id}: ${err.message}`)
+    throw new Error(`Invalid frontmatter in ${id}: ${err.message}`, { cause: err })
   }
 
   const { blocks, headings, text } = analyse(md, body)

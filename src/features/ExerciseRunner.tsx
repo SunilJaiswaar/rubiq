@@ -6,7 +6,7 @@
  * A solution available on arrival is a solution that gets read instead of the problem
  * being attempted — and attempting is where the learning is.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { Exercise } from '@/content/types'
 import { getRunner } from '@/runners'
 import type { RunResult } from '@/runners/types'
@@ -53,15 +53,11 @@ export function ExerciseRunner({
     }
   }, [code, exercise, runner, onSolved])
 
-  // Reset when navigating between exercises.
-  useEffect(() => {
-    setCode(exercise.starter)
-    setResult(null)
-    setHintsShown(0)
-    setSolutionShown(false)
-    setSolved(false)
-    solvedRef.current = false
-  }, [exercise.id, exercise.starter])
+  // There is deliberately no reset effect here. Both call sites pass
+  // `key={exercise.id}`, so React discards this component and mounts a fresh one
+  // when the exercise changes — which is React's own answer to "reset all state
+  // when the identity of the thing being shown changes", and avoids the extra
+  // render an effect-based reset costs.
 
   if (runner.availability !== 'local') {
     return <NotRunnable exercise={exercise} reason={runner.unavailableReason} />

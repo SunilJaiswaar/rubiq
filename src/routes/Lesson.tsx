@@ -51,7 +51,13 @@ export default function Lesson() {
   useEffect(() => {
     if (!stub) return
     let cancelled = false
+    // Clearing before the fetch is what shows the spinner instead of the previous
+    // lesson's body while the next one downloads. The effect-free version of this is
+    // Suspense with a resource cache, which is a real change to how lesson data is
+    // loaded rather than a local tidy-up — tracked in ROADMAP.md.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLesson(null)
+     
     setLoadError(false)
     void loadLesson(stub.id).then(
       (data) => {
@@ -219,6 +225,9 @@ export default function Lesson() {
                     unlocks once you have either solved it or read every hint.
                   </p>
                   <ExerciseRunner
+                    // Remounts on a different exercise, which resets its state
+                    // without an effect. See the note in ExerciseRunner.
+                    key={lesson.exercise.id}
                     exercise={lesson.exercise}
                     onSolved={() => void onExerciseSolved()}
                   />

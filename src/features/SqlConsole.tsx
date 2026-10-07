@@ -45,7 +45,12 @@ export function SqlConsole({
     if (seed) runner.seed(seed, indexes)
   }, [runner, seed, indexes])
 
+  // Show the query the parent just sent from a lesson's `runnable` fence. Not a
+  // render-time adjustment, because `initialQuery` can repeat: clicking the same
+  // fence twice must restore it even though the prop value did not change. The
+  // signal below is what distinguishes the two.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialQuery) setQuery(initialQuery)
   }, [initialQuery])
 
@@ -61,9 +66,12 @@ export function SqlConsole({
   // Run when the caller signals it, using the query it just handed us rather than
   // waiting a render for state to settle.
   const lastSignal = useRef(runSignal)
+  // Running a query is async I/O triggered by a parent signal, which is what an
+  // effect is for. The lint rule sees it because `run` sets a loading flag.
   useEffect(() => {
     if (runSignal === lastSignal.current) return
     lastSignal.current = runSignal
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialQuery) void run(initialQuery)
   }, [runSignal, initialQuery, run])
 

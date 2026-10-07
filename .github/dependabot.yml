@@ -14,12 +14,24 @@ updates:
         patterns: ["vitest", "@vitest/*"]
       # One PR for the rest of the dev toolchain rather than eight — these move
       # together and none of them ship to visitors.
+      #
+      # Deliberately NO `update-types` filter. With one, majors escape the group and
+      # arrive as individual PRs — which is exactly how `eslint` and `@eslint/js`
+      # ended up in separate PRs that could not install, since ESLint 10 also needs
+      # eslint-plugin-react-hooks 7. Grouped, they move together and the PR is
+      # buildable.
       dev-tooling:
-        patterns: ["eslint*", "@eslint/*", "typescript-eslint", "globals", "@testing-library/*", "jsdom", "typescript"]
-        update-types: [minor, patch]
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "globals"
+          - "@testing-library/*"
+          - "jsdom"
+          - "typescript"
+      # Vite and its plugin have the same relationship.
       build:
         patterns: ["vite", "@vitejs/*", "tailwindcss", "@tailwindcss/*"]
-        update-types: [minor, patch]
       # GitHub's own actions move in lockstep and a major bump is usually just a
       # runner Node version change, so one PR is enough.
       github-actions:

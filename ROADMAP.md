@@ -119,9 +119,23 @@ across files.
 (10–30 MB) so they must be opt-in per lesson, not loaded speculatively. The `CodeRunner`
 interface already accommodates them — this is an adapter, not a rewrite.
 
+**Suspense for lesson and review loading.** Four effects currently clear state before
+an async fetch — `Lesson`, `Review` and `SqlConsole` — each carrying an
+`eslint-disable` for `react-hooks/set-state-in-effect` with the reason inline. They are
+correct and the extra render is imperceptible, but the effect-free version is Suspense
+over a resource cache, which would also give proper loading boundaries and remove the
+hand-rolled `cancelled` flags. It is a change to how lesson data is loaded, not a local
+tidy-up, which is why it is here rather than done.
+
 **Content Security Policy.** Requires a host that can set headers. See
 [SECURITY.md](SECURITY.md) for why a meta CSP was rejected rather than shipped as
 reassurance.
+
+**Pre-rendered lesson HTML would also fix the 404 status on deep links.** GitHub Pages
+serves `404.html` for any unmatched path, so `/learn/ruby/blocks-and-yield` returns the
+app shell with a 404 status. Browsers do not care — the router resolves the path and the
+lesson renders, which the browser smoke test verifies against the live site. Crawlers do
+care, so until lessons are real HTML files the sitemap is the only way they are found.
 
 ### 3. Deliberately not next
 
