@@ -1,0 +1,205 @@
+passScore: 0.7
+questions:
+  - id: read-the-log
+    kind: choice
+    concept: profiling
+    prompt: >-
+      `Completed 200 OK in 1203ms (Views: 1150ms | ActiveRecord: 18ms | Allocations: 1894203)`.
+      What does this point at?
+    options:
+      - text: "Rendering, with object churn as the likely cause — nearly two million allocations for one request is garbage-collection pressure"
+        correct: true
+        feedback: >-
+          Usually loading full records to read one column, or building strings in a loop.
+      - text: A slow database, since 1.2 seconds is well above a reasonable query budget
+        feedback: >-
+          The database accounted for 18ms of it.
+      - text: An external HTTP call in the request path
+        feedback: >-
+          That would appear in neither view nor database time; here views dominate.
+    explanation: >-
+      The framework splits the request's time into view rendering and database access, so one line
+      tells you which half of the system to examine — here rendering consumed 1,150 of 1,203
+      milliseconds while the database was negligible. The allocation count then narrows it further:
+      a request producing almost two million objects is spending its time allocating and
+      garbage-collecting rather than computing, which points at loading full records to read one
+      field, string concatenation in a loop, or rendering a large collection one partial at a time.
+
+  - id: n-plus-one-vs-index
+    kind: choice
+    concept: database-performance
+    prompt: >-
+      ActiveRecord time dominates. How do you tell an N+1 from a missing index?
+    options:
+      - text: "Count the queries — many near-identical queries differing only by id is an N+1; a few queries each taking hundreds of milliseconds is a missing index, confirmed with EXPLAIN ANALYZE"
+        correct: true
+        feedback: >-
+          The fixes are completely different, so the distinction comes first.
+      - text: Check whether the queries use an index, since an N+1 always uses one
+        feedback: >-
+          An N+1's individual queries are usually well indexed, which is why they are hard to spot.
+      - text: Compare total database time against the number of records returned
+        feedback: >-
+          That ratio is ambiguous between the two cases.
+    explanation: >-
+      Both present as high database time and need opposite responses, so the first question is how
+      the time is distributed across statements. Dozens or hundreds of structurally identical
+      queries, each individually fast, is the signature of a loop issuing one query per record —
+      fixed by eager loading. A small number of slow statements is a planning problem, and
+      `EXPLAIN ANALYZE` will show a sequential scan where an index lookup belonged, or a row count
+      far larger than the result. Reaching for `includes` on a missing-index problem, or adding an
+      index to an N+1, wastes the effort entirely.
+
+  - id: percentiles
+    kind: choice
+    concept: profiling
+    prompt: "Why look at p95 and p99 rather than the average?"
+    options:
+      - text: "An average hides the distribution's shape — a page averaging 200ms may be 80ms for most users and four seconds for the 5% with the most data, and those are the users who complain and churn"
+        correct: true
+        feedback: >-
+          Averages also conceal bimodality, where a cache hit and a miss average to a number describing neither.
+      - text: Because percentiles are cheaper to compute than a mean over a long window
+        feedback: >-
+          They are more expensive to compute accurately.
+      - text: Because the average is skewed by fast error responses
+        feedback: >-
+          A real effect that argues for splitting by outcome, not for percentiles specifically.
+    explanation: >-
+      A mean collapses a distribution to one number and discards exactly the information that
+      matters: whether everyone is experiencing something similar, or whether a minority is
+      experiencing something much worse. Those slowest users are typically the ones with the most
+      data — the largest carts, the most followers, the longest history — which is to say the most
+      valuable. The mean is also actively misleading when the distribution is bimodal, since a
+      cache hit at 20ms and a miss at two seconds produce an average that describes neither case.
+
+  - id: allocation-patterns
+    kind: choice
+    concept: memory
+    prompt: "Which change reduces allocations most?"
+    options:
+      - text: "`Order.limit(10_000).sum(:total)` instead of `Order.limit(10_000).map(&:total).sum` — one SUM in the database and no model objects at all"
+        correct: true
+        feedback: >-
+          `pluck` is the middle option: values without model instances.
+      - text: "Replacing `map.select` with a single `each` loop"
+        feedback: >-
+          Saves one intermediate array; the model instances dominate.
+      - text: Memoising the query result so it runs once per request
+        feedback: >-
+          Helpful if it ran twice, and it does not reduce the per-call allocation.
+    explanation: >-
+      The dominant cost is instantiating records. Mapping over a relation builds a full model object
+      per row, each with its own attribute set and type-cast values, so ten thousand rows produce
+      tens of thousands of objects before the arithmetic begins. Delegating the aggregation to the
+      database returns a single value and allocates essentially nothing. Where the values
+      themselves are needed, `pluck` returns them without model instances — still linear in rows,
+      but a fraction of the objects. Micro-optimising Ruby around the loop addresses the smaller
+      term.
+
+  - id: pool-starvation
+    kind: choice
+    concept: observability
+    prompt: >-
+      Puma runs five threads and the database pool is five. A request holds a connection while
+      making an HTTP call. What does monitoring show?
+    options:
+      - text: "Apparent database slowness — the other threads block in connection checkout while the database itself is idle"
+        correct: true
+        feedback: >-
+          The pool must exceed the thread count, and network calls should not hold a connection.
+      - text: High CPU, since the blocked threads spin waiting for a connection
+        feedback: >-
+          They sleep, so CPU stays low.
+      - text: Connection errors, as the pool rejects the surplus requests
+        feedback: >-
+          Pools queue by default, which is what hides the cause.
+    explanation: >-
+      Time spent waiting for a connection is attributed to the database call that encloses it, so
+      request latency rises and every dashboard implicates the data layer — while the database
+      reports low utilisation and fast queries. CPU remains low because the threads are blocked
+      rather than busy, which eliminates the other obvious explanation and leaves the real cause
+      invisible. Two fixes apply: size the pool above the thread count so there is headroom, and
+      do not hold a connection across a network call, which is the same discipline as keeping HTTP
+      calls out of a transaction.
+
+  - id: pg-stat-statements
+    kind: choice
+    concept: database-performance
+    prompt: "What does `pg_stat_statements` find that a single-request profiler cannot?"
+    options:
+      - text: "The fast query executed enormously often — a 1ms statement run 50,000 times a minute dominates total database time while appearing innocuous in any one request"
+        correct: true
+        feedback: >-
+          It ranks by cumulative time across all executions rather than by duration.
+      - text: Queries that fail, which a profiler only sees on the failing request
+        feedback: >-
+          Errors are visible in logs; the aggregate view is the distinctive capability.
+      - text: The query plan chosen for each statement
+        feedback: >-
+          That is EXPLAIN; this is about aggregate cost.
+    explanation: >-
+      Profiling one request shows how that request spent its time, so it naturally surfaces the
+      slowest individual statements and says nothing about frequency. The query that actually
+      consumes the most database capacity is often fast enough to look harmless in isolation and
+      executed on every page, or inside a loop — so it never appears near the top of any single
+      trace. Ranking statements by total accumulated execution time across every call makes it
+      immediately visible, which is why this extension is usually the first place to look when the
+      database is saturated and no individual query seems slow.
+
+  - id: cache-not-fix
+    kind: choice
+    concept: profiling
+    prompt: "Why is caching a slow query not the same as fixing it?"
+    options:
+      - text: "It is still slow on every miss, and you have acquired an invalidation problem — and the cache becomes load-bearing, so losing it means the original slowness at full traffic"
+        correct: true
+        feedback: >-
+          Acceptable deliberately, and not a substitute for an index.
+      - text: Because cached query results are always stale by definition
+        feedback: >-
+          Staleness is bounded and often acceptable; it is not the main objection.
+      - text: Because caching moves the cost from the database to the application
+        feedback: >-
+          A cache hit costs far less than the query it replaces.
+    explanation: >-
+      A cache changes how often the slow path runs without changing how slow it is, so every cold
+      key, every deploy that changes a key, and every eviction pays the original cost — and the
+      invalidation logic is new code with its own failure modes. More seriously, once the hit rate
+      is necessary rather than beneficial, the cache has become part of the critical path, so an
+      empty cache means the original performance at full production load. Adding an index removes
+      the cost entirely and is usually less work. Caching is the right answer when the computation
+      is genuinely expensive and unavoidable, not when it is a missing index.
+
+  - id: explain-slow-page
+    kind: recall
+    concept: profiling
+    prompt: >-
+      A page is slow in production and the code looks fine. Describe your approach.
+    key_points:
+      - Measure in production first — data volume, latency and concurrency all differ from development
+      - Read the log line - views versus ActiveRecord versus allocations tells you which half
+      - Many similar queries means N+1; few slow ones means EXPLAIN and probably an index
+      - High allocations with low database time means object churn
+      - Check p95 and p99 rather than the average
+      - Use pg_stat_statements for the fast query executed 50,000 times
+      - Check the connection pool against the thread count
+      - Most of it is an index, includes, pagination or find_each
+    model: >-
+      Measure in that environment before changing anything, because data volume, network latency to
+      the database and concurrency all differ from development — a page that is fast against fifty
+      seeded rows says nothing about five million across an availability zone. The framework's own
+      log line is the first instrument and it is free: it splits the request into view time,
+      database time and allocation count, so one line says which half of the system to examine. If
+      the database dominates, I distinguish many near-identical queries, which is an N+1 fixed by
+      eager loading, from a few slow ones, which is an EXPLAIN and usually a missing index. If
+      rendering dominates with a high allocation count, it is object churn — typically loading full
+      records to read one column, string building in a loop, or rendering a collection one partial
+      at a time. Throughout I look at p95 and p99 rather than the mean, since the mean hides a
+      bimodal distribution and hides the users with the most data, who are the ones complaining.
+      Two things I would check that a request profiler cannot show me: `pg_stat_statements`, because
+      the worst query is often the fast one executed fifty thousand times a minute, and the
+      connection pool against the thread count, because threads blocked in checkout look exactly
+      like database slowness while the database is idle. And I would hold the expectation that most
+      Rails performance work is not clever — it is an index, an `includes`, a `page` or a
+      `find_each` — so I eliminate those four before looking for anything interesting.

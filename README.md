@@ -19,7 +19,7 @@ it with you.
 │  src/generated/  (catalog, per-lesson JSON, search index, graph)      │
 │      │                                                               │
 │      ▼                                                               │
-│  a static site — 127 KB of JavaScript on first load                   │
+│  a static site — 146 KB of JavaScript on first load                   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -27,20 +27,42 @@ it with you.
 
 ## What is actually here
 
-This is an early release with a deliberately narrow curriculum and a complete platform.
-The brief it was built against describes a curriculum of several hundred lessons; the
-decision was to make three tracks genuinely excellent rather than thirty shallow ones,
-because the engine is the reusable part and the content is the endless part.
+Thirteen tracks take a reader from "what is a variable" to "why does this container get
+throttled". Every lesson is original writing, and every one answers the same questions:
+what this is, what problem it solves, how it works one level down, how it breaks, and
+what a strong interview answer sounds like.
 
 | | |
 |---|---|
-| **Tracks** | 3 — Ruby, SQL & Databases, Data Structures & Algorithms |
-| **Lessons** | 11, averaging ~16 minutes, all original writing |
-| **Quizzes** | 11, with 68 questions across four question types |
+| **Tracks** | 13 |
+| **Lessons** | 96, about 26 hours of reading, all original writing |
+| **Quizzes** | 96, with 661 questions across four question types |
+| **Interview questions** | 257, with model answers and follow-ups |
 | **Runnable exercises** | 2, with hidden edge-case tests |
-| **Interview questions** | 32, with hints, model answers and follow-ups |
+| **SQL playgrounds** | 4, running a real query engine in the browser |
 | **Roadmaps** | 3 — Backend (Ruby), SDE I, Mid → Senior |
-| **Tests** | 272 unit and component, plus 54 browser checks against the built site |
+| **Tests** | 278 unit and component, plus 54 browser checks against the built site |
+
+<details>
+<summary>The tracks, and what each is organised around</summary>
+
+| Track | Lessons | The thread running through it |
+|---|---|---|
+| Programming Fundamentals | 8 | A variable is a name, not a box — and how other languages decide differently |
+| Ruby | 11 | The problem each feature solves, from the object model to the GVL |
+| Ruby on Rails | 13 | What the framework does for you, and what it deliberately does not |
+| Git | 5 | The object model first, so the commands become consequences |
+| SQL & Databases | 9 | What the answer cost, not just what it was |
+| Data Structures & Algorithms | 18 | The structure that knows the least while still answering your question |
+| JavaScript & TypeScript | 5 | Why the surprising parts are surprising |
+| HTTP & Networking | 5 | One request, all the way down and back |
+| Operating Systems | 4 | Check what the machine was told before profiling your code |
+| System Design | 6 | Estimates that make an argument decidable |
+| Security | 4 | Why each class of bug survives, not a list of attacks |
+| Testing | 4 | Whether a suite is believed |
+| DevOps & Deployment | 4 | Old and new code run at the same time |
+
+</details>
 
 ### The features that are not in other tutorials
 
@@ -93,7 +115,7 @@ npm run dev          # compiles content, then starts Vite on :5173
 |---|---|
 | `npm run dev` | Compile content and start the dev server |
 | `npm run build` | Validate content → compile → type-check → build → size-budget check |
-| `npm test` | 272 unit and component tests |
+| `npm test` | 278 unit and component tests |
 | `npm run test:smoke` | Drive real Chrome against the built site (needs `npm run preview` running) |
 | `npm run build:pages` | Build for the GitHub Pages project path (`/rubiq/`) |
 | `npm run preview:pages` | Preview that build — see the note below |
@@ -164,7 +186,7 @@ out.
 | **Search** | A build-time inverted index with BM25 scoring — no search dependency shipped |
 | **Hosting** | Static files on GitHub Pages. No server, no database, no paid service. |
 
-**Initial payload: 127 KB gzipped**, enforced by the build. Monaco is 831 KB and is
+**Initial payload: 146 KB gzipped**, enforced by the build. Monaco is 831 KB and is
 reached only by opening a playground. Lesson bodies are one lazy request each. The search
 index is fetched the first time you search.
 

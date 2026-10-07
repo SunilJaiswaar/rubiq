@@ -2,28 +2,30 @@
 
 This file is honest about the gap between what exists and what the project is for.
 
-**What exists:** a complete platform and 11 lessons across 3 tracks.
+**What exists:** a complete platform and 96 lessons across 13 tracks — fundamentals, Ruby,
+Rails, Git, SQL, DSA, JavaScript/TypeScript, HTTP, operating systems, system design,
+security, testing and DevOps.
 **What it is for:** taking someone from zero to a capable professional engineer.
 
-The gap is the opportunity. The engine is the reusable part; content is the endless part.
+The curriculum now covers that arc. What remains is depth in places, more runnable
+practice, and the platform work listed below.
 
 ---
 
-## Why so little content?
+## How the curriculum was built
 
-A deliberate choice. The alternative — thirty tracks of thin, skimmable material — would
-have produced something that looks impressive on a landing page and teaches nobody
-anything. The brief this was built against ends with: *optimise for how deeply the learner
-understands, not for how many courses you have.*
+One vertical slice first — Ruby, SQL and algorithms — because those three exercise every
+feature the platform has: prose, diagrams, runnable exercises with hidden tests, an
+interactive query engine with cost reporting, quizzes of four kinds, interview questions,
+and a concept graph with real prerequisite edges. Only once the engine was proven against
+real content did the remaining ten tracks follow, each of which cost Markdown rather than
+code.
 
-So: one vertical slice, made genuinely excellent, with an engine proven against real
-content. Ruby, SQL and algorithms were chosen because they exercise every feature the
-platform has — prose, diagrams, runnable exercises with hidden tests, an interactive query
-engine with cost reporting, quizzes of four kinds, interview questions, and a concept graph
-with real prerequisite edges.
-
-Adding the thirtieth lesson now costs a Markdown file. Adding the first required all of the
-above.
+The brief this was built against ends with: *optimise for how deeply the learner
+understands, not for how many courses you have.* So every lesson answers the same
+questions — what this is, what problem it solves, how it works one level down, how it
+breaks, what the trade-offs are, and what a strong interview answer sounds like — and the
+validator refuses a lesson that skips them.
 
 ---
 
@@ -64,35 +66,29 @@ above.
 - **Accessibility** — contrast asserted by test in both themes, keyboard navigation
   throughout, focus trap in the command palette, `prefers-reduced-motion`, semantic
   landmarks, skip link.
-- **Performance** — 127 KB gzipped initial payload, enforced by the build.
+- **Performance** — 146 KB gzipped initial payload, enforced by the build.
 
 ---
 
 ## Next
 
-### 1. Content, in the order it unblocks the most people
+### 1. Content depth, now that the breadth exists
 
-The tracks the current three most obviously lead into:
+The thirteen tracks cover the arc from zero to professional. The gaps that remain are
+depth rather than coverage:
 
-- **Programming fundamentals** — a language-agnostic track the Ruby track currently
-  assumes. Variables, types, control flow, functions, scope, recursion, collections,
-  errors, memory, references vs values, debugging.
-- **Git** — not a command list. The object model first, so `reset`, `rebase` and `reflog`
-  stop being incantations.
-- **Rails** — the single largest gap given the Ruby track exists. MVC, Active Record,
-  associations, N+1 and eager loading, callbacks and why they hurt, service objects,
-  background jobs, caching, Hotwire, security, testing, deployment, and the internals
-  (Rack → Ruby → OS → TCP).
-- **HTTP and networking** — the request lifecycle, DNS, TCP, TLS, HTTP semantics, caching
-  headers, load balancers, CDNs. The platform's diagram support is built for this.
-- **More DSA** — linked lists, stacks and queues, trees and BSTs, heaps, graphs, BFS/DFS,
-  sorting, recursion and backtracking, dynamic programming, union-find, tries.
-- **More SQL** — subqueries, CTEs, window functions, transactions and isolation levels,
-  locks and deadlocks, normalisation in depth, replication, partitioning, sharding.
+- **More runnable practice.** Two exercises and four SQL playgrounds across 96 lessons is
+  the clearest imbalance. Every DSA lesson should have an exercise with hidden edge-case
+  tests; the engine for that already exists.
+- **Distributed systems** as its own track — consensus, leader election, exactly-once
+  semantics, the failure modes the system design track only gestures at.
+- **Cloud and infrastructure as code** — the layer below the DevOps track.
+- **AI engineering** — prompting, evaluation, retrieval, and the cost and latency
+  trade-offs, taught the same way as everything else.
+- **Deeper Rails** — Hotwire, Action Cable, the Rack-to-TCP internals walk.
+- **Frontend** — React's rendering model and state, which the JavaScript track sets up
+  and does not cover.
 
-Then, roughly in this order: JavaScript and TypeScript · operating systems · system design
-(LLD and HLD) · security (OWASP, with intentionally vulnerable examples in the sandbox) ·
-testing · DevOps and Docker · distributed systems · cloud · AI engineering · data
 engineering · SRE.
 
 ### 2. Platform work, in order of value per hour
