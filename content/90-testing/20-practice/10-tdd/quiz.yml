@@ -1,0 +1,193 @@
+passScore: 0.7
+questions:
+  - id: primary-benefit
+    kind: choice
+    concept: tdd
+    prompt: "What is TDD's primary benefit?"
+    options:
+      - text: "Design feedback before the interface has any callers — you discover awkwardness in thirty seconds rather than after six callers exist"
+        correct: true
+        feedback: >-
+          The test suite is a by-product you could obtain by writing tests afterwards.
+      - text: A comprehensive test suite, which test-after rarely achieves
+        feedback: >-
+          Test-after can produce an equally complete suite; the timing of the feedback is what differs.
+      - text: Higher coverage, since every line is written to satisfy a test
+        feedback: >-
+          Coverage is a side effect and not a benefit in itself.
+    explanation: >-
+      Writing the test first puts you in the position of the interface's first consumer before any
+      implementation exists, so every awkwardness — a difficult construction, too many
+      collaborators, a misleading method name, needing to reach through two objects — surfaces
+      immediately and costs nothing to fix. Once the code has several callers the same discovery
+      requires changing all of them and persuading their authors. Since a suite can be produced
+      either way, what TDD uniquely provides is the moment at which the design problem becomes
+      visible.
+
+  - id: watch-it-fail
+    kind: choice
+    concept: red-green-refactor
+    prompt: "Why does watching the test fail matter?"
+    options:
+      - text: "A never-failed test may assert something already true, never reach its assertion, or be skipped — seeing red proves it is connected to the behaviour"
+        correct: true
+        feedback: >-
+          The most skipped step, and the one that produces tests which can never fail.
+      - text: Because the failure message needs to be reviewed for clarity
+        feedback: >-
+          Useful, and not the reason.
+      - text: Because test frameworks cache results until a failure occurs
+        feedback: >-
+          No such caching exists.
+    explanation: >-
+      A test's value depends entirely on its ability to fail when the behaviour is wrong, and that
+      property is not self-evident from reading it. An assertion may hold trivially, a setup error
+      may mean the assertion is never evaluated, a typo in the example name may have marked it
+      pending, or a guard clause may return early. Each produces a permanently green test that
+      verifies nothing. Observing the red state establishes the causal link between the test and
+      the code before any implementation exists to confuse the question.
+
+  - id: skip-refactor
+    kind: choice
+    concept: red-green-refactor
+    prompt: "What happens if the refactor step is skipped?"
+    options:
+      - text: "You get working code with no design improvement — which is the usual reason people report that TDD was tried and did not help"
+        correct: true
+        feedback: >-
+          Green is a baseline; refactor is where the design actually happens.
+      - text: The tests become slower, since the implementation stays naive
+        feedback: >-
+          Speed is incidental; the lost design work is the cost.
+      - text: Coverage drops, because refactoring adds covered branches
+        feedback: >-
+          Refactoring preserves behaviour and so preserves coverage.
+    explanation: >-
+      The green step deliberately permits the crudest implementation that satisfies the test —
+      hardcoded values included — because its purpose is to establish a verified baseline rather
+      than a finished solution. All of the structural work therefore lives in the third step:
+      removing duplication, naming the concepts, extracting the objects the code is asking for.
+      Omitting it leaves exactly the code the quickest path produced, with tests around it, which is
+      indistinguishable in quality from any other codebase and is why the practice gets dismissed.
+
+  - id: eight-collaborators
+    kind: choice
+    concept: design-feedback
+    prompt: "Your test needs eight collaborators. What is the wrong response?"
+    options:
+      - text: "Creating eight doubles to make the test writable — that discards the signal that the object has eight responsibilities"
+        correct: true
+        feedback: >-
+          The right response is fewer collaborators.
+      - text: Splitting the object so each piece has one or two collaborators
+        feedback: >-
+          That is the correct response.
+      - text: Using a real database instead of doubling the repository
+        feedback: >-
+          Sensible on its own terms, and it does not address the count.
+    explanation: >-
+      The difficulty of the test is a measurement of the difficulty of using the object, which is a
+      property of the design rather than of the testing approach. Supplying eight doubles makes the
+      test pass while leaving the object exactly as hard to use, hard to reason about and hard to
+      change as it was — and it converts a useful signal into eight pieces of test setup that must
+      be maintained. Listening to it means moving responsibilities into separate objects, each with
+      its own small test, which generally also simplifies the production code calling it.
+
+  - id: outside-in
+    kind: choice
+    concept: outside-in
+    prompt: "What does each direction risk?"
+    options:
+      - text: "Outside-in needs doubles for pieces that do not exist yet; inside-out can produce several good objects that do not compose, discovered last"
+        correct: true
+        feedback: >-
+          Outside-in for a feature, inside-out for a well-understood algorithm.
+      - text: Outside-in risks over-testing the UI; inside-out risks under-testing it
+        feedback: >-
+          Neither direction is specifically about the UI.
+      - text: Outside-in is slower; inside-out produces more brittle tests
+        feedback: >-
+          Speed and brittleness are not the characteristic risks.
+    explanation: >-
+      Starting from the user-visible behaviour means the first failing test refers to components
+      that have not been written, so progress requires either stubbing them temporarily or
+      descending a level immediately — which introduces doubles whose assumptions need checking
+      later. Starting from the bottom avoids that entirely, every step using real objects, but
+      nothing validates that the pieces fit together until the final assembly, so a mismatch in
+      interfaces or responsibilities is found when it is most expensive. The usual resolution is to
+      choose by how well understood the composition is.
+
+  - id: bug-test-first
+    kind: choice
+    concept: tdd
+    prompt: "Why write the failing test before fixing a bug?"
+    options:
+      - text: "It proves you have actually reproduced the bug — fixing first and testing after proves only that the code currently does something"
+        correct: true
+        feedback: >-
+          And the test remains as the regression test for free.
+      - text: Because a test written afterwards cannot be made to fail
+        feedback: >-
+          It can, by reverting the fix; the issue is that nobody does.
+      - text: Because the fix might otherwise be incomplete
+        feedback: >-
+          Possible, and the reproduction is the specific thing being established.
+    explanation: >-
+      A bug report describes a symptom, and the first real question is whether you have understood
+      it well enough to trigger it on demand. A test that fails before the change and passes after
+      answers that definitively. Writing the test after the fix skips the question: the test passes,
+      but nothing establishes that it would have failed on the original code, so it may be
+      exercising a different path entirely and the actual defect may still be present. This is the
+      least arguable application of the cycle, since the regression test is wanted regardless.
+
+  - id: legacy-order
+    kind: choice
+    concept: tdd
+    prompt: "When refactoring legacy code, what do you test first, and why might those tests encode bugs?"
+    options:
+      - text: "The current behaviour, whatever it is — you are preserving behaviour rather than endorsing it, so a test may capture an existing defect, which is correct for this purpose"
+        correct: true
+        feedback: >-
+          Fixing behaviour and changing structure at once makes failures impossible to attribute.
+      - text: The intended behaviour, so the refactor corrects the bugs as it goes
+        feedback: >-
+          Then a failure could mean the refactor broke something or the behaviour changed deliberately.
+      - text: Only the public API, since internals are about to change
+        feedback: >-
+          Reasonable scoping, and it does not address what the tests should assert.
+    explanation: >-
+      The purpose of the tests during a restructuring is to detect accidental behaviour change, and
+      that requires them to describe the behaviour as it exists. If a test asserts the intended
+      behaviour instead, it fails from the start and provides no signal, and any later failure is
+      ambiguous between "the refactor broke something" and "this was always wrong". Capturing an
+      existing defect in a test is therefore appropriate — it records what the system does today —
+      and correcting it is a separate, subsequent change with its own test, made visible as a
+      deliberate behaviour change.
+
+  - id: explain-wrong-tool
+    kind: recall
+    concept: tdd
+    prompt: >-
+      Name situations where TDD is the wrong tool, and what you do instead.
+    key_points:
+      - Exploration — tests written against an API you do not understand get deleted
+      - So spike freely, then delete the spike and rebuild test-first
+      - The deletion is the step people skip, leaving untested exploratory code
+      - Visual and layout work, where the feedback loop is the eye
+      - Throwaway prototypes being shown tomorrow
+      - Glue code with no decisions in it
+      - The technique suits code whose design matters and whose behaviour can be stated
+    model: >-
+      The clearest case is exploration. When I do not yet know the shape of the solution — learning
+      an unfamiliar library, comparing three approaches, establishing whether something is even
+      feasible — tests written first encode assumptions I am about to discard, so they slow the
+      exploration without informing it. The honest practice is to spike freely with no tests at all,
+      learn what the design wants to be, then delete the spike and rebuild it test-first now that
+      the shape is known. The deletion is the step that gets skipped, and skipping it means keeping
+      exploratory code that was never designed and is now untested. Beyond that, visual and layout
+      work has its feedback loop in the eye rather than in an assertion, so nobody sensibly
+      test-drives a CSS layout; a prototype being demonstrated tomorrow and discarded afterwards
+      does not need a suite; and glue code containing no decisions — a delegation, a configuration
+      value — has no behaviour worth specifying. The common thread is that the technique earns its
+      cost where the design matters and the behaviour can be stated precisely, which covers business
+      logic, parsers, state machines and bug fixes, and does not cover everything.

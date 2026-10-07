@@ -1,0 +1,3 @@
+title: In practice
+summary: Writing tests before the code as a design tool, and the reason a suite that fails randomly is worse than no suite at all.
+level: intermediate

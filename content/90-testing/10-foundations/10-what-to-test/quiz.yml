@@ -1,0 +1,192 @@
+passScore: 0.7
+questions:
+  - id: two-conditions
+    kind: choice
+    concept: test-value
+    prompt: "Which condition do bad tests usually fail?"
+    options:
+      - text: "Passing when the behaviour is right — they break on a rename or an extracted method, which taxes refactoring"
+        correct: true
+        feedback: >-
+          And people learn from that: what they learn is not to restructure code.
+      - text: Failing when the behaviour is wrong, because assertions are too loose
+        feedback: >-
+          Loose assertions exist, and over-specification is the more common and more costly failure.
+      - text: Both equally, since a badly written test is simply unreliable
+        feedback: >-
+          The two failures have very different frequencies and costs.
+    explanation: >-
+      A test that is too tightly bound to the implementation satisfies the first condition and
+      violates the second: it dutifully fails, but it fails for changes that alter nothing a user
+      could observe. The direct cost is time spent updating tests after a safe refactor. The
+      indirect cost is larger and compounds — a team that is repeatedly punished for restructuring
+      code stops restructuring it, so the design degrades, which is precisely the opposite of what
+      the suite was supposed to protect.
+
+  - id: coverage
+    kind: choice
+    concept: coverage
+    prompt: "What is coverage genuinely useful for?"
+    options:
+      - text: "Read backwards — uncovered lines are lines nothing exercises, which is a real signal for error paths; a high number is no evidence at all"
+        correct: true
+        feedback: >-
+          A test calling every line and asserting nothing scores 100%.
+      - text: Comparing suite quality between projects
+        feedback: >-
+          It measures execution, which does not compare meaningfully.
+      - text: Setting a gate that prevents untested code merging
+        feedback: >-
+          A gate rewards tests written to satisfy it, which assert nothing.
+    explanation: >-
+      Coverage records which lines ran, and running a line proves nothing about whether an error in
+      it would be detected — the metric is satisfied by invoking code and asserting nothing.
+      Treating it as a target therefore produces exactly those tests. Its legitimate use is the
+      negative reading: a line no test touches is definitely unverified, and error-handling
+      branches are both the least exercised in production and the most likely to be wrong, so
+      finding them uncovered is actionable. Mutation testing is what actually measures detection.
+
+  - id: pyramid-counter
+    kind: choice
+    concept: test-pyramid
+    prompt: "What is the argument against the pyramid, and what does the trophy propose?"
+    options:
+      - text: "Heavily mocked unit tests verify your beliefs about collaborators rather than reality, so all of them can pass on a broken system — the trophy weights integration tests with real collaborators"
+        correct: true
+        feedback: >-
+          Every mock is an untested assumption.
+      - text: Unit tests are too slow to maintain at scale, so the base should be smaller
+        feedback: >-
+          Speed is their main advantage.
+      - text: The pyramid omits manual testing, which the trophy restores
+        feedback: >-
+          The trophy is about automated layers.
+    explanation: >-
+      A mock encodes an assumption about how a collaborator behaves, and nothing checks that
+      assumption against the collaborator. So a service test asserting that it calls
+      `repo.save(user)` and a repository test asserting that `save` persists a user can both pass
+      while the service actually passes raw parameters — each test is internally consistent and the
+      system is broken. The trophy's response is to weight the suite towards tests that run real
+      collaborators together in one process, reserving unit tests for logic with no collaborators
+      and keeping a thin end-to-end layer.
+
+  - id: coupling-test
+    kind: choice
+    concept: behaviour-vs-implementation
+    prompt: "How do you tell whether a test specifies implementation rather than behaviour?"
+    options:
+      - text: "Ask whether you could rewrite the implementation completely, keeping the behaviour, and have the test still pass"
+        correct: true
+        feedback: >-
+          If not, the test is specifying how rather than what.
+      - text: Check whether it uses mocks — any mock means implementation coupling
+        feedback: >-
+          A mock at a true system boundary can still test behaviour.
+      - text: Check whether it exercises private methods
+        feedback: >-
+          A strong signal, and not the general test.
+    explanation: >-
+      The question isolates exactly the property that matters: whether the test constrains
+      observable outcomes or internal structure. A test asserting that an order's total is a
+      particular figure survives any rewrite that keeps the arithmetic correct. A test asserting
+      that a specific collaborator method was invoked constrains the structure, so it fails on
+      renames, extractions and reorderings that change nothing a caller could detect. Applying the
+      question during review is cheap and catches most over-specification before it accumulates.
+
+  - id: boundaries
+    kind: choice
+    concept: test-value
+    prompt: "Why are three tests around a threshold better than one well inside the range?"
+    options:
+      - text: "A single test at 10,000 passes under both `>` and `>=` — the test exactly at the threshold is what distinguishes them, and that is where off-by-one bugs live"
+        correct: true
+        feedback: >-
+          Below, at, and above is the minimum useful set.
+      - text: Because three tests give three times the coverage of the branch
+        feedback: >-
+          Coverage would be identical; discrimination is what differs.
+      - text: Because boundary values are more likely to appear in production data
+        feedback: >-
+          Possibly true, and not the reason — the reason is which bugs the test can detect.
+    explanation: >-
+      A test's value is which incorrect implementations it rejects. A value far inside the range
+      produces the same result whether the comparison is strict or inclusive, so it cannot
+      distinguish the two and an off-by-one error passes. The value exactly at the boundary
+      produces different results under the two comparisons, so it discriminates. Testing just
+      below, exactly at, and just above a threshold covers the inclusive/exclusive mistake, the
+      inverted comparison, and the sign error — three of the most common defects in conditional
+      logic.
+
+  - id: mutation
+    kind: choice
+    concept: coverage
+    prompt: "What does mutation testing measure that coverage does not?"
+    options:
+      - text: "Whether a change to the code would be noticed — it flips comparisons and booleans, deletes lines, and reports which mutations no test caught"
+        correct: true
+        feedback: >-
+          On a suite with 95% line coverage, 30-50% of mutants commonly survive.
+      - text: Whether tests are independent of execution order
+        feedback: >-
+          That is order randomisation, a separate technique.
+      - text: Whether the tests themselves contain bugs
+        feedback: >-
+          Indirectly at best; it measures detection capability.
+    explanation: >-
+      Coverage answers "did this line execute". Mutation testing answers the question people
+      actually want: "if this line were wrong, would anything fail". It introduces small
+      behavioural changes — a comparison operator swapped, an arithmetic operator inverted, a
+      conditional forced true, a statement removed — and reruns the suite for each. A surviving
+      mutant is a concrete code change that no test detected, which is the definition of a gap. It
+      is expensive because the suite runs once per mutation, so it fits as a periodic audit of
+      important modules rather than a continuous gate.
+
+  - id: whole-object
+    kind: choice
+    concept: test-value
+    prompt: "Why is a whole-object equality assertion a liability?"
+    options:
+      - text: "It fails whenever any field changes, so it gets regenerated without being read — at which point it asserts whatever the code currently does, which is nothing"
+        correct: true
+        feedback: >-
+          Assert the fields the behaviour is about.
+      - text: Because deep equality is slow on large objects
+        feedback: >-
+          Negligible at test scale.
+      - text: Because object identity differs between runs
+        feedback: >-
+          Equality compares values, not identity.
+    explanation: >-
+      An assertion over an entire serialised object couples the test to every field, including ones
+      irrelevant to the behaviour under test. Adding a field breaks it, and since the failure is
+      obviously benign the usual response is to regenerate the expected value from the current
+      output. After that the assertion contains whatever the code produced rather than what it
+      should produce, so it can no longer detect a regression in any of those fields. Asserting
+      only the fields the behaviour concerns keeps the test discriminating and stable.
+
+  - id: explain-metrics
+    kind: recall
+    concept: test-value
+    prompt: >-
+      Name two numbers worth tracking about a suite and explain why each matters more than coverage.
+    key_points:
+      - Time to feedback — a slow suite is not run locally
+      - And a suite that is not run is not protecting anything
+      - So speed is a correctness property rather than a convenience
+      - Flake rate — any non-zero rate trains people to rerun
+      - Once rerunning is the habit, real failures get rerun too
+      - Both describe whether the suite is used and believed
+      - Coverage describes neither
+    model: >-
+      Time to feedback, and flake rate. Time to feedback matters because a suite nobody runs
+      protects nothing: once the full run takes twenty minutes, people stop running it before
+      pushing, so defects are discovered in CI or later rather than while the context is still in
+      their head, and the cost of each fix rises. That makes speed a correctness property rather
+      than a nicety — a fast suite is run often, and a suite run often catches things early. Flake
+      rate matters because it determines whether failures are believed. A single test that fails
+      one run in fifty teaches the team that a red build means "try again", and once rerunning is
+      the reflex it is applied uniformly — including to the genuine failure that was trying to tell
+      you something. A suite with a visible flake rate has therefore lost its only real function,
+      which is to be trusted when it says no. Coverage speaks to neither property: it can be high
+      on a suite that is too slow to run and too unreliable to believe, and it says nothing about
+      whether any defect would be detected.

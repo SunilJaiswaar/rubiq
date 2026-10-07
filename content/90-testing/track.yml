@@ -21,3 +21,5 @@ outcomes:
   - Choose between a stub, a mock and the real thing, deliberately
   - Recognise a test that will break on every refactor, before writing it
   - Use failures as diagnosis — a good test name is half the debugging
+  - Use TDD as design feedback, and say when it is the wrong tool
+  - Diagnose a flaky test, and treat it as an incident rather than an annoyance

@@ -1,0 +1,190 @@
+passScore: 0.7
+questions:
+  - id: the-axis
+    kind: choice
+    concept: test-doubles
+    prompt: "Which distinction actually matters when choosing a double?"
+    options:
+      - text: "Whether the test asserts an outcome or an interaction — a stub supports the first, a mock is the second"
+        correct: true
+        feedback: >-
+          The five-name taxonomy is less useful than this one question.
+      - text: Whether the double is created manually or by the mocking library
+        feedback: >-
+          Construction mechanism has no bearing on coupling.
+      - text: Whether the double replaces one method or the whole object
+        feedback: >-
+          Partial versus full replacement matters less than what is asserted.
+    explanation: >-
+      Classifying doubles by name is a vocabulary exercise; the consequential question is what the
+      test ends up asserting. A stub exists to supply input so that the assertion can be about the
+      resulting state or return value, which survives any reimplementation that keeps the behaviour.
+      A mock embeds the assertion in the double itself, so the test's success depends on a
+      particular call being made with particular arguments — a structural claim that fails when the
+      structure changes for entirely safe reasons.
+
+  - id: mock-coupling
+    kind: choice
+    concept: mocking
+    prompt: "Where is a mock the right tool?"
+    options:
+      - text: "When the interaction is the observable behaviour and there is no outcome to assert — notably asserting that a call did *not* happen"
+        correct: true
+        feedback: >-
+          \"Nothing happened\" has no state change to observe.
+      - text: Whenever the collaborator is slow, since a mock avoids executing it
+        feedback: >-
+          A stub also avoids executing it, without the interaction coupling.
+      - text: Whenever you need to verify arguments, since stubs cannot inspect them
+        feedback: >-
+          A spy records arguments without making the call itself the assertion.
+    explanation: >-
+      Most behaviours produce something observable — a changed record, a returned value, a response
+      status — and asserting that is strictly better because it survives reimplementation. The
+      exception is a behaviour whose entire content is that something was or was not done: an audit
+      entry written, an email sent exactly once, or a payment gateway deliberately not called for an
+      order already paid. The negative case is the clearest, since the absence of an effect leaves
+      no state to inspect, so the interaction assertion is the only available expression.
+
+  - id: boundary-rule
+    kind: choice
+    concept: boundaries
+    prompt: "State the boundary rule and why it resolves the mocking argument."
+    options:
+      - text: "Double at the process boundary and use the real thing inside it — the case for doubles applies to things you do not control, and the case against applies to things you do"
+        correct: true
+        feedback: >-
+          Both positions are correct about different places.
+      - text: Double everything except the database, which is too valuable to replace
+        feedback: >-
+          The database is one instance of the rule, not the rule.
+      - text: Never double, and accept slower tests in exchange for realism
+        feedback: >-
+          Then the clock, payments and third parties become untestable.
+    explanation: >-
+      The apparent disagreement dissolves once you notice the two arguments concern different
+      collaborators. A payment gateway charges money, an email provider reaches real inboxes, and
+      the current time differs every run — for these a double is the only way to get a deterministic
+      test, so the case for doubles is unanswerable. Inside your own application both sides are
+      yours, the real object is fast, and using it verifies the assumption a double would merely
+      encode — so the case against applies. The rule simply places each argument where it holds.
+
+  - id: verifying-double
+    kind: choice
+    concept: mocking
+    prompt: "What does `instance_double` catch that `double` does not?"
+    options:
+      - text: "A method that does not exist on the real class — so after renaming `charge` to `capture`, the plain double still passes while production raises NoMethodError"
+        correct: true
+        feedback: >-
+          It also verifies arity, catching a changed signature.
+      - text: Incorrect return types from the stubbed method
+        feedback: >-
+          Return types are not checked in dynamically typed languages.
+      - text: Calls made in the wrong order
+        feedback: >-
+          Ordering requires explicit expectations in either style.
+    explanation: >-
+      A plain double is a permissive object that accepts whatever is asked of it, so it happily
+      responds to a method the real collaborator no longer has — leaving a green test and a broken
+      production path. A verifying double is bound to a class and refuses to stub anything that
+      class does not define, with the correct number of arguments, so a rename or a signature change
+      fails the test immediately. This removes the most dangerous property of mocking, which is that
+      the double and reality can diverge silently.
+
+  - id: contract-drift
+    kind: choice
+    concept: contract-tests
+    prompt: "What drift does a contract test usually catch?"
+    options:
+      - text: "Edge-case behaviour — the fake returns nil where the real one raises, accepts a duplicate the real unique index rejects, or ignores a transaction boundary"
+        correct: true
+        feedback: >-
+          One shared suite run against both implementations prevents it.
+      - text: Performance differences between the fake and the real implementation
+        feedback: >-
+          Performance is expected to differ; behaviour is what must match.
+      - text: Mismatched method names, which the type system already catches
+        feedback: >-
+          Name mismatches are the easy case; semantics are where drift accumulates.
+    explanation: >-
+      A fake is usually written against the happy path, because that is what the first test needed,
+      and the real implementation's behaviour under unusual conditions is where the two quietly
+      diverge. Database-backed implementations raise on missing records, reject constraint
+      violations and participate in transactions; an in-memory substitute typically returns nil,
+      accepts anything and has no transactional semantics. Tests written against the fake then
+      encode the lenient behaviour, so the suite is green against a system that does not exist.
+      Running one shared suite against both forces the fake to honour the same contract.
+
+  - id: fake-over-stub
+    kind: choice
+    concept: test-doubles
+    prompt: "Why prefer a fake gateway over a stub per test?"
+    options:
+      - text: "It is reusable, and it can model the decline path — which a stub-per-test tends to omit, leaving the error branch most likely to be wrong never exercised"
+        correct: true
+        feedback: >-
+          Tests then assert outcomes against it rather than interactions.
+      - text: Because a fake runs faster than a stub
+        feedback: >-
+          Both are effectively instant.
+      - text: Because a fake does not require the mocking library
+        feedback: >-
+          True and inconsequential.
+    explanation: >-
+      Stubbing within each test naturally produces whatever that test needs, which is almost always
+      success — so the suite accumulates dozens of happy-path configurations and never runs the
+      failure handling, despite that being the code most likely to be wrong and least exercised in
+      production. A fake implemented once can encode both outcomes, including the specific exception
+      type the real implementation raises, so any test can exercise either path by choosing an
+      input. It also shifts tests towards asserting resulting state rather than asserting which
+      calls were made.
+
+  - id: real-database
+    kind: choice
+    concept: boundaries
+    prompt: "Why use a real test database rather than mocking the repository?"
+    options:
+      - text: "It catches wrong columns, missing indexes, constraint violations and scopes that do not do what their name says — none of which a repository double can detect"
+        correct: true
+        feedback: >-
+          Roughly an order of magnitude slower per test, and worth it.
+      - text: Because mocking a repository is more code than using the database
+        feedback: >-
+          Line count is not the argument.
+      - text: Because ORMs cannot be mocked reliably
+        feedback: >-
+          They can be; the question is what is lost by doing so.
+    explanation: >-
+      A repository double asserts that your code called a method you wrote, which tells you nothing
+      about whether the query underneath is correct. Using the real database exercises the SQL, the
+      schema and the constraints, so a mistyped column, an absent unique index, a scope with an
+      inverted condition or a migration that never ran all surface as test failures. The cost is
+      wall-clock time per test, and the usual mitigations — transactional cleanup, a prepared
+      template database, parallel workers — keep it acceptable. The bugs it catches are exactly the
+      ones that otherwise reach production.
+
+  - id: explain-time
+    kind: recall
+    concept: test-doubles
+    prompt: >-
+      What goes wrong with `travel_to` or `Timecop.freeze` without a block, and what would you do?
+    key_points:
+      - Global time stays altered after the test ends
+      - Subsequent tests see a frozen or shifted clock
+      - Failures depend on execution order, which is expensive to trace
+      - Random test ordering makes it intermittent
+      - Use the block form so the change is scoped
+      - Or inject a clock dependency, making the behaviour testable without global state
+    model: >-
+      Both helpers mutate a global, so without a block the alteration persists after the example
+      finishes and every subsequent test in that process runs with a frozen or shifted clock. The
+      resulting failures are among the most expensive to diagnose: they appear in tests that look
+      entirely unrelated, they depend on which examples ran earlier, and with randomised ordering
+      they are intermittent — so the natural response is to rerun, which succeeds, which teaches the
+      team to ignore it. The immediate fix is the block form, which restores the clock on exit even
+      if the example raises. The better structural fix is to inject the clock as a dependency, so the
+      object under test asks a collaborator for the current time and a test can supply a fixed one
+      without touching global state at all. That costs a constructor parameter and makes every
+      time-dependent behaviour straightforwardly testable, including ones where two different times
+      are needed in the same example — which global freezing handles badly.

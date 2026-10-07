@@ -1,0 +1,193 @@
+passScore: 0.7
+questions:
+  - id: arithmetic
+    kind: choice
+    concept: flakiness
+    prompt: "A 0.01% per-test flake rate across 2,000 tests — what fraction of full runs fails for no reason?"
+    options:
+      - text: "About one in five — 0.9999 to the power of 2,000 is roughly 0.82"
+        correct: true
+        feedback: >-
+          Which is why \"it only fails occasionally\" does not scale.
+      - text: About one in five thousand, since the rate is per test
+        feedback: >-
+          A run fails if any test fails, so the probabilities compound.
+      - text: About one in a hundred, matching the per-test rate
+        feedback: >-
+          That would be true for a single test, not for two thousand.
+    explanation: >-
+      A full run succeeds only if every test passes, so the probability is the per-test success rate
+      raised to the number of tests. A rate that looks negligible in isolation becomes decisive once
+      multiplied two thousand times over — and at a tenth of a percent per test the clean-run
+      probability drops to about one in seven. This is the same compounding that makes tail latency
+      a systems problem rather than a per-service one, and it is why the only workable target for
+      per-test flakiness in a large suite is zero.
+
+  - id: real-cost
+    kind: choice
+    concept: ci-reliability
+    prompt: "What does a flaky test cost beyond the failed runs?"
+    options:
+      - text: "It teaches the team that red means \"try again\", and the reflex is then applied to genuine failures — so a real regression gets rerun until it passes by luck"
+        correct: true
+        feedback: >-
+          One flaky test costs the suite's credibility, not one test's worth.
+      - text: Mainly CI minutes, since reruns consume compute
+        feedback: >-
+          A real cost and trivial next to the lost signal.
+      - text: Developer frustration, which reduces morale over time
+        feedback: >-
+          Genuine and secondary to the loss of trust in the build.
+    explanation: >-
+      The suite exists to be trusted when it reports a problem, and that trust is the thing
+      flakiness destroys. Once rerunning has worked a few times it becomes the automatic response to
+      any red build, and the response cannot discriminate — deciding whether a particular failure is
+      genuine is precisely the effort that rerunning avoids. So the mechanism that was supposed to
+      stop a regression reaching production instead gets bypassed by habit, and the damage is
+      proportional to the whole suite rather than to the one bad test.
+
+  - id: causes
+    kind: choice
+    concept: test-isolation
+    prompt: "Which cause of flakiness is most frequent?"
+    options:
+      - text: "Shared state between tests, producing order dependence — and it is the hardest to see because the failing test is usually not the one at fault"
+        correct: true
+        feedback: >-
+          Time, concurrency, randomness, external calls and CI contention follow.
+      - text: External dependencies being unavailable
+        feedback: >-
+          Common and usually obvious from the error.
+      - text: Insufficient timeouts in CI
+        feedback: >-
+          A real CI-specific cause and less frequent than isolation failures.
+    explanation: >-
+      Memoised singletons, class variables, caches, global registries, records created once per file
+      and constants stubbed without restoration all leave residue that affects later examples. The
+      diagnostic difficulty is that the symptom appears in whichever test happens to run afterwards,
+      which may be in an unrelated file and may change as the suite grows — so the failing test looks
+      innocent and the guilty one looks fine. It is also the cause most likely to indicate a genuine
+      production problem, since the shared mutable state is usually shared in production too.
+
+  - id: retry-mitigation
+    kind: choice
+    concept: flakiness
+    prompt: "Why is `retry: 3` a mitigation rather than a fix?"
+    options:
+      - text: "It makes the build green while leaving the nondeterminism in place — and the test can no longer catch the real intermittent bug it may have been reporting"
+        correct: true
+        feedback: >-
+          Acceptable temporarily with a tracking issue, never as policy.
+      - text: Because retries triple the CI time for that test
+        feedback: >-
+          A cost, and not the objection.
+      - text: Because retries only work for timing issues, not order dependence
+        feedback: >-
+          They can mask both, which is the problem.
+    explanation: >-
+      Retrying addresses the symptom — a red build — without touching the cause, so whatever
+      nondeterminism exists remains in the system and may also exist in production. More
+      damagingly, a test configured to retry has lost the ability to report an intermittent defect:
+      a genuine race that fails one time in three now passes on the second attempt and is never
+      seen. As a short-term measure with a recorded investigation it keeps the team working; adopted
+      as policy it quietly converts the suite into one that cannot detect intermittent failures at
+      all.
+
+  - id: sleep
+    kind: choice
+    concept: determinism
+    prompt: "Why is `sleep 2` the wrong fix for a race, and what is right?"
+    options:
+      - text: "It is either sometimes too short — still flaky — or always too long, slowing every run; wait on the condition with a timeout instead"
+        correct: true
+        feedback: >-
+          Polling matchers make the test as fast as the application and fail only on real slowness.
+      - text: Because sleep blocks the event loop, affecting other tests
+        feedback: >-
+          In a test process that is rarely the issue.
+      - text: Because the correct duration cannot be determined without profiling
+        feedback: >-
+          Closer, and the structural point is that a fixed duration is the wrong mechanism.
+    explanation: >-
+      A fixed delay encodes a guess about how long something takes, and the guess has to be wrong in
+      one direction or the other: tuned tightly it fails whenever the machine is loaded, and tuned
+      generously it adds that cost to every single run. Waiting on the condition inverts the
+      arrangement — the test polls until the expected state holds or an upper bound expires — so it
+      completes as soon as the application is ready and only fails when the application is genuinely
+      too slow, which is information rather than noise.
+
+  - id: seed
+    kind: choice
+    concept: test-isolation
+    prompt: "Why must CI print the random seed?"
+    options:
+      - text: "An order-dependent failure is reproducible once you know the order, and unreproducible otherwise — the seed turns a mystery into a ten-minute bisect"
+        correct: true
+        feedback: >-
+          Its absence is the most common reason flakes go uninvestigated.
+      - text: So the same tests run in the same order on every build
+        feedback: >-
+          Randomisation is desirable; recording the seed is what makes it tractable.
+      - text: To allow CI to skip tests that have already passed
+        feedback: >-
+          Seeds have nothing to do with selection.
+    explanation: >-
+      Randomised ordering is what exposes isolation failures, but it also means a failure cannot be
+      recreated unless the ordering can be recreated — and the seed is what determines it. With the
+      seed recorded, the exact failing sequence can be replayed locally and then narrowed
+      automatically to the minimal pair of files that interact, which usually identifies the culprit
+      immediately. Without it, the failure is a one-off observation with no way to investigate, so
+      the rational response is to rerun, which is how flakes accumulate indefinitely.
+
+  - id: quarantine
+    kind: choice
+    concept: ci-reliability
+    prompt: "What does quarantine mean, and which problem does it solve?"
+    options:
+      - text: "Out of the blocking build but still running and reported — it keeps the build trustworthy while one person investigates, instead of the whole team rerunning"
+        correct: true
+        feedback: >-
+          It needs an owner and a deadline, or the list becomes a graveyard.
+      - text: Skipping the test until someone has time to look at it
+        feedback: >-
+          Skipping stops the signal entirely; quarantine keeps it visible.
+      - text: Moving the test to a nightly suite that nobody reads
+        feedback: >-
+          Unread is effectively deletion without the honesty.
+    explanation: >-
+      The purpose is to separate two decisions that are usually conflated: whether the test should
+      block merging, and whether it should exist. Removing it from the gate immediately restores the
+      build's credibility so the team continues to believe red builds, while continuing to run and
+      report it preserves the information needed to diagnose it and prevents the problem being
+      forgotten. The failure mode is a quarantine list that grows without owners or deadlines, at
+      which point it is a slower version of the original problem — so each entry needs both, and an
+      honest deletion is better than indefinite limbo.
+
+  - id: explain-real-bugs
+    kind: recall
+    concept: flakiness
+    prompt: >-
+      Give cases where a flaky test is reporting a real production bug.
+    key_points:
+      - Order-dependent — shared mutable state that production also has
+      - A memoised singleton ignoring a configuration change is a production bug
+      - Month-boundary failure — date arithmetic that will fail on the 31st
+      - Timezone or DST failure — the same logic runs in production
+      - Racing the UI — the UI has no completion signal, which slow users also hit
+      - Failing under parallel execution — a concurrency bug that appears under load
+      - So the first question is what it is telling you, not how to stabilise it
+    model: >-
+      Order dependence is the clearest case: if a test fails because an earlier one left state
+      behind, that state is shared mutable state which exists in production too — a memoised
+      singleton that never notices a configuration change, a class-level cache that outlives a
+      request, a global registry mutated at runtime. The test is reporting a real defect and
+      silencing it keeps the defect. Date failures are similarly genuine: a test that passes except
+      at a month boundary is exercising arithmetic that assumes every month has thirty days, which
+      will be wrong on the 31st in production; one that fails in a different timezone or across a
+      daylight-saving transition is doing the same for 23- and 25-hour days. A browser test that
+      races the application is telling you there is no observable completion signal, which means a
+      user on a slow connection sees the same inconsistent intermediate state — the test simply
+      reaches it more often. And a test that fails only under parallel execution has usually found a
+      concurrency bug that will appear under production load. The practical consequence is that the
+      first question about a flake should be what it is telling you rather than how to make it stop,
+      because a meaningful proportion of the time the answer is a bug worth fixing.
