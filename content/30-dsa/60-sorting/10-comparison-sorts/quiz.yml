@@ -94,25 +94,29 @@ questions:
   - id: random-shuffle
     kind: choice
     concept: sorting
-    prompt: "What is wrong with `arr.sort(() => Math.random() - 0.5)`?"
+    prompt: "What is wrong with `arr.sort { rand - 0.5 }`, and why is `arr.sort_by { rand }` different?"
     options:
-      - text: "The comparator is inconsistent, so the result is a biased non-uniform permutation determined by the sort's access pattern — and V8 may throw; use Fisher-Yates"
+      - text: "The comparator is inconsistent, so the result is a biased permutation decided by the sort's access pattern; `sort_by` assigns each element one fixed random key, which is sound — but `shuffle` is the right answer"
         correct: true
         feedback: >-
-          An inconsistent comparator is undefined behaviour in C++ and a thrown error in some JS engines.
-      - text: It is correct but slower than Fisher-Yates
+          Ruby accepts a Float comparator result, so nothing raises — it just returns a skewed order.
+      - text: Both are biased; only Fisher-Yates produces a uniform permutation
         feedback: >-
-          It is not correct; the distribution is measurably skewed.
-      - text: "`Math.random()` is not random enough for shuffling"
+          `sort_by { rand }` is uniform — a random Schwartzian key is a valid (if slower) shuffle.
+      - text: "`rand` is not random enough for shuffling"
         feedback: >-
-          The PRNG quality is not the problem; the comparator's inconsistency is.
+          PRNG quality is not the problem; the comparator's inconsistency is.
     explanation: >-
       Sorting algorithms assume the comparator defines a total order — consistent and transitive. A
       random comparator violates both, so the output depends on which pairs the particular algorithm
-      happens to compare, producing a distribution that is demonstrably non-uniform and varies by
-      engine. Beyond bias, an inconsistent comparator is explicitly dangerous: V8's Timsort can
-      detect it and throw, and C++ `std::sort` with an invalid comparator is undefined behaviour
-      that can read past the end of the range. Fisher-Yates is O(n), uniform and three lines.
+      happens to compare, producing a demonstrably non-uniform distribution. `sort_by { rand }` is a
+      different thing entirely: it computes one random key per element, then sorts by those keys, so
+      each element's position is decided by a fixed value and the comparison stays consistent. That
+      is uniform and merely slower than necessary. Ruby will not help you spot the broken version:
+      it accepts a Float comparator result without complaint and does not detect inconsistency at
+      all, where V8's Timsort can throw "Comparison function is not consistent" and C++
+      `std::sort` with an invalid comparator is undefined behaviour that can read past the end of
+      the range. `Array#shuffle` is Fisher-Yates, O(n), uniform and already written.
 
   - id: insertion-small
     kind: choice

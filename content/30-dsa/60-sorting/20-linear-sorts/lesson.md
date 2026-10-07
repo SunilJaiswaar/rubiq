@@ -51,28 +51,40 @@ resources:
 
 ## Counting sort
 
-```js
-// Values must be integers in [0, k). No comparisons anywhere.
-function countingSort(a, k) {
-  const count = new Array(k).fill(0);
-  for (const x of a) count[x]++;                 // tally
+```ruby
+# Values must be integers in [0, k). No comparisons anywhere.
+def counting_sort(a, k)
+  count = Array.new(k, 0)
+  a.each { |x| count[x] += 1 }                   # tally
 
-  // Prefix sums: count[v] becomes "how many values are < v",
-  // which is exactly the output position of the first v.
-  let total = 0;
-  for (let v = 0; v < k; v++) {
-    const c = count[v];
-    count[v] = total;
-    total += c;
-  }
+  # Prefix sums: count[v] becomes "how many values are < v", which is
+  # exactly the output position of the first v.
+  total = 0
+  (0...k).each do |v|
+    c = count[v]
+    count[v] = total
+    total += c
+  end
 
-  const out = new Array(a.length);
-  for (const x of a) out[count[x]++] = x;        // place, then advance
-  return out;
-}
-// O(n + k) time, O(n + k) space. Stable, because the final pass walks
-// the input left to right and equal values are placed in that order.
+  out = Array.new(a.size)
+  a.each do |x|                                  # place, then advance
+    out[count[x]] = x
+    count[x] += 1
+  end
+  out
+end
+
+counting_sort([3, 1, 4, 1, 5, 0, 2], 6)   # => [0, 1, 1, 2, 3, 4, 5]
 ```
+
+O(n + k) time, O(n + k) space. Stable, because the final pass walks the input left to right and
+equal values are placed in that order.
+
+Ruby costs you one line here that other languages do not: `out[count[x]++] = x` has no
+equivalent, because Ruby has no `++`. Splitting it into a write and an increment is clearer
+anyway — the two steps are "place this value" and "the next equal value goes one slot along" —
+but it is the kind of line where a careless rewrite reverses the order and silently breaks
+stability.
 
 :::what
 A **non-comparison sort** orders elements by using their values (or parts of them) to compute
@@ -167,79 +179,170 @@ check — and the same move applies well beyond sorting.
 :::
 
 :::example
-```js
-// 1. Radix sort for non-negative integers, base 256.
-//    Base 256 means 4 passes for a 32-bit integer and a
-//    256-entry count array — a good practical trade.
-function radixSort(a) {
-  const BITS = 8, BASE = 1 << BITS, MASK = BASE - 1;
-  let cur = a.slice();
-  let buf = new Array(a.length);
-  const max = Math.max(...a, 0);
+```ruby
+# 1. Radix sort for non-negative integers, base 256.
+#    Base 256 means 4 passes for a 32-bit integer and a 256-entry
+#    count array — a good practical trade.
+def radix_sort(a)
+  return a.dup if a.empty?
+  bits = 8
+  base = 1 << bits
+  mask = base - 1
+  cur = a.dup
+  buf = Array.new(a.size)
+  max = a.max
 
-  for (let shift = 0; (max >> shift) > 0; shift += BITS) {
-    const count = new Array(BASE).fill(0);
-    for (const x of cur) count[(x >> shift) & MASK]++;
+  shift = 0
+  while (max >> shift).positive?
+    count = Array.new(base, 0)
+    cur.each { |x| count[(x >> shift) & mask] += 1 }
 
-    let total = 0;
-    for (let v = 0; v < BASE; v++) { const c = count[v]; count[v] = total; total += c; }
+    total = 0
+    (0...base).each { |v| c = count[v]; count[v] = total; total += c }
 
-    for (const x of cur) buf[count[(x >> shift) & MASK]++] = x;
-    [cur, buf] = [buf, cur];           // swap, do not allocate
-  }
-  return cur;
-}
-// The loop bound `(max >> shift) > 0` means only as many passes as
-// the largest value needs — sorting small numbers does not pay for
-// 32 bits of width.
+    cur.each do |x|
+      digit = (x >> shift) & mask
+      buf[count[digit]] = x
+      count[digit] += 1
+    end
+    cur, buf = buf, cur          # swap the buffers, do not allocate
+    shift += bits
+  end
+  cur
+end
 
-// 2. Counting sort by a key, which is the form you will actually use.
-function sortByStatus(records) {
-  const STATUSES = ["pending", "paid", "shipped", "refunded"];
-  const index = new Map(STATUSES.map((s, i) => [s, i]));
-  const buckets = STATUSES.map(() => []);
-  for (const r of records) buckets[index.get(r.status)].push(r);
-  return buckets.flat();
-}
-// One pass, four arrays, stable, and O(n) on a million records.
-// A comparison sort would do ~20 million string comparisons for the
-// same result. The small fixed key range is what makes this valid.
+radix_sort([170, 45, 75, 90, 2, 802, 24, 66])
+# => [2, 24, 45, 66, 75, 90, 170, 802]
 
-// 3. Bucket sort — for values known to be uniformly distributed.
-function bucketSort(a) {
-  const n = a.length;
-  const buckets = Array.from({ length: n }, () => []);
-  for (const x of a) buckets[Math.floor(x * n)].push(x);     // x in [0, 1)
-  return buckets.flatMap((b) => b.sort((p, q) => p - q));
-}
-// O(n) EXPECTED if the distribution is uniform, because each bucket
-// holds O(1) elements on average. Clustered input puts everything in
-// one bucket and degrades to whatever the inner sort is — so the
-// uniformity assumption is doing all the work, and it is the one
-// nobody verifies.
+# `while (max >> shift).positive?` means only as many passes as the
+# largest value needs — sorting small numbers does not pay for 32 bits
+# of width.
+#
+# Two things Ruby gives you free here. `a.max` needs no spread operator,
+# so it works on a million elements; JavaScript's `Math.max(...a)`
+# overflows the stack somewhere in the tens of thousands. And because
+# Ruby Integers are arbitrary precision, the bit operations keep working
+# past 64 bits — `radix_sort([2**100, 2**70 + 5, 7])` sorts correctly,
+# just with more passes. A fixed-width implementation would silently
+# truncate.
+
+# 2. Counting sort by a key, which is the form you will actually use.
+STATUSES = %w[pending paid shipped refunded].freeze
+
+def sort_by_status(records)
+  buckets = STATUSES.to_h { |s| [s, []] }
+  records.each { |r| buckets[r.status] << r }
+  buckets.values.flatten(1)
+end
+
+# One pass, four arrays, stable, and O(n) on a million records. A
+# comparison sort would do ~20 million string comparisons for the same
+# result. The small fixed key range is what makes this valid.
+#
+# `flatten(1)` and not `flatten`: the depth argument matters, because a
+# bare `flatten` would also flatten any record that happens to be an
+# Array. Defaulting to "all the way down" is a trap whenever the
+# elements could themselves be collections.
+
+# 3. Bucket sort — for values known to be uniformly distributed.
+def bucket_sort(a)
+  n = a.size
+  return a.dup if n.zero?
+  buckets = Array.new(n) { [] }
+  a.each { |x| buckets[(x * n).floor] << x }     # x in [0, 1)
+  buckets.flat_map(&:sort)
+end
+
+# O(n) EXPECTED if the distribution is uniform, because each bucket holds
+# O(1) elements on average. Clustered input puts everything in one bucket
+# and degrades to whatever the inner sort is — so the uniformity
+# assumption is doing all the work, and it is the one nobody verifies.
+#
+# `Array.new(n) { [] }` and not `Array.new(n, [])`. The second form
+# stores the SAME array n times, so every push lands in every bucket.
+# This is the single most common Ruby array-initialisation bug, and it
+# is silent: you get one bucket holding everything, n times over.
 ```
 :::
 
 :::failure
 **Negative values in counting sort.**
 
-```js
-countingSort([-5, 3], 10);   // count[-5] — writes to a negative index
-// Offset by the minimum:
-const min = Math.min(...a);
-count[x - min]++;
-// ...and remember to add `min` back when reading out.
+```ruby
+counting_sort([-5, 3], 10)
+# No exception. Ruby reads a negative index from the END of the array,
+# so `count[-5] += 1` increments index k-5:
+count = Array.new(10, 0)
+count[-5] += 1
+count   # => [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+#                          ↑ index 5
 ```
 
-**A range you did not bound.** `k` derived from the data (`Math.max(...a)`) makes the algorithm's
+This is worth sitting with, because it is worse than the equivalent mistake in most languages.
+There is no error, no `nil`, and no out-of-range: the tally simply lands in the wrong bucket and
+the sort returns a plausible, wrongly-ordered array. A negative value in the input quietly
+corrupts the count for a positive one.
+
+The fix is to offset by the minimum:
+
+```ruby
+def counting_sort_offset(a)
+  return [] if a.empty?
+  min = a.min
+  k = a.max - min + 1
+  count = Array.new(k, 0)
+  a.each { |x| count[x - min] += 1 }
+
+  total = 0
+  (0...k).each { |v| c = count[v]; count[v] = total; total += c }
+
+  out = Array.new(a.size)
+  a.each do |x|
+    out[count[x - min]] = x       # ...and `min` is added back implicitly,
+    count[x - min] += 1           # because we store x, not the index
+  end
+  out
+end
+
+counting_sort_offset([-5, 3, -1, 0, 3])   # => [-5, -1, 0, 3, 3]
+```
+
+Deriving `k` from `a.max - a.min + 1` rather than taking it as an argument also removes the
+other half of the bug — a caller who passes a `k` smaller than the largest value gets the same
+silent wrap at the top end.
+
+**A range you did not bound.** `k` derived from the data (`a.max - a.min + 1`) makes the algorithm's
 memory a function of the input's *values*, not its size. One outlier of 2³¹ allocates two
 gigabytes:
 
-```js
-countingSort([1, 2, 3, 2147483647]);   // k = 2^31. Four elements.
-// This is an input-controlled allocation, which makes it a denial-of-
-// service vector exactly like unbounded nesting depth.
+```ruby
+counting_sort([1, 2, 3, 2_147_483_647], 2**31)
+# Array.new(2**31, 0) wants 2^31 slots at 8 bytes each: 17 GB, for an
+# input of four elements.
 ```
+
+Measured on ruby 3.4.5: under a memory limit this raises `NoMemoryError: failed to allocate
+memory`. Without one, the kernel's OOM killer takes the process — no exception, no log line you
+wrote, just a dead worker. And `NoMemoryError` descends from `Exception` rather than
+`StandardError`, so even in the version that *does* raise, your `rescue => e` will not see it.
+
+That is an input-controlled allocation, which makes it a denial-of-service vector exactly like
+unbounded nesting depth. The guard is a bound on the key range, checked before allocating:
+
+```ruby
+MAX_RANGE = 1_000_000
+
+def counting_sort_guarded(a)
+  return [] if a.empty?
+  range = a.max - a.min + 1
+  raise ArgumentError, "key range #{range} exceeds #{MAX_RANGE}" if range > MAX_RANGE
+  counting_sort_offset(a)
+end
+```
+
+The useful framing is that counting sort trades space for the comparison lower bound, and the
+space is a function of the *input values* rather than the input size. Any time a size derives
+from data rather than from a count, it needs a ceiling.
 
 **An unstable per-digit sort in radix sort.** Not a degradation — the output is wrong, because
 each pass depends on the previous one's ordering surviving ties.
@@ -290,15 +393,30 @@ being O(n + k) and technically "linear".
                            rather than to sorting.
 ```
 
-```js
-// The version of this you will actually write, and it rarely looks
-// like a sort:
-const byStatus = Object.groupBy(orders, (o) => o.status);
-const ordered = ["pending", "paid", "shipped"].flatMap((s) => byStatus[s] ?? []);
-// That is counting sort. One pass to distribute, one pass to
-// concatenate, O(n), stable. Recognising it as such is what tells
-// you it is already optimal and does not need a comparator.
+```ruby
+# The version of this you will actually write, and it rarely looks
+# like a sort:
+by_status = orders.group_by(&:status)
+ordered = %w[pending paid shipped].flat_map { |s| by_status.fetch(s, []) }
 ```
+
+That is counting sort. One pass to distribute, one pass to concatenate, O(n), stable.
+Recognising it as such is what tells you it is already optimal and needs no comparator — and
+that reaching for `sort_by` with a hand-written status-to-rank Hash would be strictly more work
+for a worse result.
+
+`fetch(s, [])` rather than `by_status[s]` because a status with no records must contribute an
+empty list, not a `nil` for `flat_map` to trip over. And in Rails the same shape usually belongs
+in the database, where the ordering is an index scan rather than any sort at all:
+
+```ruby
+Order.order(Arel.sql("array_position(ARRAY['pending','paid','shipped']::varchar[], status)"))
+```
+
+Which is the honest trade to be aware of: `group_by` in Ruby is O(n) and loads every row;
+`array_position` in Postgres sorts without loading anything, but costs you a raw SQL fragment
+and a dependency on the enum's order living in two places. For a page of results, order in the
+database. For records you already have in memory, `group_by` is the answer.
 
 ```text
 // The transferable idea, which outlives the algorithms:
@@ -366,9 +484,10 @@ O(n + k), because the k term is where this goes wrong.
 3. What makes counting sort stable, and what single change would break that?
 4. Why must radix sort's per-digit sort be stable? What exactly goes wrong without it?
 5. Why least-significant-digit first?
-6. `countingSort([1, 2, 3, 2147483647])` — what happens, and why is that a security concern?
+6. `counting_sort([1, 2, 3, 2_147_483_647])` — what happens, and why is that a security
+   concern? Which error do you get, and will your `rescue` catch it?
 7. Why is byte-wise radix sort wrong for sorting names a user will read?
-8. `Object.groupBy(orders, o => o.status)` followed by a concatenation — which sort is that?
+8. `orders.group_by(&:status)` followed by a concatenation in a fixed order — which sort is that?
 :::
 
 :::interview
@@ -413,3 +532,13 @@ data'. Small bounded range, fixed width, nearly sorted — each one unlocks a be
 - State the complexity as O(n + k) and say what bounds k.
 - Most real uses look like a `group_by` plus a concatenation.
 - The transferable move: a general algorithm cannot use information you did not give it.
+- A negative index does not raise in Ruby — it wraps to the end of the array, so one negative
+  input silently corrupts another value's tally.
+- Derive `k` from `a.max - a.min + 1` and bound it; an input-controlled allocation is a DoS.
+- `NoMemoryError` is not a `StandardError`, and without a memory limit the OOM killer gets
+  there first — so neither path is one you can rescue.
+- `Array.new(n) { [] }` creates n arrays; `Array.new(n, [])` creates one array n times.
+- `flatten(1)`, not `flatten`, whenever the elements could themselves be collections.
+- `a.max` needs no spread operator, and Ruby's arbitrary-precision Integers let radix sort keep
+  working past 64 bits.
+- `group_by` plus a fixed-order concatenation *is* counting sort — recognise it and stop.

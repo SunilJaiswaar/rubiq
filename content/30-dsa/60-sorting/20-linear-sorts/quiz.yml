@@ -119,7 +119,7 @@ questions:
   - id: unbounded-k
     kind: choice
     concept: counting-sort
-    prompt: "`countingSort([1, 2, 3, 2147483647])` derives k from the data. What is the problem?"
+    prompt: "`counting_sort` deriving k from the data, called with `[1, 2, 3, 2_147_483_647]`. What is the problem?"
     options:
       - text: "It allocates a two-billion-entry array for four elements — memory becomes a function of the input's values rather than its size, which is an input-controlled allocation"
         correct: true
@@ -167,7 +167,7 @@ questions:
     kind: recall
     concept: counting-sort
     prompt: >-
-      `Object.groupBy(orders, o => o.status)` followed by concatenating the groups in a fixed order.
+      `orders.group_by(&:status)` followed by concatenating the groups in a fixed order.
       Identify what this is and why it matters that you can.
     key_points:
       - It is counting sort — distribute into buckets, then concatenate

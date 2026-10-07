@@ -41,9 +41,11 @@ interview:
       because it lets you sort by multiple keys with successive passes: sort by name, then by
       department, and within each department the names are still in order. Without stability
       that second sort scrambles the first. It also matters for user-facing lists, where
-      re-sorting by one column should not reshuffle rows that tie. JavaScript's `Array#sort` is
-      required to be stable since ES2019; before that it was implementation-defined and V8 used
-      an unstable sort for short arrays.
+      re-sorting by one column should not reshuffle rows that tie. Ruby guarantees stability for
+      neither `sort` nor `sort_by`, and `sort_by` visibly breaks it from about twenty elements —
+      measured on ruby 3.4.5, twenty rows with two distinct keys come back with the equal ones
+      reversed. So in Ruby the answer is to make ties explicit by sorting on a tuple that ends
+      in the original index, rather than to rely on the sort.
     followUps:
       - "How would you make an unstable sort behave stably?"
 resources:
@@ -134,7 +136,12 @@ from optimising the algorithm to examining the input, which is where the real wi
 
     - median-of-three: pivot = median(first, middle, last). Cheap,
       handles sorted and reverse-sorted input, still has adversarial
-      cases.
+      cases. Note "median" literally: ordering the three and then
+      pivoting on the LAST of them pivots on the maximum, which is
+      the quadratic case you were trying to avoid. Measured below.
+    - three-way partitioning: equal elements land in a middle band
+      and are never recursed into. Median-of-three does nothing for
+      duplicate-heavy input; this is what fixes it.
     - random pivot: expected O(n log n) regardless of input, and an
       attacker who can see your random numbers can still defeat it.
     - introsort: count recursion depth; past ~2 log n, switch to
@@ -151,74 +158,108 @@ from optimising the algorithm to examining the input, which is where the real wi
 :::
 
 :::example
-```js
-// 1. Mergesort — note the `<=`, which is what makes it stable.
-function mergeSort(a) {
-  if (a.length <= 1) return a;
-  const mid = a.length >> 1;
-  const left = mergeSort(a.slice(0, mid));
-  const right = mergeSort(a.slice(mid));
+```ruby
+# 1. Mergesort — note the `<=`, which is what makes it stable.
+def merge_sort(a)
+  return a if a.size <= 1
+  mid = a.size / 2
+  left = merge_sort(a[0...mid])
+  right = merge_sort(a[mid..])
 
-  const out = [];
-  let i = 0, j = 0;
-  while (i < left.length && j < right.length) {
-    out.push(left[i] <= right[j] ? left[i++] : right[j++]);
-    //              ^^ `<` here would break stability: on a tie it
-    //                 would take from the right, reversing equals.
-  }
-  while (i < left.length) out.push(left[i++]);
-  while (j < right.length) out.push(right[j++]);
-  return out;
-}
+  out = []
+  i = j = 0
+  while i < left.size && j < right.size
+    # `<=` takes from the LEFT on a tie, preserving the input order.
+    # `<` here would reverse equal elements and break stability.
+    if left[i] <= right[j]
+      out << left[i]
+      i += 1
+    else
+      out << right[j]
+      j += 1
+    end
+  end
+  out.concat(left[i..], right[j..])   # whichever side is left over
+end
 
-// 2. Quicksort, in place, with median-of-three and tail-call
-//    elimination on the larger side.
-function quickSort(a, lo = 0, hi = a.length - 1) {
-  while (lo < hi) {
-    const p = partition(a, lo, hi);
-    // Recurse on the SMALLER side, loop on the larger: bounds stack
-    // depth to O(log n) even when the partition is poor.
-    if (p - lo < hi - p) { quickSort(a, lo, p - 1); lo = p + 1; }
-    else { quickSort(a, p + 1, hi); hi = p - 1; }
-  }
-  return a;
-}
+merge_sort([5, 2, 9, 1, 5, 6])   # => [1, 2, 5, 5, 6, 9]
 
-function partition(a, lo, hi) {
-  // median-of-three, moved to hi as the pivot
-  const mid = (lo + hi) >> 1;
-  if (a[mid] < a[lo]) [a[lo], a[mid]] = [a[mid], a[lo]];
-  if (a[hi] < a[lo]) [a[lo], a[hi]] = [a[hi], a[lo]];
-  if (a[hi] < a[mid]) [a[mid], a[hi]] = [a[hi], a[mid]];
-  const pivot = a[hi];
+# `left[i..]` when i == left.size gives [], not nil, so the tail
+# concat needs no guard — one of the places Ruby's slicing is kinder
+# than it looks.
 
-  let i = lo;
-  for (let j = lo; j < hi; j++) {
-    if (a[j] < pivot) { [a[i], a[j]] = [a[j], a[i]]; i++; }
-  }
-  [a[i], a[hi]] = [a[hi], a[i]];
-  return i;
-}
+# 2. Quicksort, in place, with median-of-three and tail-call
+#    elimination on the larger side.
+def quick_sort(a, lo = 0, hi = a.size - 1)
+  while lo < hi
+    p = partition(a, lo, hi)
+    # Recurse on the SMALLER side, loop on the larger: bounds stack
+    # depth to O(log n) even when the partition is poor.
+    if p - lo < hi - p
+      quick_sort(a, lo, p - 1)
+      lo = p + 1
+    else
+      quick_sort(a, p + 1, hi)
+      hi = p - 1
+    end
+  end
+  a
+end
 
-// 3. Making an unstable sort behave stably — decorate with the index.
-function stableSortBy(a, key) {
-  return a
-    .map((v, i) => [v, i])
-    .sort((x, y) => key(x[0]) - key(y[0]) || x[1] - y[1])   // index tie-break
-    .map(([v]) => v);
-}
-// The `|| x[1] - y[1]` is the whole trick: ties are broken by
-// original position, so the comparator becomes a total order and
-// stability is no longer the sort's responsibility.
+def partition(a, lo, hi)
+  mid = (lo + hi) / 2
+  a[lo], a[mid] = a[mid], a[lo] if a[mid] < a[lo]
+  a[lo], a[hi]  = a[hi], a[lo]  if a[hi] < a[lo]
+  a[mid], a[hi] = a[hi], a[mid] if a[hi] < a[mid]
+  # Those three swaps leave a[lo] <= a[mid] <= a[hi], so the MEDIAN is
+  # now at mid — not at hi. This swap is what actually makes it
+  # median-of-three; without it the pivot is the maximum of the three,
+  # and sorted input is exactly quadratic. See the failure section.
+  a[mid], a[hi] = a[hi], a[mid]
+  pivot = a[hi]
 
-// 4. Multi-key sorting, which is what stability is actually for.
-//    Two passes, least significant first:
-rows.sort((a, b) => a.name.localeCompare(b.name));     // then
-rows.sort((a, b) => a.dept.localeCompare(b.dept));
-// Within each department, names remain sorted — but only because the
-// sort is stable. One comparator doing both is clearer when you
-// control it; the two-pass form matters when the second sort is
-// triggered later by a user clicking a column header.
+  i = lo
+  (lo...hi).each do |j|
+    next unless a[j] < pivot
+    a[i], a[j] = a[j], a[i]
+    i += 1
+  end
+  a[i], a[hi] = a[hi], a[i]
+  i
+end
+
+# 3. Making an unstable sort behave stably — decorate with the index.
+def stable_sort_by(a, &key)
+  a.each_with_index.sort_by { |v, i| [key.call(v), i] }.map(&:first)
+end
+
+rows = [
+  { dept: 'eng', name: 'ann' },
+  { dept: 'ops', name: 'bob' },
+  { dept: 'eng', name: 'cid' },
+]
+stable_sort_by(rows) { |r| r[:dept] }.map { |r| r[:name] }
+# => ["ann", "cid", "bob"]
+
+# The `, i` in the sort key is the whole trick: ties are broken by
+# original position, so the comparison becomes a total order and
+# stability stops being the sort's responsibility. Ruby's array
+# comparison does the rest — `[key, index] <=> [key, index]` compares
+# element by element, so you get the tie-break for free.
+
+# 4. Multi-key sorting, which is what stability is actually for.
+#    In Ruby, prefer ONE pass on a tuple:
+rows.sort_by { |r| [r[:dept], r[:name]] }
+
+# ...rather than two passes relying on stability:
+rows.sort_by! { |r| r[:name] }    # then
+rows.sort_by! { |r| r[:dept] }    # ← needs a stable sort. Ruby's is not.
+#
+# In a language with a guaranteed-stable sort the two-pass form is
+# legitimate, and it is what you want when the second sort happens
+# later — a user clicking a column header. In Ruby that pattern is
+# broken, so a column-header sort has to carry every key it has ever
+# been sorted by, or decorate with the index as in 3.
 ```
 :::
 
@@ -226,39 +267,156 @@ rows.sort((a, b) => a.dept.localeCompare(b.dept));
 **A comparator that is not a total order.** The single most damaging mistake here, because the
 consequences are not what people expect:
 
-```js
-// Not transitive, and not consistent.
-arr.sort((a, b) => a.priority > b.priority);     // boolean: 0 or 1, never -1
-arr.sort(() => Math.random() - 0.5);             // not a shuffle
-// An inconsistent comparator does not merely produce an unsorted
-// result. V8's Timsort can throw "Comparison function is not
-// consistent", and in C++ an invalid comparator for std::sort is
-// undefined behaviour that reads past the end of the array.
+```ruby
+# A boolean comparator. Ruby raises rather than misordering:
+arr.sort { |a, b| a.priority > b.priority }
+# NoMethodError: undefined method '>' for true
+
+# A Float comparator, which Ruby ACCEPTS. This is the silent one:
+[3, 1, 2].sort { |a, b| (a - b) / 2.0 }   # => [1, 2, 3], fine by luck
+[3, 1, 2].sort { rand - 0.5 }             # => garbage, and not a shuffle
+
+# And Ruby does not detect an inconsistent comparator at all:
+[5, 3, 1, 4, 2].sort { |a, b| ((a - b) % 3) - 1 }
+# => [3, 5, 2, 1, 4]       no exception, not sorted
 ```
 
-And the random one deserves spelling out: `sort(() => Math.random() - 0.5)` is a famously
-biased shuffle, not a uniform one, because the comparator's results are inconsistent and the
-algorithm's access pattern determines the distribution. Use Fisher-Yates.
+Three different outcomes worth separating. The boolean comparator raises, because Ruby will not
+coerce `true` to a number — that bug costs you minutes. A Float result is accepted, since all
+Ruby needs is something it can compare against zero, so `sort { rand - 0.5 }` silently returns a
+badly-biased non-shuffle. And an inconsistent comparator produces a wrong answer with no
+complaint: V8's Timsort can throw "Comparison function is not consistent", and C++ treats an
+invalid comparator for `std::sort` as undefined behaviour that reads past the end of the array,
+but Ruby just hands you the wrong array.
 
-**Numeric sort without a comparator in JavaScript.**
+To shuffle, use `shuffle`, which is Fisher-Yates. `sort_by { rand }` is a correct-but-slower
+shuffle — a random Schwartzian key is sound, each element gets one fixed key. `sort { rand - 0.5 }`
+is neither: the comparator gives inconsistent answers about the same pair, so the distribution
+is decided by the algorithm's access pattern rather than by chance. It is the same famously
+biased non-shuffle as JavaScript's `sort(() => Math.random() - 0.5)`.
 
-```js
-[10, 9, 100].sort()        // [10, 100, 9] — lexicographic by default
-[10, 9, 100].sort((a, b) => a - b)   // [9, 10, 100]
+**Sorting numbers that are secretly strings.**
+
+```ruby
+[10, 9, 100].sort          # => [9, 10, 100]      numeric, as you want
+%w[10 9 100].sort          # => ["10", "100", "9"]   lexicographic
+%w[10 9 100].sort_by(&:to_i)   # => ["9", "10", "100"]
 ```
 
-**`a - b` on non-numbers.** `"b" - "a"` is NaN, and every comparison with NaN is false, so the
-sort silently stops ordering. Use `localeCompare` for strings, and explicit comparisons for
-BigInt or Date.
+Ruby does not have JavaScript's "`sort()` is lexicographic by default" trap — `sort` on Integers
+sorts numerically. The Ruby version of the trap is that your numbers are often *strings*: a
+`params` value, a CSV column, an id read from a header. Those sort lexicographically and look
+plausible until `"100"` turns up before `"9"`.
 
-**Assuming stability where it is not guaranteed.** Stable: JS since ES2019, Python's sort, Java
-for objects, Ruby's `sort_by`... actually Ruby's `sort` and `sort_by` are *not* guaranteed
-stable. Unstable: C++ `std::sort` (use `std::stable_sort`), Java's primitive sort, Go's
-`sort.Slice` (use `sort.SliceStable`). Check your language rather than assuming.
+The same bug with a sharper edge, because the output looks almost right:
+
+```ruby
+%w[1.10.0 1.9.0 1.2.0].sort
+# => ["1.10.0", "1.2.0", "1.9.0"]        1.10 before 1.2 before 1.9
+%w[1.10.0 1.9.0 1.2.0].sort_by { |v| Gem::Version.new(v) }
+# => ["1.2.0", "1.9.0", "1.10.0"]
+```
+
+`Gem::Version` is in the standard library, understands pre-release suffixes, and is the correct
+answer for anything version-shaped. Reaching for it is cheaper than discovering the bug.
+
+**Assuming stability where it is not guaranteed.** In Ruby it is not guaranteed for either
+`sort` or `sort_by`, and the two behave differently in practice — measured on ruby 3.4.5:
+
+```text
+  Array#sort_by     stable up to 16 elements, NOT stable from 20 up.
+                    At n = 20 the equal-key elements come back reversed.
+  Array#sort        preserved input order on every case tested, from
+                    8 to 10,000 elements.
+```
+
+Do not read that second line as a guarantee. It is an implementation detail of MRI's sort — the
+small-partition insertion sort is stable, which is why `sort_by` holds below about sixteen
+elements too — and nothing documents it. Code that depends on it is code that breaks on a Ruby
+upgrade, on JRuby, or when your array crosses a size threshold. Make ties explicit.
+
+Elsewhere: stable in Python, Java for objects, and JavaScript since ES2019. Unstable in C++
+`std::sort` (use `std::stable_sort`), Java's primitive sort, and Go's `sort.Slice` (use
+`sort.SliceStable`).
 
 **Quicksort on sorted input with a naive pivot.** O(n²). This is a realistic input, not a
 contrived one — and if the input is attacker-controlled it is a denial-of-service vector, which
 is why hash-based and sort-based code paths both need randomisation.
+
+**Median-of-three that pivots on the maximum.** The subtle version of the same bug, and worth
+dwelling on because the code looks exactly right:
+
+```ruby
+a[lo], a[mid] = a[mid], a[lo] if a[mid] < a[lo]
+a[lo], a[hi]  = a[hi], a[lo]  if a[hi] < a[lo]
+a[mid], a[hi] = a[hi], a[mid] if a[hi] < a[mid]
+pivot = a[hi]        # ← the MAXIMUM of the three, not the median
+```
+
+Those three swaps sort the three positions, so afterwards `a[lo] <= a[mid] <= a[hi]`. Taking
+`a[hi]` therefore takes the largest. The median is at `mid`, and one more swap is needed to move
+it into place. Measured comparison counts on already-sorted input:
+
+```text
+  n       pivot = max      pivot = median     n²/2
+  200          19,900              1,153     20,000
+  1,000       499,500              7,987    500,000
+  4,000     7,998,000             39,917  8,000,000
+```
+
+Exactly n²/2 — the broken version removes one element per partition, which is the degenerate
+case the technique exists to prevent. It is also *correct*, so every test passes.
+
+What hides it is that random input barely notices: at n = 4,000 the two versions cost 55,664 and
+46,183 comparisons. So the bug is invisible in a benchmark over shuffled data and catastrophic
+on the sorted data you actually get from a database `ORDER BY`.
+
+**Treating median-of-three as protection against duplicates.** It is not, and this is a separate
+failure with a separate fix. Lomuto partitioning puts equal elements all on one side, so an array
+of mostly-equal values splits off one element at a time:
+
+```text
+  all elements equal      Lomuto        three-way
+  n = 1,000               499,500           1,000
+  n = 4,000             7,998,000           4,000
+
+  20,000 values, 10 distinct
+                       20,085,244          59,645     ← 337× apart
+```
+
+Three-way partitioning (Dutch national flag) puts equals in a middle band and never recurses
+into it, which makes all-equal input linear. The insurance is close to free: on 20,000 *distinct*
+values the two cost 285,521 and 298,591 comparisons, about 5% more. Any sort that might see a
+low-cardinality column — a status, a boolean, a category — wants it.
+
+```ruby
+def quick_sort3(a, lo = 0, hi = a.size - 1)
+  return a if lo >= hi
+  mid = (lo + hi) / 2
+  a[lo], a[mid] = a[mid], a[lo] if a[mid] < a[lo]
+  a[lo], a[hi]  = a[hi], a[lo]  if a[hi] < a[lo]
+  a[mid], a[hi] = a[hi], a[mid] if a[hi] < a[mid]
+  pivot = a[mid]
+
+  lt = lo        # everything below lt is < pivot
+  gt = hi        # everything above gt is > pivot
+  i = lo
+  while i <= gt
+    case a[i] <=> pivot
+    when -1 then a[lt], a[i] = a[i], a[lt]; lt += 1; i += 1
+    when 1  then a[gt], a[i] = a[i], a[gt]; gt -= 1   # do NOT advance i
+    else i += 1
+    end
+  end
+  quick_sort3(a, lo, lt - 1)
+  quick_sort3(a, gt + 1, hi)   # the band [lt..gt] is already final
+  a
+end
+```
+
+The one detail to get right: on the `> pivot` branch `i` does not advance, because the element
+just swapped in from `gt` has not been examined yet. Advancing there is the classic way to get a
+three-way partition that is subtly wrong.
 
 **Sorting when you only need part of the answer.** Top-k is O(n log k) with a heap;
 `nth_element` / quickselect finds the kth element in O(n) expected. Sorting everything to take
@@ -285,6 +443,14 @@ always a sign that the data should have been sorted once outside, or kept in a s
                   for primitives (unstable, and stability is
                   meaningless for primitives since equal ints are
                   indistinguishable).
+
+  Ruby            Quicksort (ruby_qsort) with insertion sort for
+                  small partitions. NOT guaranteed stable for either
+                  sort or sort_by, and no stable_sort exists —
+                  decorate with the index instead. sort_by uses a
+                  Schwartzian transform internally, computing each
+                  key once, which is why it beats sort { } whenever
+                  the key is expensive.
 
   JavaScript (V8) Timsort since 2018. Stable, as ES2019 requires.
 
@@ -323,7 +489,7 @@ always a sign that the data should have been sorted once outside, or kept in a s
      than O(n log n).
 ```
 
-```js
+```text
 // External sorting, which is how you sort more data than memory —
 // and is the merge from mergesort, applied to files.
 //
@@ -331,9 +497,17 @@ always a sign that the data should have been sorted once outside, or kept in a s
 //   2. Repeat until the input is consumed. Now you have k sorted files.
 //   3. Merge all k with a heap of the current heads. O(k) memory.
 //
-// This is Postgres's external sort, Hadoop's shuffle, and the final
-// phase of every LSM compaction. The heap-of-k-heads merge from the
-// heaps lesson is the whole of step 3.
+// This is Postgres's external sort, and the final phase of every LSM
+// compaction. The heap-of-k-heads merge from the heaps lesson is the
+// whole of step 3.
+//
+// The Rails-shaped version: when you reach for `Model.order(:x).to_a`
+// over a large table you are asking Postgres to do step 1 and hoping
+// it fits in work_mem. `EXPLAIN ANALYZE` tells you which happened —
+// "Sort Method: quicksort Memory: 2048kB" means it fit, and
+// "external merge Disk: 48MB" means it did not. The fix is almost
+// never a better sort; it is an index that makes the sort
+// unnecessary, or a smaller result set.
 ```
 :::
 
@@ -341,7 +515,7 @@ always a sign that the data should have been sorted once outside, or kept in a s
 **An inconsistent or boolean comparator.** May throw, may be undefined behaviour, will not
 sort.
 
-**`sort(() => Math.random() - 0.5)` as a shuffle.** Biased. Use Fisher-Yates.
+**`sort { rand - 0.5 }` as a shuffle.** Biased, and an inconsistent comparator. Use `shuffle`.
 
 **`.sort()` on numbers in JavaScript.** Lexicographic.
 
@@ -401,7 +575,12 @@ guarantee, and whether you need to sort at all.
 5. You need to sort by name within department, and the user may re-sort by clicking a header.
    Why does stability matter?
 6. Why does every production sort switch to insertion sort for small inputs?
-7. `sort(() => Math.random() - 0.5)` — what is wrong with it, and what should you use?
+7. `sort { rand - 0.5 }` — what is wrong with it, and what should you use instead? Why does
+   `sort_by { rand }` not have the same problem?
+8. Ordering three positions and pivoting on the last of them: what does that actually pivot on,
+   and what does it cost on sorted input?
+9. Median-of-three does not help with duplicate-heavy input. What does, and what does it cost
+   when there are no duplicates?
 8. Sort a billion rows on a machine with 8 GB of RAM. Outline the approach.
 :::
 
@@ -449,7 +628,15 @@ which is faster today."*
 - Stability is what makes multi-pass multi-key sorting work.
 - Decorate with the original index to make any sort behave stably.
 - An inconsistent comparator may throw or be undefined behaviour, not merely produce disorder.
-- `sort(() => Math.random() - 0.5)` is a biased shuffle; use Fisher-Yates.
+- `sort { rand - 0.5 }` is a biased non-shuffle; use `shuffle`. `sort_by { rand }` is sound.
+- Ruby guarantees stability for neither `sort` nor `sort_by`; `sort_by` breaks visibly from ~20
+  elements. Sort on `[key, index]` instead of relying on it.
+- A boolean comparator raises in Ruby; a Float one is accepted; an inconsistent one is silent.
+- "Median-of-three" means moving the median into the pivot slot. Ordering the three and taking
+  the last one pivots on the maximum and is exactly n²/2 on sorted input.
+- Lomuto partitioning is quadratic on duplicate-heavy input; three-way partitioning makes it
+  linear and costs about 5% when there are no duplicates.
+- Numbers held as strings sort lexicographically; use `sort_by(&:to_i)` or `Gem::Version`.
 - Every production sort falls back to insertion sort for small inputs.
 - Timsort exploits existing runs, so nearly-sorted real data approaches O(n).
 - External merge sort handles data larger than memory, using a heap of k run heads.
