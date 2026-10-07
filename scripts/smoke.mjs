@@ -4,7 +4,9 @@
  * runs code and persists progress in a real browser.
  */
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 
 // Node 22+ exposes WebSocket globally; Node 20 needs --experimental-websocket.
 // Either way there is no dependency to install, which matters for a CI job.
@@ -16,8 +18,16 @@ if (typeof WebSocket === 'undefined') {
   process.exit(1)
 }
 
-const BASE = process.argv[2] ?? 'http://localhost:4317'
-const PORT = 9333
+const BASE = (process.argv[2] ?? 'http://localhost:4317').replace(/\/$/, '')
+
+// A random port, so two runs on the same machine — or a leftover Chrome from a
+// previous run — cannot collide on a fixed one.
+const PORT = 9300 + Math.floor(Math.random() * 400)
+
+// How long to wait for Chrome's debugging port. A cold CI runner is much slower
+// than a warm laptop: the original 10 seconds was enough locally and produced
+// intermittent "Chrome did not start" failures on GitHub's runners.
+const STARTUP_TIMEOUT_MS = Number(process.env.CHROME_STARTUP_TIMEOUT_MS ?? 60_000)
 
 const CHROME = [
   process.env.CHROME_PATH,
@@ -32,28 +42,84 @@ if (!CHROME) {
   process.exit(1)
 }
 
-const PROFILE = process.env.CHROME_PROFILE ?? '/tmp/rubiq-smoke-profile'
+// A fresh profile per run. Reusing one meant a crashed previous run could leave a
+// lock behind that makes the next Chrome refuse to start — which looks exactly like
+// "Chrome did not start" and is maddening to diagnose.
+const PROFILE = process.env.CHROME_PROFILE ?? mkdtempSync(path.join(tmpdir(), 'rubiq-smoke-'))
 
+// stderr is captured rather than discarded, so a startup failure can report Chrome's
+// own reason instead of a bare timeout.
+const chromeLog = []
 const chrome = spawn(CHROME, [
   `--remote-debugging-port=${PORT}`,
   '--headless=new',
   '--no-sandbox',
+  '--disable-setuid-sandbox',
   '--disable-gpu',
+  // /dev/shm is small in containers; without this Chrome can crash on startup.
   '--disable-dev-shm-usage',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-extensions',
+  '--disable-background-networking',
+  '--disable-sync',
+  '--disable-crash-reporter',
+  '--window-size=1280,900',
   `--user-data-dir=${PROFILE}`,
   'about:blank',
-], { stdio: 'ignore' })
+], { stdio: ['ignore', 'ignore', 'pipe'] })
+
+chrome.stderr?.on('data', (chunk) => {
+  chromeLog.push(String(chunk))
+  if (chromeLog.length > 40) chromeLog.shift()
+})
+
+let chromeExit = null
+chrome.on('exit', (code, signal) => { chromeExit = signal ?? code })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+const cleanup = () => {
+  try { chrome.kill('SIGKILL') } catch { /* already gone */ }
+  if (!process.env.CHROME_PROFILE) {
+    try { rmSync(PROFILE, { recursive: true, force: true }) } catch { /* best effort */ }
+  }
+}
+// A killed CI job must not leave a Chrome behind holding the port.
+process.on('exit', cleanup)
+process.on('SIGINT', () => { cleanup(); process.exit(130) })
+process.on('SIGTERM', () => { cleanup(); process.exit(143) })
+
+/** Poll Chrome's debugging port until it answers, or report why it never did. */
 async function endpoint() {
-  for (let i = 0; i < 50; i++) {
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS
+  let lastError = ''
+
+  while (Date.now() < deadline) {
+    // If Chrome has already exited there is nothing to wait for.
+    if (chromeExit !== null) {
+      throw new Error(
+        `Chrome exited (${chromeExit}) before opening its debugging port.\n` +
+        `  binary: ${CHROME}\n` +
+        (chromeLog.length ? `  stderr:\n${chromeLog.join('').trim().split('\n').slice(-8).map((l) => '    ' + l).join('\n')}` : '  (no stderr output)'),
+      )
+    }
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/json/version`)
-      return (await res.json()).webSocketDebuggerUrl
-    } catch { await sleep(200) }
+      const body = await res.json()
+      if (body.webSocketDebuggerUrl) return body.webSocketDebuggerUrl
+      lastError = `no webSocketDebuggerUrl in ${JSON.stringify(body)}`
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+    await sleep(250)
   }
-  throw new Error('Chrome did not start')
+
+  throw new Error(
+    `Chrome did not open its debugging port within ${STARTUP_TIMEOUT_MS / 1000}s.\n` +
+    `  binary: ${CHROME}\n  port:   ${PORT}\n  last:   ${lastError}\n` +
+    (chromeLog.length ? `  stderr:\n${chromeLog.join('').trim().split('\n').slice(-8).map((l) => '    ' + l).join('\n')}` : ''),
+  )
 }
 
 let id = 0
@@ -459,7 +525,7 @@ try {
   console.error('\nHARNESS ERROR:', error.message)
   results.push({ name: 'harness', ok: false, detail: error.message })
 } finally {
-  chrome.kill('SIGKILL')
+  cleanup()
 }
 
 const failed = results.filter((r) => !r.ok)

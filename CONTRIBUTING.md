@@ -65,9 +65,10 @@ specific constraints (see below) and it is a waste of your evening to find out a
 time that a design was ruled out for a reason.
 
 ```bash
+nvm use                  # Node 24 LTS, per .nvmrc
 npm install
 npm run dev
-npm test                 # 264 unit and component tests
+npm test                 # 272 unit and component tests
 npm run lint             # includes the architecture layering rules
 npx tsc -b               # strict, with noUncheckedIndexedAccess
 npm run build            # enforces the initial-payload budget
@@ -97,7 +98,7 @@ npm run build            # enforces the initial-payload budget
 ### Tests
 
 New logic needs tests. The existing suite is a reasonable guide to the expected level:
-the SQL engine has 43, the quiz grader 22, spaced repetition 12. Tests here describe
+the SQL engine has 51, the quiz grader 22, spaced repetition 12. Tests here describe
 *behaviour that matters* — "a stored proc's return raises LocalJumpError", "an index on a
 tiny table reports that it did not help" — rather than restating the implementation.
 

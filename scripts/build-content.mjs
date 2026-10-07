@@ -19,7 +19,9 @@ import { readFile, writeFile, mkdir, rm, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import yaml from 'js-yaml'
+// Named import, not default: js-yaml 5 is ESM-native and has no default export.
+// This form works on both 4 and 5.
+import { load as loadYamlString } from 'js-yaml'
 import { createRenderer, splitFrontmatter, analyse } from './lib/markdown.mjs'
 import { BLOCKS, MODES } from './lib/blocks.mjs'
 import { tokenize, FIELD_IDS } from '../src/engines/search/tokenize.mjs'
@@ -55,7 +57,7 @@ async function readYaml(file, { optional = false } = {}) {
   }
   const text = await readFile(file, 'utf8')
   try {
-    return yaml.load(text) ?? {}
+    return loadYamlString(text) ?? {}
   } catch (err) {
     throw new Error(`Invalid YAML in ${path.relative(ROOT, file)}: ${err.message}`)
   }
@@ -79,7 +81,7 @@ async function buildLesson({ trackSlug, moduleSlug, lessonDir, lessonPath }) {
 
   let meta
   try {
-    meta = frontmatter ? (yaml.load(frontmatter) ?? {}) : {}
+    meta = frontmatter ? (loadYamlString(frontmatter) ?? {}) : {}
   } catch (err) {
     throw new Error(`Invalid frontmatter in ${id}: ${err.message}`)
   }

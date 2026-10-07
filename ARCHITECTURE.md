@@ -270,7 +270,7 @@ an architecture document that is only prose becomes fiction within a month.
 |---|---|
 | Content is valid and complete | `scripts/validate-content.mjs` — required blocks, misspelled block names, duplicate ids, dead links, malformed quizzes and exercises, seed arity, staleness |
 | Engines are pure and layering holds | `eslint.config.js` — `no-restricted-imports` in both directions |
-| Scheduling, grading, search and SQL are correct | 264 unit and component tests |
+| Scheduling, grading, search and SQL are correct | 272 unit and component tests |
 | Contrast meets WCAG in both themes | `src/ui/theme.test.ts`, reading the real tokens |
 | The initial payload stays under budget | `scripts/postbuild.mjs`, which exits non-zero |
 | The app actually works | `scripts/smoke.mjs` — 51 checks driving real Chrome against the built site: lessons render, modes filter, the sandbox executes, the index demo takes rows examined from 100,000 to 18, progress reaches IndexedDB, dark mode and a 375px viewport both hold, `/` opens search, and no uncaught exception occurs anywhere in the run |

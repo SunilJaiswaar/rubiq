@@ -3,10 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Rubiq — a free, open-source, GitHub-first platform for learning software engineering from zero to professional.",
+  "description": "Rubiq \u2014 a free, open-source, GitHub-first platform for learning software engineering from zero to professional.",
   "license": "MIT",
   "engines": {
-    "node": ">=20.19"
+    "node": ">=22.12"
   },
   "scripts": {
     "content:build": "node scripts/build-content.mjs",
@@ -22,7 +22,7 @@
     "typecheck": "npm run content:build && tsc -b --noEmit false --emitDeclarationOnly false",
     "lint": "eslint .",
     "test": "npm run content:build && vitest run",
-    "test:smoke": "node --experimental-websocket scripts/smoke.mjs",
+    "test:smoke": "node scripts/smoke.mjs",
     "test:watch": "vitest"
   },
   "devDependencies": {
@@ -32,25 +32,25 @@
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/markdown-it": "^14.2.0",
-    "@types/markdown-it-container": "^2.0.12",
+    "@types/markdown-it-container": "^4.0.1",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.3",
     "autoprefixer": "^10.6.1",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.26",
+    "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^16.5.0",
-    "js-yaml": "^4.3.2",
+    "js-yaml": "^5.4.3",
     "jsdom": "^26.1.0",
     "postcss": "^8.5.29",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.2",
     "typescript-eslint": "^8.71.1",
     "vite": "^7.3.7",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

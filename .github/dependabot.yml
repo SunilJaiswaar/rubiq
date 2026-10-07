@@ -6,16 +6,29 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
-      # One PR for the whole dev toolchain rather than eight — these move together
-      # and are not shipped to visitors.
+      # `vitest` and `@vitest/*` pin each other at an exact version, so a PR that
+      # bumps one without the other cannot install — `npm ci` fails with ERESOLVE
+      # before any test runs. They must always move together, including on majors,
+      # which is why this group has no `update-types` filter.
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+      # One PR for the rest of the dev toolchain rather than eight — these move
+      # together and none of them ship to visitors.
       dev-tooling:
-        patterns: ["eslint*", "@eslint/*", "typescript-eslint", "vitest", "@vitest/*", "@testing-library/*", "jsdom", "typescript"]
+        patterns: ["eslint*", "@eslint/*", "typescript-eslint", "@testing-library/*", "jsdom", "typescript"]
         update-types: [minor, patch]
       build:
         patterns: ["vite", "@vitejs/*", "tailwindcss", "@tailwindcss/*"]
         update-types: [minor, patch]
+      # GitHub's own actions move in lockstep and a major bump is usually just a
+      # runner Node version change, so one PR is enough.
+      github-actions:
+        patterns: ["actions/*"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

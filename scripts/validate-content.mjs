@@ -20,7 +20,9 @@ import { readFileSync } from 'node:fs'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import yaml from 'js-yaml'
+// Named import, not default: js-yaml 5 is ESM-native and has no default export.
+// This form works on both 4 and 5.
+import { load as loadYamlString } from 'js-yaml'
 import { splitFrontmatter, analyse, createRenderer } from './lib/markdown.mjs'
 import { BLOCK_NAMES, REQUIRED_BLOCKS, REQUIRED_ONE_OF, ENCOURAGED_BLOCKS } from './lib/blocks.mjs'
 import { expandSeed, GENERATOR_KINDS } from '../src/runners/seed.mjs'
@@ -51,7 +53,7 @@ async function dirs(p) {
 function loadYaml(file) {
   if (!existsSync(file)) return null
   try {
-    return yaml.load(readFileSync(file, 'utf8')) ?? {}
+    return loadYamlString(readFileSync(file, 'utf8')) ?? {}
   } catch (e) {
     err(path.relative(ROOT, file), `invalid YAML — ${e.message}`)
     return null
@@ -260,7 +262,7 @@ for (const trackDir of await dirs(CONTENT)) {
 
       let meta
       try {
-        meta = yaml.load(frontmatter) ?? {}
+        meta = loadYamlString(frontmatter) ?? {}
       } catch (e) {
         err(rel, `invalid frontmatter — ${e.message}`)
         continue

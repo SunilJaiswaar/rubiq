@@ -40,7 +40,7 @@ because the engine is the reusable part and the content is the endless part.
 | **Runnable exercises** | 2, with hidden edge-case tests |
 | **Interview questions** | 32, with hints, model answers and follow-ups |
 | **Roadmaps** | 3 — Backend (Ruby), SDE I, Mid → Senior |
-| **Tests** | 264 unit and component, plus 51 browser checks against the built site |
+| **Tests** | 272 unit and component, plus 51 browser checks against the built site |
 
 ### The features that are not in other tutorials
 
@@ -78,7 +78,9 @@ anywhere in this app.
 
 ## Run it
 
-Requires **Node 20.19+** (Node 22 recommended).
+Requires **Node 22.12+**. `.nvmrc` pins Node 24 LTS, which is what CI runs — Node 20
+reached end of life in April 2026 and its bundled npm has a peer-resolution bug that
+crashes on some installs.
 
 ```bash
 git clone https://github.com/SunilJaiswaar/rubiq
@@ -91,7 +93,7 @@ npm run dev          # compiles content, then starts Vite on :5173
 |---|---|
 | `npm run dev` | Compile content and start the dev server |
 | `npm run build` | Validate content → compile → type-check → build → size-budget check |
-| `npm test` | 264 unit and component tests |
+| `npm test` | 272 unit and component tests |
 | `npm run test:smoke` | Drive real Chrome against the built site (needs `npm run preview` running) |
 | `npm run build:pages` | Build for the GitHub Pages project path (`/rubiq/`) |
 | `npm run preview:pages` | Preview that build — see the note below |
