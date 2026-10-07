@@ -6,15 +6,18 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
 
-    # Do not chase a version published hours ago. Letting a release settle for a
-    # few days avoids pulling in the ones that get unpublished or immediately
-    # patched, and keeps the lockfile inside the window Dependabot's own registry
-    # view can resolve — a version newer than that window makes its updater fail
-    # with "no matching version found ... with a date before <cutoff>", even
-    # though the version is perfectly real.
-    cooldown:
-      default-days: 5
-      semver-major-days: 14
+    # No `cooldown` here, deliberately — it was tried and removed.
+    #
+    # A cooldown restricts the registry view Dependabot resolves against. This
+    # project's lockfile is deliberately at latest across the board, so eight direct
+    # dependencies were newer than a 5-day window and its updater could not resolve
+    # the tree at all, failing with "no matching version found ... with a date before
+    # <cutoff>" on a version that plainly exists. Widening the window made it worse,
+    # not better.
+    #
+    # The two coherent policies are "stay at latest, no cooldown" and "hold a cooldown
+    # and do not install anything newer than it". This project takes the first: get
+    # current, then let Dependabot maintain it.
     groups:
       # `vitest` and `@vitest/*` pin each other at an exact version, so a PR that
       # bumps one without the other cannot install — `npm ci` fails with ERESOLVE
