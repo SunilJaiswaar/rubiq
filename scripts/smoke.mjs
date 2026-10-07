@@ -388,6 +388,38 @@ try {
   check('storage: concepts enrolled for spaced review',
     Array.isArray(stored) && stored.some((k) => k.startsWith('srs:')))
 
+  /* ------------------------------------- Monaco's TypeScript worker */
+  // The worker import specifiers are version-sensitive — monaco 0.57 changed them —
+  // and a broken one fails silently: the editor still renders, it just has no
+  // language service. So this switches to TypeScript, waits for the worker, and
+  // checks both that it answered and that the code still executes.
+  await goto('/playground')
+  await sleep(2500)
+  await evaluate(`
+    [...document.querySelectorAll('[role=tab]')]
+      .find((b) => b.textContent.trim() === 'TypeScript')?.click()
+  `)
+  await sleep(3500)
+
+  check('typescript: Monaco mounted for the TS tab',
+    (await evaluate('document.querySelectorAll(".monaco-editor").length > 0')))
+
+  // A language service that is alive decorates the model; a dead worker leaves none
+  // and logs a worker-load failure, which the no-console-error check below catches.
+  const tsWorkerLoaded = await evaluate(`
+    performance.getEntriesByType('resource')
+      .some((r) => /ts\.worker/.test(r.name))
+  `)
+  check('typescript: the ts.worker chunk was fetched', tsWorkerLoaded === true)
+
+  await evaluate(`
+    [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Run'))?.click()
+  `)
+  await sleep(2000)
+  check('typescript: the TS starter transpiles and runs',
+    (await evaluate('document.body.innerText')).includes('5'),
+    'distance({0,0},{3,4}) = 5')
+
   /* ------------------------------------------------- dark mode */
   await goto('/')
   await evaluate(`

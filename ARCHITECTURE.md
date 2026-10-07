@@ -273,7 +273,7 @@ an architecture document that is only prose becomes fiction within a month.
 | Scheduling, grading, search and SQL are correct | 272 unit and component tests |
 | Contrast meets WCAG in both themes | `src/ui/theme.test.ts`, reading the real tokens |
 | The initial payload stays under budget | `scripts/postbuild.mjs`, which exits non-zero |
-| The app actually works | `scripts/smoke.mjs` — 51 checks driving real Chrome against the built site: lessons render, modes filter, the sandbox executes, the index demo takes rows examined from 100,000 to 18, progress reaches IndexedDB, dark mode and a 375px viewport both hold, `/` opens search, and no uncaught exception occurs anywhere in the run |
+| The app actually works | `scripts/smoke.mjs` — 54 checks driving real Chrome against the built site: lessons render, modes filter, the sandbox executes, the index demo takes rows examined from 100,000 to 18, progress reaches IndexedDB, dark mode and a 375px viewport both hold, `/` opens search, and no uncaught exception occurs anywhere in the run |
 
 The smoke test is the one worth highlighting. The central claim of the SQL track is that a
 learner can *see* an index change the cost of a query; that claim is asserted against a

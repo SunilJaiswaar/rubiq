@@ -40,7 +40,7 @@ because the engine is the reusable part and the content is the endless part.
 | **Runnable exercises** | 2, with hidden edge-case tests |
 | **Interview questions** | 32, with hints, model answers and follow-ups |
 | **Roadmaps** | 3 — Backend (Ruby), SDE I, Mid → Senior |
-| **Tests** | 272 unit and component, plus 51 browser checks against the built site |
+| **Tests** | 272 unit and component, plus 54 browser checks against the built site |
 
 ### The features that are not in other tutorials
 

@@ -8,8 +8,11 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+// monaco-editor 0.57 added an `exports` map ("./*": "./esm/vs/*.js"), so the old
+// `monaco-editor/esm/vs/...` specifiers now resolve to `esm/vs/esm/vs/...` and fail.
+// The paths below are relative to `esm/vs/`.
+import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+import tsWorker from 'monaco-editor/language/typescript/ts.worker.js?worker'
 import type { CodeEditorProps } from './CodeEditor'
 
 /**
@@ -112,13 +115,22 @@ export default function MonacoEditor({
   const isDark =
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
 
-  const onMount = useCallback<OnMount>((editor, instance) => {
-    defineThemes(instance)
+  /*
+   * The second argument `@monaco-editor/react` passes to onMount is ignored in favour
+   * of the `monaco` namespace imported above.
+   *
+   * They are the same object at runtime — `loader.config({ monaco })` makes sure of
+   * that — but the wrapper types it against its own bundled monaco version, which
+   * stopped matching at monaco 0.57. Using the directly imported namespace keeps the
+   * types real instead of degrading everything downstream to `any`.
+   */
+  const onMount = useCallback<OnMount>((editor) => {
+    defineThemes(monaco)
 
     // Cmd/Ctrl+Enter runs. Reading from a ref so the binding does not need rebuilding
     // every time the parent re-renders.
     editor.addCommand(
-      instance.KeyMod.CtrlCmd | instance.KeyCode.Enter,
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
       () => runRef.current?.(),
     )
 
@@ -126,7 +138,11 @@ export default function MonacoEditor({
 
     // Exercises are small; TypeScript's module resolution complaints about a standalone
     // snippet are noise that would teach the learner to ignore the editor's warnings.
-    instance.languages.typescript?.typescriptDefaults.setDiagnosticsOptions({
+    //
+    // In monaco 0.57 the language features moved out from under `languages` to the
+    // top level — `monaco.languages.typescript` is now marked deprecated and carries
+    // no API.
+    monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
       diagnosticCodesToIgnore: [2304, 2307, 2451, 1375, 1378],
     })
   }, [ariaLabel])
