@@ -406,10 +406,9 @@ try {
 
   // A language service that is alive decorates the model; a dead worker leaves none
   // and logs a worker-load failure, which the no-console-error check below catches.
-  const tsWorkerLoaded = await evaluate(`
-    performance.getEntriesByType('resource')
-      .some((r) => /ts\.worker/.test(r.name))
-  `)
+  const tsWorkerLoaded = await evaluate(
+    String.raw`performance.getEntriesByType('resource').some((r) => /ts\.worker/.test(r.name))`,
+  )
   check('typescript: the ts.worker chunk was fetched', tsWorkerLoaded === true)
 
   await evaluate(`

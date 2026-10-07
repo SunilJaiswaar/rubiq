@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Rubiq — a free, open-source, GitHub-first platform for learning software engineering from zero to professional.",
+  "description": "Rubiq \u2014 a free, open-source, GitHub-first platform for learning software engineering from zero to professional.",
   "license": "MIT",
   "engines": {
     "node": ">=22.12"
@@ -64,5 +64,9 @@
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4",
     "sucrase": "^3.35.1"
+  },
+  "_overridesNote": "dompurify: monaco-editor 0.57 pins dompurify 3.4.15 exactly, and <=3.4.15 carries two DOM XSS advisories (GHSA-p98j-92pf-mc4p, GHSA-6688-9rhm-gjv2). 3.4.16 is the patch. Both are low severity and not reachable here — Monaco sanitises its own hover markdown, and this app has no user-generated content shared between visitors — but there is no reason to ship a known-vulnerable transitive dep when the fix is a patch bump. Remove this once monaco bumps its own pin.",
+  "overrides": {
+    "dompurify": "^3.4.16"
   }
 }
