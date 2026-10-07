@@ -341,8 +341,19 @@ async function build() {
 /* ------------------------------------------------------------ search index */
 
 function buildSearchIndex(docs) {
-  /** @type {Record<string, Array<[number, number, number]>>} postings: [docIdx, fieldId, tf] */
-  const postings = {}
+  /*
+   * A Map, not a plain object.
+   *
+   * `(postings[token] ??= []).push(...)` looks fine and is broken for any token that
+   * names an Object.prototype member. `postings["constructor"]` is a *function*, so
+   * `??=` does not assign, and `.push` is undefined — the build crashes. Tokens like
+   * `constructor`, `toString` and `valueOf` appear in ordinary programming prose, so
+   * this is not hypothetical: it was triggered by a lesson that discusses constructors.
+   *
+   * The same hazard exists at query time; see the guard in src/engines/search/index.ts.
+   */
+  /** @type {Map<string, Array<[number, number, number]>>} postings: [docIdx, fieldId, tf] */
+  const postings = new Map()
   const meta = []
 
   docs.forEach(({ stub, text, headings }, docIdx) => {
@@ -365,14 +376,17 @@ function buildSearchIndex(docs) {
         counts.set(token, (counts.get(token) ?? 0) + 1)
       }
       for (const [token, tf] of counts) {
-        ;(postings[token] ??= []).push([docIdx, fieldId, tf])
+        let list = postings.get(token)
+        if (!list) postings.set(token, (list = []))
+        list.push([docIdx, fieldId, tf])
       }
     }
   })
 
   return {
     docs: meta,
-    postings,
+    // Serialised as a plain object for the JSON payload; the runtime guards its reads.
+    postings: Object.fromEntries(postings),
     avgLength:
       docs.reduce((n, d) => n + tokenize(d.text).length, 0) / Math.max(1, docs.length),
   }

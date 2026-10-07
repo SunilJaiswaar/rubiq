@@ -1,0 +1,23 @@
+title: HTTP & Networking
+tagline: What actually happens between pressing Enter and seeing a page.
+category: Computer Science
+icon: globe
+accent: cyan
+difficulty: basic
+order: 50
+prerequisites: []
+description: >-
+  "It works on my machine" is almost always a networking statement. So is most of what
+  makes a production system slow, and most of what makes it insecure.
+
+
+  This track follows one request all the way down — DNS, TCP, TLS, HTTP — and then back up
+  through the caches, proxies and load balancers that sit in the middle. Every layer is
+  taught by what it solves and what it costs, so you can reason about latency and failure
+  rather than guessing.
+outcomes:
+  - Narrate the full lifecycle of a request, layer by layer
+  - Explain why a connection costs several round trips, and what removes them
+  - Read and set cache headers deliberately
+  - Choose the right status code, and know which ones clients treat specially
+  - Diagnose a slow request by working out which layer is responsible

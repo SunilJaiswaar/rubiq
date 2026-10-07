@@ -1,0 +1,144 @@
+passScore: 0.7
+questions:
+  - id: two-requirements
+    kind: multi
+    concept: base-case
+    prompt: What must be true for a recursive function to terminate?
+    options:
+      - text: There is a base case that returns without recursing
+        correct: true
+        feedback: Necessary, and the one people check.
+      - text: Every recursive call moves strictly closer to the base case
+        correct: true
+        feedback: >-
+          The one people forget. `return list[0] + f(list)` has a base case and never
+          reaches it.
+      - text: The function is pure
+        feedback: Helpful for reasoning, but impure recursive functions terminate fine.
+      - text: The recursion is in tail position
+        feedback: Affects stack usage in some languages, not termination.
+    explanation: >-
+      Both conditions are required and only the first is usually checked. A function can
+      have a perfectly good base case and still overflow because the argument never shrinks
+      — passing the same list, or decrementing by 2 while testing `=== 0` with an odd input.
+      Prefer `<=` over `===` for numeric base cases, since equality assumes the input lands
+      exactly on your value.
+
+  - id: stack-limit
+    kind: choice
+    concept: call-stack
+    prompt: "Why can a loop run a billion iterations but recursion overflow at a few thousand?"
+    options:
+      - text: The limit is on simultaneous nesting — each pending call holds a frame on a ~1 MB stack
+        correct: true
+        feedback: >-
+          A loop reuses one frame; recursion accumulates one per pending call. Different
+          resources entirely.
+      - text: Recursive calls are slower, so they time out
+        feedback: Speed is not the constraint — the error is memory exhaustion, not a timeout.
+      - text: Engines deliberately cap recursion depth for safety
+        feedback: >-
+          The cap is a consequence of the stack's fixed size, not a policy decision about
+          recursion.
+    explanation: >-
+      Each in-progress call needs a frame holding its arguments, locals and return address,
+      and the stack is a small fixed region — around 1 MB. A loop completes each iteration
+      before the next, so one frame is reused indefinitely. Recursion holds every pending
+      call simultaneously. The limit is therefore on depth, not on total work.
+
+  - id: memo-fib
+    kind: choice
+    concept: memoization
+    prompt: "Naive `fib(30)` makes over a million calls. Memoising makes about 30. Why such a gap?"
+    options:
+      - text: The call tree branches twice per level, so calls grow as 2^n — but there are only n distinct subproblems
+        correct: true
+        feedback: >-
+          Exponential work over linear distinct answers. That gap is the whole motivation
+          for dynamic programming.
+      - text: Memoisation makes each individual call faster
+        feedback: >-
+          Each call costs the same; memoisation eliminates almost all of the calls.
+      - text: The naive version has a bug
+        feedback: It is correct — just exponentially wasteful.
+    explanation: >-
+      `fib(n)` calls `fib(n-1)` and `fib(n-2)`, so the tree doubles at every level and the
+      call count is roughly 2^n. But there are only n distinct values of `fib` to compute —
+      the tree recomputes `fib(3)` dozens of times. Caching by argument collapses 2^n into n.
+      Memoisation is the top-down form of dynamic programming; filling a table bottom-up is
+      the same insight as a loop.
+
+  - id: untrusted-depth
+    kind: choice
+    concept: call-stack
+    prompt: >-
+      You are writing a function that walks arbitrary nested JSON submitted by users. Why
+      not use recursion?
+    options:
+      - text: A deliberately deep payload exhausts the stack and crashes the process — it is a denial-of-service vector
+        correct: true
+        feedback: >-
+          Use an explicit stack with a depth bound that throws, so the request fails rather
+          than the server.
+      - text: Recursion cannot traverse JSON
+        feedback: It is the natural fit for the shape — the problem is who controls the depth.
+      - text: Recursive functions cannot be made pure
+        feedback: They can be perfectly pure. Purity is unrelated to stack depth.
+    explanation: >-
+      The recursion itself is correct; the problem is that its depth is chosen by the
+      attacker. A few thousand nested arrays is a small payload and a crashed process. Moving
+      the pending work to an explicit heap-allocated stack removes the limit, and adding an
+      explicit maximum depth that throws converts a crash into a rejected request. This has
+      caused real outages in parsers and renderers.
+
+  - id: tco-js
+    kind: choice
+    concept: recursion
+    prompt: "Is writing `factTail(n, acc)` in tail position worth doing in JavaScript?"
+    options:
+      - text: "No — tail-call optimisation is specified but unimplemented in most engines, so it still overflows"
+        correct: true
+        feedback: >-
+          It is a real technique in Scheme, Elixir and Scala. In Node and Chrome it buys
+          nothing.
+      - text: Yes — V8 converts tail calls into loops automatically
+        feedback: >-
+          It does not. ES2015 specified TCO and essentially only Safari shipped it.
+      - text: Yes, because accumulator style is always faster
+        feedback: >-
+          The accumulator may be marginally faster, but the depth limit is unchanged, which
+          was the point.
+    explanation: >-
+      A tail call is one where nothing is waiting on the result, so in principle the engine
+      can reuse the frame. ES2015 specified this, and outside Safari no major engine
+      implemented it. So accumulator-passing style in JavaScript is a stylistic choice with
+      no effect on the depth limit. In Elixir, Scheme or Scala — where Scala's `@tailrec` even
+      fails compilation if the call is not in tail position — it is load-bearing. Worth
+      knowing when moving between languages.
+
+  - id: explain-recursion-choice
+    kind: recall
+    concept: recursion
+    prompt: >-
+      You are implementing a function to render a comment thread of arbitrary depth in a
+      production web app. Walk through your decision.
+    key_points:
+      - The data is recursive, so recursion mirrors it and has no bookkeeping to get wrong
+      - But the depth is determined by user-submitted content, which is untrusted
+      - A deeply nested thread would exhaust the stack and crash the process
+      - So use an explicit stack, or recursion with a hard depth limit that throws
+      - Cap the depth at the product level too — threads deeper than ~10 are unreadable anyway
+      - Note the limit is on nesting, not total comments; a million shallow comments is fine
+    model: >-
+      The data is recursive, so the recursive version is the one with no accidental
+      complexity — a comment has replies which are comments, and `render(node)` calling
+      `render(child)` is a direct transcription. That would be my instinct. What changes it
+      is that the depth comes from user-submitted content, so it is untrusted: a few thousand
+      nested replies is a small payload and a crashed process, which makes naive recursion a
+      denial-of-service vector. So I would either use an explicit stack, which moves the
+      frames to the heap and removes the limit, or keep the recursion and add a hard depth
+      bound that throws — converting a crash into a rejected or truncated render. I would
+      also cap it at the product level, because a thread nested fifty deep is unreadable
+      anyway, which means the engineering limit and the design limit agree. Worth noting the
+      constraint is on nesting rather than volume: a million top-level comments is fine, it
+      is a thousand levels of nesting that is not.

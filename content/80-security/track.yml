@@ -1,0 +1,24 @@
+title: Security
+tagline: How software gets broken, demonstrated rather than described.
+category: Engineering
+icon: shield
+accent: ruby
+difficulty: intermediate
+order: 80
+prerequisites: [http, sql]
+description: >-
+  Security taught as a checklist produces engineers who can name OWASP categories and
+  still ship the bug. This track teaches each vulnerability by building it: here is the
+  code, here is the input that breaks it, here is why the obvious fix is insufficient,
+  here is the fix that works.
+
+
+  Every example is runnable and self-contained. Nothing here is a technique for attacking
+  systems you do not own — the point is to recognise the shape of these bugs in your own
+  code, which is the only place you can fix them.
+outcomes:
+  - Explain why parameterised queries work and escaping does not
+  - Tell the three XSS contexts apart and defend each correctly
+  - Explain what CSRF exploits and why SameSite mostly fixes it
+  - Store a password correctly, and say why a fast hash is the wrong tool
+  - Reason about authorisation as a property of the system, not a per-endpoint check

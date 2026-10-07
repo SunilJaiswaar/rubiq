@@ -1,0 +1,117 @@
+passScore: 0.7
+questions:
+  - id: static-vs-dynamic
+    kind: choice
+    concept: type-checking
+    prompt: What is the essential difference between static and dynamic typing?
+    options:
+      - text: When the check happens — before the program runs, or as each operation runs
+        correct: true
+        feedback: >-
+          And the consequence is coverage: static checks every path, dynamic only the ones
+          that execute.
+      - text: Dynamic languages have no types
+        feedback: >-
+          They do — the *value* carries its type. `typeof 5` is "number". The name is what
+          has no declared type.
+      - text: Static languages are always faster
+        feedback: >-
+          Usually faster, because the compiler knows the layout — but that is a consequence,
+          not the definition.
+    explanation: >-
+      Both track types; they differ on timing. Static checking happens before execution, so
+      it covers code paths nothing has ever run. Dynamic checking happens at the operation,
+      so it covers exactly the paths that execute. That is why a typed codebase still needs
+      tests and a dynamic one benefits from a type checker — they cover different things.
+
+  - id: coercion
+    kind: choice
+    concept: coercion
+    prompt: 'Why does `"5" + 2` give `"52"` but `"5" - 2` gives `3`?'
+    options:
+      - text: "`+` means both addition and concatenation, so a string operand selects concatenation; `-` has no string meaning, so both sides become numbers"
+        correct: true
+        feedback: >-
+          Two different rules for two operators that look like a pair — which is exactly
+          what makes the bug hard to spot.
+      - text: "`-` is a stricter operator that validates its operands"
+        feedback: It does not validate — it coerces. `"5" - 2` succeeds rather than erroring.
+      - text: It is undefined behaviour and varies by engine
+        feedback: It is fully specified, consistent everywhere, and still a bad idea to rely on.
+    explanation: >-
+      `+` is overloaded for arithmetic and concatenation, so a string on either side picks
+      concatenation. `-` has only an arithmetic meaning, so it converts. The real-world
+      consequence: a form field is always a string, so `quantity * price` works by accident
+      and `quantity + price` is silently wrong — with no error anywhere.
+
+  - id: float-money
+    kind: choice
+    concept: types
+    prompt: "Why should money never be stored in a float?"
+    options:
+      - text: "0.1 has no exact binary representation, so rounding error accumulates across arithmetic"
+        correct: true
+        feedback: >-
+          Store integer minor units — paise or cents — or a decimal type, and divide only
+          for display.
+      - text: Floats cannot hold large enough numbers
+        feedback: >-
+          Range is not the problem; precision is. A float holds huge values, just not 0.1
+          exactly.
+      - text: It is only a problem in JavaScript
+        feedback: >-
+          It is IEEE 754, which is nearly every language. Python, Java and C have the same
+          behaviour.
+    explanation: >-
+      A float stores a sum of powers of two. 0.1 in binary is `0.0001100110011...`
+      repeating, so the stored value is the nearest representable one and the error
+      compounds — `0.1` added ten times is not 1. Use integer minor units, or a decimal
+      type such as `BigDecimal`, `decimal.Decimal` or PostgreSQL's `NUMERIC`.
+
+  - id: ts-erased
+    kind: choice
+    concept: type-checking
+    prompt: "`const user = await res.json() as User` compiles cleanly. What is wrong with trusting it?"
+    options:
+      - text: TypeScript's types are erased at runtime, so nothing verifies the response actually matches `User`
+        correct: true
+        feedback: >-
+          Which is why validation at the boundary — Zod, Valibot, a hand-written check —
+          is not optional.
+      - text: "`as` is deprecated"
+        feedback: It is current syntax. The issue is that it asserts rather than checks.
+      - text: Nothing — the compiler verifies the shape
+        feedback: >-
+          The compiler verifies your *claim* is internally consistent. It cannot see the
+          server's response.
+    explanation: >-
+      `as` is an assertion, not a check: you are telling the compiler to trust you, and the
+      types do not exist at runtime to verify it. Anything crossing a boundary — network,
+      file, user input, `localStorage` — needs a runtime validation step. Everything inside
+      that boundary can then legitimately trust the type.
+
+  - id: explain-types
+    kind: recall
+    concept: types
+    prompt: >-
+      Your team is deciding whether to add TypeScript to an existing JavaScript codebase.
+      Make the case either way, including what it does not solve.
+    key_points:
+      - Types are documentation that cannot go stale, unlike comments
+      - Static checking covers every path, including ones tests never reach
+      - Refactoring becomes mechanical — rename a field and the compiler lists the callers
+      - It does not catch logic errors; a wrong price can be perfectly typed
+      - Types are erased at runtime, so boundaries still need runtime validation
+      - The cost is expressing intent in the type system, plus a build step
+    model: >-
+      The strongest argument is coverage: a type checker verifies every path through the
+      code, including the ones tests never reach, for the class of errors it understands.
+      The second is refactoring — renaming a field becomes mechanical because the compiler
+      enumerates the call sites instead of me grepping. And the types act as documentation
+      that cannot drift from the code the way a comment does. What it will not do is catch
+      logic errors: a wrong calculation can be perfectly typed. It also will not protect the
+      boundaries, because TypeScript's types are erased at runtime — anything arriving from
+      the network or storage still needs a validation step, or `as User` is just a comment
+      with better tooling. The cost is real: some intent is awkward to express in types, and
+      there is now a build step. For an existing codebase I would make it incremental —
+      `allowJs`, strict only on new files — so the cost is paid where the benefit is.

@@ -62,10 +62,17 @@ const doc = (id: string, title: string, track = 'ruby'): IndexedDoc => ({
   id, title, summary: '', route: `/learn/${id}`, track, level: 'beginner', minutes: 5, blocks: [],
 })
 
+/**
+ * Mirrors scripts/build-content.mjs, including its use of a Map.
+ *
+ * The first version of this helper used `(postings[token] ??= []).push(...)` — the exact
+ * bug the regression tests below exist for — and crashed on the word "constructor". It is
+ * worth noting how natural that line is to write.
+ */
 function buildIndex(
   entries: Array<{ doc: IndexedDoc; title: string; body: string; tags?: string }>,
 ): SearchIndex {
-  const postings: SearchIndex['postings'] = {}
+  const postings = new Map<string, Array<[number, number, number]>>()
   entries.forEach((entry, docIdx) => {
     const fields: Array<[number, string]> = [
       [FIELD_IDS.title, entry.title],
@@ -75,12 +82,16 @@ function buildIndex(
     for (const [fieldId, text] of fields) {
       const counts = new Map<string, number>()
       for (const t of tokenize(text)) counts.set(t, (counts.get(t) ?? 0) + 1)
-      for (const [token, tf] of counts) (postings[token] ??= []).push([docIdx, fieldId, tf])
+      for (const [token, tf] of counts) {
+        let list = postings.get(token)
+        if (!list) postings.set(token, (list = []))
+        list.push([docIdx, fieldId, tf])
+      }
     }
   })
   return {
     docs: entries.map((e) => e.doc),
-    postings,
+    postings: Object.fromEntries(postings),
     avgLength: entries.reduce((n, e) => n + tokenize(e.body).length, 0) / entries.length,
   }
 }
@@ -205,5 +216,78 @@ describe('SearchEngine', () => {
 
   it('reports its size', () => {
     expect(engine.size).toBe(4)
+  })
+})
+
+describe('tokens that collide with Object.prototype', () => {
+  // This is a regression test for a real build crash. The index was accumulated into a
+  // plain object with `(postings[token] ??= []).push(...)`. For `token === "constructor"`
+  // that reads Object.prototype.constructor — a function, so `??=` does not assign and
+  // `.push` is undefined. It was triggered by a lesson discussing constructors, which
+  // is to say: by ordinary programming prose.
+  const HAZARDS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__', 'prototype']
+
+  const built = buildIndex([
+    {
+      doc: doc('js/objects/constructors', 'Constructors and prototypes'),
+      title: 'Constructors and prototypes',
+      body: 'A constructor builds an object. toString and valueOf are inherited from the prototype. hasOwnProperty checks own keys.',
+      tags: 'constructor prototype',
+    },
+    {
+      doc: doc('js/objects/plain', 'Plain objects'),
+      title: 'Plain objects',
+      body: 'An object literal has a prototype unless created with Object.create(null).',
+      tags: 'objects',
+    },
+  ])
+
+  it('indexes a hazardous token as an own property rather than crashing', () => {
+    for (const hazard of HAZARDS) {
+      const token = tokenize(hazard)[0]
+      if (!token) continue
+      // Either present as an own property, or genuinely absent — never an inherited value.
+      const value = Object.hasOwn(built.postings, token) ? built.postings[token] : undefined
+      if (value !== undefined) {
+        expect(Array.isArray(value), `postings["${token}"] should be an array`).toBe(true)
+      }
+    }
+  })
+
+  it('stores the posting list for "constructor" as a real array', () => {
+    const token = tokenize('constructor')[0] as string
+    expect(Object.hasOwn(built.postings, token)).toBe(true)
+    expect(Array.isArray(built.postings[token])).toBe(true)
+  })
+
+  it('finds the lesson when searching for "constructor"', () => {
+    const engine = new SearchEngine(built)
+    expect(engine.search('constructor')[0]?.doc.id).toBe('js/objects/constructors')
+  })
+
+  it('returns nothing for a prototype member that was never indexed', () => {
+    // `toString` is not in either document, so it must behave as absent — not as a hit
+    // via Object.prototype.toString.
+    const bare = buildIndex([
+      { doc: doc('a/b/c', 'Nothing relevant'), title: 'Nothing relevant', body: 'plain words only' },
+    ])
+    const engine = new SearchEngine(bare)
+    for (const hazard of ['toString', 'valueOf', 'hasOwnProperty', 'constructor']) {
+      expect(engine.search(hazard), `"${hazard}" should not match`).toEqual([])
+    }
+  })
+
+  it('does not offer an inherited member as a search suggestion', () => {
+    const engine = new SearchEngine(built)
+    for (const suggestion of engine.suggest('to')) {
+      expect(typeof suggestion).toBe('string')
+      expect(Object.hasOwn(built.postings, suggestion)).toBe(true)
+    }
+  })
+
+  it('survives __proto__ as a query without polluting anything', () => {
+    const engine = new SearchEngine(built)
+    expect(() => engine.search('__proto__')).not.toThrow()
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
   })
 })

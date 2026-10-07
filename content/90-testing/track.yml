@@ -1,0 +1,23 @@
+title: Testing
+tagline: Tests that tell you something. Not tests that restate the code.
+category: Engineering
+icon: check
+accent: realworld
+difficulty: basic
+order: 90
+prerequisites: [fundamentals]
+description: >-
+  A test suite can be large, green, fast, and worth almost nothing. The difference between
+  a suite that catches real bugs and one that mostly breaks when you refactor is a set of
+  decisions you can learn.
+
+
+  This track covers what to test and what not to, the difference between a test double
+  that helps and one that hides, why TDD changes design rather than just coverage, and how
+  to write a test that still makes sense to whoever reads it after it fails.
+outcomes:
+  - Decide what deserves a test, and say why the rest does not
+  - Write a test that describes behaviour rather than implementation
+  - Choose between a stub, a mock and the real thing, deliberately
+  - Recognise a test that will break on every refactor, before writing it
+  - Use failures as diagnosis — a good test name is half the debugging

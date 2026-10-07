@@ -1,0 +1,138 @@
+passScore: 0.7
+questions:
+  - id: pure-definition
+    kind: multi
+    concept: pure-functions
+    prompt: Which of these make a function impure?
+    options:
+      - text: Reading a mutable variable declared outside it
+        correct: true
+        feedback: Same arguments can then produce different results, so the call site is unreadable alone.
+      - text: Mutating one of its arguments
+        correct: true
+        feedback: An observable effect outside the function — the caller's data changed.
+      - text: Calling `Date.now()` or `Math.random()`
+        correct: true
+        feedback: Both read hidden state, so the output is not determined by the input.
+      - text: Taking an object as an argument and reading its fields
+        feedback: Reading is fine. Purity forbids *writing* outside itself, not reading its input.
+      - text: Returning a new object built from its arguments
+        feedback: That is the pure alternative to mutating — exactly what you want.
+    explanation: >-
+      Purity has two halves: the output is determined entirely by the input, and nothing
+      observable outside changes. Reading external mutable state breaks the first; mutating
+      an argument, writing a global or performing I/O breaks the second. Reading your own
+      arguments and returning new values breaks neither.
+
+  - id: why-pure
+    kind: choice
+    concept: pure-functions
+    prompt: "Why can you safely memoise a pure function but not an impure one?"
+    options:
+      - text: Because the same input always produces the same output, so a cached result stays correct
+        correct: true
+        feedback: >-
+          Memoising a function that reads a mutable rate would return the stale rate
+          forever.
+      - text: Because pure functions are faster, so caching is worthwhile
+        feedback: Speed is unrelated — the issue is whether the cached value remains correct.
+      - text: Because impure functions cannot be passed as arguments
+        feedback: They can. The problem is the cache going stale.
+    explanation: >-
+      A cache answers "what did this return for these arguments last time?" That is only a
+      valid substitute for calling again if the function promises the same output for the
+      same input. Memoising `(amount) => amount * currentRate` would pin the first rate
+      forever and the bug would be invisible at the call site.
+
+  - id: default-param-python
+    kind: choice
+    concept: functions
+    prompt: "`def add(item, lst=[]): lst.append(item); return lst` in Python. Calling `add('a')` then `add('b')` gives?"
+    options:
+      - text: "`['a']` then `['a', 'b']` — the default is evaluated once, at definition time"
+        correct: true
+        feedback: >-
+          The classic Python mutable-default trap. The fix is `lst=None` and
+          `lst = [] if lst is None else lst`.
+      - text: "`['a']` then `['b']` — a fresh list each call"
+        feedback: >-
+          That is JavaScript's behaviour. Python evaluates the default once and reuses that
+          object.
+      - text: It raises an error on the second call
+        feedback: No error — it silently accumulates, which is what makes it hard to spot.
+    explanation: >-
+      Python evaluates default arguments once, when the function is defined, so a mutable
+      default is shared across every call for the lifetime of the program. JavaScript
+      re-evaluates the default on each call, so the identical-looking code is safe there.
+      Same syntax, opposite semantics — worth knowing which language you are in.
+
+  - id: and-in-name
+    kind: choice
+    concept: functions
+    prompt: "Why is `validateAndSave(order)` a design smell?"
+    options:
+      - text: It is two functions sharing a name, so a caller can never want only one half
+        correct: true
+        feedback: >-
+          And it cannot be tested without the save, nor reused where only validation is
+          needed.
+      - text: Function names should not contain verbs
+        feedback: Verbs are good in function names — it is the conjunction that is the problem.
+      - text: It is too long
+        feedback: Length is not the issue; doing two unrelated things is.
+    explanation: >-
+      "And" in a name is a reliable signal of two responsibilities. The practical costs: you
+      cannot validate without saving, you cannot test the validation without a database, and
+      the name no longer lets a reader stop reading — which was the point of extracting a
+      function. Split it, and let the caller compose.
+
+  - id: inject-clock
+    kind: choice
+    concept: side-effects
+    prompt: >-
+      `const isExpired = (token) => token.expiresAt < Date.now()`. What is the cheapest
+      change that makes it testable?
+    options:
+      - text: "Add a defaulted parameter: `(token, now = Date.now())`"
+        correct: true
+        feedback: >-
+          Existing callers are unaffected and tests can pass a fixed time. The smallest
+          possible testability win.
+      - text: Mock the global `Date` object in the test
+        feedback: >-
+          It works, but it is global, order-dependent, and leaks between tests. A parameter
+          is local and explicit.
+      - text: Wrap it in a class with a clock dependency
+        feedback: >-
+          Valid for larger designs, but heavy for one function when a default parameter does
+          the same job.
+    explanation: >-
+      A defaulted parameter for the impure input is the cheapest form of dependency
+      injection: every existing call site keeps working, and a test can pass an exact
+      timestamp to get determinism. The same trick works for IDs, randomness and anything
+      else ambient — `(payload, id = uuid())`.
+
+  - id: explain-function-size
+    kind: recall
+    concept: functions
+    prompt: >-
+      A reviewer insists no function should exceed ten lines. Respond — including where
+      you agree.
+    key_points:
+      - A line limit is a proxy for the real property, which is whether the name is honest
+      - "\"And\" in the name means two responsibilities, regardless of length"
+      - A function whose name only restates its single line adds indirection without meaning
+      - Over-decomposition makes every function trivially correct and the work impossible to locate
+      - Agree that long functions usually indicate mixed concerns, especially decisions tangled with I/O
+      - The better test is whether the interesting logic can be tested without a database or clock
+    model: >-
+      I agree with what the rule is reaching for and not with the rule. Long functions are
+      usually a symptom, and the thing they are a symptom of is mixed responsibilities —
+      most often decisions tangled with I/O. But line count is a proxy, and optimising the
+      proxy produces its own failure: a codebase of three-line functions where each is
+      obviously correct and nobody can find where the work actually happens. I would use two
+      tests instead. First, is the name honest? If it needs "and", it is two functions,
+      whether that is six lines or sixty. If the name just restates the single line inside,
+      it should not be a function at all. Second, can I test the interesting logic without a
+      database, a network or a clock? If not, the problem is not length — it is that the pure
+      and impure parts are not separated, and splitting by line count will not fix it.

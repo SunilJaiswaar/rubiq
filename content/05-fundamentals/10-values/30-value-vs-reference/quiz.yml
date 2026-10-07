@@ -1,0 +1,120 @@
+passScore: 0.7
+questions:
+  - id: shallow-protects
+    kind: choice
+    concept: shallow-copy
+    prompt: "After `const copy = { ...original }`, which properties of `original` are protected from changes made through `copy`?"
+    options:
+      - text: Only those whose values are primitives — numbers, strings, booleans, null, undefined
+        correct: true
+        feedback: >-
+          Right. Objects, arrays, Maps, Sets and Dates are shared, because copying a
+          reference gives you a second reference to one thing.
+      - text: All of them — that is what a copy means
+        feedback: >-
+          Only one level deep. `copy.nested.x = 1` reaches the original's nested object.
+      - text: None of them
+        feedback: >-
+          The top level genuinely is independent: `copy.n = 2` does not affect
+          `original.n`.
+    explanation: >-
+      A shallow copy builds a new container and copies each value in. For a primitive that
+      is a real copy; for an object the value *is* a reference, so you get a second
+      reference to the same object. Hence: primitives protected, everything nested shared.
+
+  - id: json-lossy
+    kind: multi
+    concept: deep-copy
+    prompt: "What does `JSON.parse(JSON.stringify(obj))` do incorrectly?"
+    options:
+      - text: Turns a Date into a string
+        correct: true
+        feedback: The nastiest one — it works until something calls `.getTime()`.
+      - text: Drops keys whose value is `undefined`
+        correct: true
+        feedback: And drops functions entirely.
+      - text: Throws on a circular reference
+        correct: true
+        feedback: "`structuredClone` handles cycles correctly."
+      - text: Turns a Set into `{}` and NaN into `null`
+        correct: true
+        feedback: Sets, Maps and RegExps all collapse; NaN and Infinity become null.
+      - text: Fails to copy nested objects
+        feedback: >-
+          It does copy them — deeply. Isolation is the one thing it gets right; fidelity is
+          what it loses.
+    explanation: >-
+      The JSON round-trip achieves isolation and sacrifices fidelity. It is only defined
+      for what JSON can express, so Dates, `undefined`, functions, Sets, Maps, RegExps,
+      NaN, Infinity and BigInt are all changed, dropped or throw. `structuredClone` handles
+      all of those plus cycles, and is the right default now that it is widely available.
+
+  - id: structured-clone-limits
+    kind: choice
+    concept: deep-copy
+    prompt: "What does `structuredClone` NOT do?"
+    options:
+      - text: Preserve a class instance's prototype — you get a plain object without its methods
+        correct: true
+        feedback: >-
+          So `clone instanceof User` is false and `clone.greet` is undefined. Class
+          instances need their own `clone()` method.
+      - text: Handle circular references
+        feedback: It handles cycles correctly — that is one of its advantages over JSON.
+      - text: Copy Dates and Maps
+        feedback: It copies both faithfully.
+    explanation: >-
+      `structuredClone` copies data, not behaviour. It cannot clone functions, and a class
+      instance comes back as a plain object with the right fields and no prototype. If your
+      objects have methods or invariants, write an explicit `clone()` — the language cannot
+      guess what "a copy of this" means for your type.
+
+  - id: structural-sharing
+    kind: choice
+    concept: immutability
+    prompt: >-
+      In `const next = { ...state, user: { ...state.user, name: "Bo" } }`, what is true of
+      `next.posts`?
+    options:
+      - text: It is the same array as `state.posts` — unchanged subtrees are shared, not copied
+        correct: true
+        feedback: >-
+          Which is what makes "never mutate state" cheap, and what makes a `===` check on
+          props a valid way to skip a re-render.
+      - text: It is a deep copy of `state.posts`
+        feedback: >-
+          Nothing copied it. The spread copies the reference, so both objects point at one
+          array.
+      - text: It is `undefined`
+        feedback: The spread carries every own enumerable property across, including `posts`.
+    explanation: >-
+      This is structural sharing: only the path to the change is rebuilt, and every
+      untouched subtree is reused by reference. The cost is O(depth of the change) rather
+      than O(size of the state), which is why immutable updates are practical. It is also
+      why `prevProps.posts === nextProps.posts` is a sound signal that nothing in `posts`
+      changed.
+
+  - id: explain-copy-depth
+    kind: recall
+    concept: shallow-copy
+    prompt: >-
+      A colleague fixes an aliasing bug by deep-cloning a large API response on every
+      request. Reviews are getting slower. What would you say?
+    key_points:
+      - A deep copy is O(total size) and is being paid on every request
+      - The right question is which nested values anything actually mutates
+      - If nothing mutates them, a shallow copy — or no copy — is correct and free
+      - If something does mutate them, fix the mutation rather than defending against it
+      - "\"I do not know what mutates it\" means the data is shared too widely; narrow the access instead"
+      - Immutability with structural sharing gets isolation without the copy cost
+    model: >-
+      Deep cloning a large response on every request is paying O(total size) to defend
+      against a mutation that may not exist. I would ask which nested values are actually
+      mutated. If none are, the clone is pure cost and a shallow copy — or no copy — is
+      correct. If something does mutate them, the better fix is to stop it mutating shared
+      data rather than to copy defensively around it, because the copy only hides the
+      design problem and has to be repeated at every boundary. If the honest answer is "I
+      do not know what mutates it", that is the real finding: the data is reachable from too
+      many places, and narrowing that is cheaper and safer than cloning. Where genuine
+      isolation is needed and the data is large, immutable updates with structural sharing
+      give it at the cost of the changed path only.

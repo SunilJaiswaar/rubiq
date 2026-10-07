@@ -1,0 +1,23 @@
+title: DevOps & Deployment
+tagline: Getting it to production, and knowing what it is doing there.
+category: Operations
+icon: server
+accent: cyan
+difficulty: intermediate
+order: 95
+prerequisites: [os, http]
+description: >-
+  The gap between "it works on my machine" and "it works in production, and I can tell
+  when it does not" is where most engineering careers stall. It is also almost entirely
+  learnable.
+
+
+  This track covers Linux as the environment your code actually lives in, containers and
+  what they really are, CI/CD as a discipline rather than a YAML file, and the
+  observability you need before an incident rather than during one.
+outcomes:
+  - Navigate and diagnose a Linux box without reaching for a GUI
+  - Explain what a container actually is, and what it is not
+  - Write a pipeline that fails for the right reasons
+  - Choose between logs, metrics and traces for a given question
+  - Define an SLO that means something, and explain an error budget

@@ -47,6 +47,8 @@ export class SearchEngine {
 
   constructor(index: SearchIndex) {
     this.#index = index
+    // Own keys only, so an inherited member of Object.prototype can never be
+    // offered as a search term or expanded as a prefix match.
     this.#terms = Object.keys(index.postings)
   }
 
@@ -75,6 +77,10 @@ export class SearchEngine {
       const variants = this.#expand(term, isLast)
 
       for (const { token, penalty } of variants) {
+        // `Object.hasOwn`, not a truthy check: `postings["constructor"]` would otherwise
+        // resolve to Object.prototype.constructor and be treated as a posting list.
+        // Tokens like `constructor` and `toString` occur in ordinary programming prose.
+        if (!Object.hasOwn(this.#index.postings, token)) continue
         const postings = this.#index.postings[token]
         if (!postings) continue
 
@@ -147,8 +153,8 @@ export class SearchEngine {
     return this.#terms
       .filter((t) => t.startsWith(term))
       .sort((a, b) => {
-        const aLen = this.#index.postings[a]?.length ?? 0
-        const bLen = this.#index.postings[b]?.length ?? 0
+        const aLen = Object.hasOwn(this.#index.postings, a) ? (this.#index.postings[a]?.length ?? 0) : 0
+        const bLen = Object.hasOwn(this.#index.postings, b) ? (this.#index.postings[b]?.length ?? 0) : 0
         return bLen - aLen || a.localeCompare(b)
       })
       .slice(0, limit)

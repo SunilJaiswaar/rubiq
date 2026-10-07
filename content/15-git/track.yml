@@ -1,0 +1,24 @@
+title: Git
+tagline: The object model first. Then the commands stop being incantations.
+category: Operations
+icon: branch
+accent: amber
+difficulty: beginner
+order: 15
+prerequisites: []
+description: >-
+  Most Git tutorials are a list of commands to memorise, which is why most engineers have
+  three commands they trust and a folder they re-clone when things go wrong.
+
+
+  Git is actually a very small, very regular system: a content-addressed object store with
+  four object types, plus pointers into it. Learn that first and `reset`, `rebase`,
+  `cherry-pick` and `reflog` become obvious consequences rather than spells. This track
+  teaches the model, then the commands, then how to recover from the situations that
+  usually cause a re-clone.
+outcomes:
+  - Explain what a commit actually contains, and why hashes are what they are
+  - Tell the three resets apart and pick the right one without guessing
+  - Rebase deliberately, and know when not to
+  - Recover committed work you thought you had destroyed
+  - Read a merge conflict instead of fearing it

@@ -1,0 +1,24 @@
+title: System Design
+tagline: Trade-offs, made explicit. Both the small scale and the large.
+category: Engineering
+icon: layers
+accent: indigo
+difficulty: advanced
+order: 70
+prerequisites: [sql, http]
+description: >-
+  System design is not a set of diagrams to memorise. It is the practice of making
+  trade-offs explicit: what you are optimising, what you are giving up, and what breaks
+  first when you are wrong.
+
+
+  This track covers both halves. Low-level design is about objects, interfaces and the
+  SOLID ideas — how to build something a colleague can change safely. High-level design is
+  about capacity, caching, queues, replication and consistency — how to build something
+  that survives its own traffic. Every topic states when *not* to use it.
+outcomes:
+  - Estimate the capacity a system needs before designing it
+  - Choose where to cache, and say what the stale data costs you
+  - Explain the real trade-off behind CAP without reciting it
+  - Design a class hierarchy that is easy to change, and justify each boundary
+  - Walk through a design interview out loud, in a defensible order

@@ -26,6 +26,7 @@ import { load as loadYamlString } from 'js-yaml'
 import { splitFrontmatter, analyse, createRenderer } from './lib/markdown.mjs'
 import { BLOCK_NAMES, REQUIRED_BLOCKS, REQUIRED_ONE_OF, ENCOURAGED_BLOCKS } from './lib/blocks.mjs'
 import { expandSeed, GENERATOR_KINDS } from '../src/runners/seed.mjs'
+import { findUnquotedColons } from './lib/yamlguard.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CONTENT = path.join(ROOT, 'content')
@@ -366,6 +367,18 @@ if (existsSync(roadmapFile)) {
       }
     }
   }
+}
+
+/* ------------------------------------------------- YAML scalar pre-check */
+
+// Run before reporting, because js-yaml's error for this points at the wrong line
+// and says "bad indentation", which sends authors looking in the wrong place.
+for (const problem of await findUnquotedColons(CONTENT)) {
+  err(
+    `${problem.file}:${problem.line}`,
+    `"${problem.key}" contains ": " but is not quoted — YAML reads that as a nested ` +
+    `mapping. Wrap it in double quotes or use a >- block scalar.`,
+  )
 }
 
 /* ------------------------------------------------------------------ report */

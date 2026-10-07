@@ -1,0 +1,23 @@
+title: JavaScript & TypeScript
+tagline: The language of the web, including the parts that surprise people.
+category: Languages
+icon: braces
+accent: amber
+difficulty: basic
+order: 40
+prerequisites: [fundamentals]
+description: >-
+  JavaScript has a reputation for being strange. Most of that strangeness has a specific
+  cause: it was designed in ten days, it must never break the web, and it grew a
+  concurrency model before it grew the syntax to express it.
+
+
+  This track treats those as explanations rather than excuses. You will learn the event
+  loop properly, understand why `this` works the way it does, know what `==` actually
+  compares, and then see what TypeScript adds on top and what it deliberately does not.
+outcomes:
+  - Predict the order asynchronous code runs in, and explain why
+  - Explain closures well enough to debug one that captured the wrong thing
+  - Say what `this` refers to in any given call, from the call site alone
+  - Use TypeScript's type system to encode rules, not just annotate variables
+  - Recognise which JavaScript oddities are design and which are history

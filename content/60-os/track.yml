@@ -1,0 +1,24 @@
+title: Operating Systems
+tagline: The machine your code actually runs on.
+category: Computer Science
+icon: cpu
+accent: ruby
+difficulty: intermediate
+order: 60
+prerequisites: [fundamentals]
+description: >-
+  You can write software for years without thinking about the operating system, right up
+  until something is slow, leaks memory, deadlocks, or behaves differently under load.
+  Then every useful question is an OS question.
+
+
+  This track covers processes and threads, how memory is actually arranged, what a context
+  switch costs, why concurrency is hard, and what a system call does. It is aimed at
+  application engineers who need to reason about their own programs, not at people writing
+  kernels.
+outcomes:
+  - Explain the difference between a process and a thread, and pick between them
+  - Say what happens on a page fault and why memory looks infinite
+  - Reason about what a context switch costs and when it dominates
+  - Recognise a race condition and a deadlock from their symptoms
+  - Explain why blocking I/O limits concurrency and what the alternatives are

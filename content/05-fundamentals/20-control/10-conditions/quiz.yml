@@ -1,0 +1,130 @@
+passScore: 0.7
+questions:
+  - id: falsy-list
+    kind: multi
+    concept: truthiness
+    prompt: Which of these are truthy in JavaScript?
+    options:
+      - text: "`[]`"
+        correct: true
+        feedback: An empty array is truthy — unlike in Python, where it is falsy.
+      - text: "`\"0\"`"
+        correct: true
+        feedback: Any non-empty string is truthy, including "0" and "false".
+      - text: "`{}`"
+        correct: true
+        feedback: Every object is truthy.
+      - text: "`0`"
+        feedback: One of the eight falsy values — and the cause of most truthiness bugs.
+      - text: "`\"\"`"
+        feedback: The empty string is falsy, which is why `if (!name)` is risky for real input.
+    explanation: >-
+      JavaScript has exactly eight falsy values — `false`, `0`, `-0`, `0n`, `""`, `null`,
+      `undefined`, `NaN`. Everything else is truthy. Note the inconsistency: emptiness makes
+      a *string* falsy but not a *collection*. That is why `if (list)` means "the list
+      exists" in JavaScript but "the list has items" in Python.
+
+  - id: nullish
+    kind: choice
+    concept: truthiness
+    prompt: "`const volume = settings.volume || 50`. The user set the volume to 0. What do they get?"
+    options:
+      - text: "50 — `0` is falsy, so `||` falls back and overrides their choice"
+        correct: true
+        feedback: "This is the bug `??` exists to fix. `settings.volume ?? 50` gives 0."
+      - text: "0, because the property exists"
+        feedback: "`||` does not check existence, it checks truthiness — and `0` is falsy."
+      - text: "`undefined`"
+        feedback: "`||` returns the right operand when the left is falsy, so it returns 50."
+    explanation: >-
+      `||` falls back on *any* falsy value, so a deliberate `0` or `""` is silently
+      replaced. `??` falls back only on `null` and `undefined`. For numeric and string
+      settings `??` is almost always what you want — this exact bug is why the operator was
+      added to the language.
+
+  - id: short-circuit-side-effect
+    kind: choice
+    concept: short-circuit
+    prompt: "In `if (user.isAdmin && audit(\"delete\"))`, what happens when the user is not an admin?"
+    options:
+      - text: "`audit` is never called — the result is already determined by the falsy left operand"
+        correct: true
+        feedback: >-
+          So a denied attempt leaves no audit record. Side effects do not belong on the
+          right of `&&`.
+      - text: Both are evaluated, then combined
+        feedback: >-
+          That would be eager evaluation. `&&` stops as soon as the answer is known.
+      - text: It throws, because the expression is incomplete
+        feedback: >-
+          It evaluates fine and returns the falsy left operand. The problem is what did
+          *not* run.
+    explanation: >-
+      Short-circuiting means `b` in `a && b` is never evaluated when `a` is falsy. That is
+      what makes `user && user.name` a safe guard — and it is also why anything you need to
+      happen must not live on the right-hand side. Here, every denied delete goes
+      unaudited, and nothing in the code looks wrong.
+
+  - id: operand-not-boolean
+    kind: choice
+    concept: short-circuit
+    prompt: 'What does `"hi" || "default"` evaluate to?'
+    options:
+      - text: '`"hi"` — these operators return an operand, not a boolean'
+        correct: true
+        feedback: Which is exactly what makes `a || b` usable for defaults and `a && a.b` for guards.
+      - text: "`true`"
+        feedback: >-
+          That is what a comparison returns. `||` returns the first truthy operand itself.
+      - text: '`"default"`'
+        feedback: "`||` returns the right operand only when the left is falsy."
+    explanation: >-
+      `&&` and `||` return one of their operands rather than coercing to a boolean. `a || b`
+      is "a, or b if a is falsy", and `a && b` is "b, or a if a is falsy". That is why
+      `user && user.name` yields `undefined` instead of throwing, and why `name || "Anon"`
+      works as a default.
+
+  - id: chained-comparison
+    kind: choice
+    concept: conditionals
+    prompt: "Why is `1 < age < 10` true when `age` is 25?"
+    options:
+      - text: "It evaluates left to right: `1 < 25` is `true`, then `true < 10` coerces to `1 < 10`"
+        correct: true
+        feedback: Write `1 < age && age < 10`. Python allows the chain and means it; most languages do not.
+      - text: Because 25 is between 1 and 10 under numeric coercion
+        feedback: It is not between them — the chain simply does not mean what it reads as.
+      - text: It is a parser bug
+        feedback: >-
+          It is specified behaviour — comparison operators are left-associative and
+          return booleans.
+    explanation: >-
+      JavaScript, C, Java and most languages evaluate this as `(1 < age) < 10`, which
+      becomes `true < 10`, which coerces `true` to `1`. The expression is always true for
+      any `age` above 1. Python is the notable exception — it treats the chain as a
+      conjunction. Spelling out the `&&` works everywhere and reads unambiguously.
+
+  - id: explain-truthiness-policy
+    kind: recall
+    concept: truthiness
+    prompt: >-
+      Write the rule you would put in a code review guide for when to rely on truthiness
+      and when to compare explicitly — and justify it.
+    key_points:
+      - Truthiness is fine for existence checks, where no legitimate value is falsy
+      - Explicit comparison is required when 0 or "" is a valid value
+      - "`if (!user) return` is safe; `if (!count)` is a bug waiting for a zero"
+      - Prefer `??` over `||` for numeric and string defaults
+      - Use `.length === 0` for emptiness rather than relying on the collection being falsy
+      - Keep side effects out of `&&` / `||` because short-circuiting may skip them
+    model: >-
+      The rule I would write is: truthiness for existence, explicit comparison for values.
+      `if (!user) return` is safe because there is no falsy user — the only values are an
+      object or `null`. `if (!count)` is unsafe because `0` is a legitimate count and is
+      falsy, so a real zero takes the "missing" branch. Same for `if (!name)` where an empty
+      string could be genuine input. For defaults, `??` rather than `||`, because `||`
+      overrides a deliberate `0` or `""`. For emptiness, `list.length === 0` rather than
+      relying on the collection's truthiness — partly because it says what it means, and
+      partly because an empty array is truthy in JavaScript and falsy in Python, so the
+      idiom does not travel. And separately: no side effects on the right-hand side of `&&`
+      or `||`, since short-circuiting means they may never run.

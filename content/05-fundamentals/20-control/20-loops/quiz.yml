@@ -1,0 +1,142 @@
+passScore: 0.7
+questions:
+  - id: map-specificity
+    kind: choice
+    concept: iteration
+    prompt: "What does seeing `map` tell a reader that `for` does not?"
+    options:
+      - text: That the output has exactly one element per input — it cannot skip, duplicate or exit early
+        correct: true
+        feedback: >-
+          That is the real argument for it: `map` is *more specific*, so the reader learns
+          something without reading the body.
+      - text: That it is faster
+        feedback: >-
+          It is generally slower than an index loop. Clarity is the benefit, not speed.
+      - text: That it does not mutate anything
+        feedback: >-
+          The callback can mutate whatever it likes. `map` only guarantees the shape of the
+          result.
+    explanation: >-
+      The value of `map` is constraint. It can only produce one output per input, so the
+      length is guaranteed and no early exit is possible — a reader knows all of that from
+      the name. `for` permits everything, so it communicates nothing, which is exactly why
+      it is the right tool when you need to break early or produce a different shape.
+
+  - id: splice-while-iterating
+    kind: choice
+    concept: loops
+    prompt: |
+      ```javascript
+      const nums = [1, 2, 3, 4];
+      for (let i = 0; i < nums.length; i++) {
+        if (nums[i] % 2 === 0) nums.splice(i, 1);
+      }
+      ```
+      Why does `4` survive?
+    options:
+      - text: "Removing index `i` shifts the next element into `i`, and then `i++` steps over it"
+        correct: true
+        feedback: >-
+          Right. The fix is not to adjust the index — it is `filter`, which builds a new
+          array.
+      - text: "`splice` cannot remove the last element"
+        feedback: "`splice` removes it fine. The problem is the index moving under the loop."
+      - text: "`4` is not even"
+        feedback: It is even — it is simply never examined.
+    explanation: >-
+      After removing `2` at index 1, `3` moves to index 1 and `4` to index 2. The loop then
+      increments to 2, skipping the `3` that is now at 1 — and the same shift happens again.
+      Mutating a collection while indexing through it is unreliable in every language. Build
+      a new collection instead: `nums.filter(n => n % 2 !== 0)`.
+
+  - id: foreach-async
+    kind: choice
+    concept: iteration
+    prompt: "`items.forEach(async (i) => { await save(i) })` — what is wrong?"
+    options:
+      - text: "`forEach` ignores the returned promises, so it returns before any save completes"
+        correct: true
+        feedback: >-
+          Use `for...of` with `await` for sequential, or `Promise.all(items.map(...))` for
+          concurrent — and pick deliberately.
+      - text: "`async` callbacks are not allowed in `forEach`"
+        feedback: They are allowed. The problem is that nothing awaits them.
+      - text: It runs the saves sequentially instead of in parallel
+        feedback: >-
+          It starts them all without waiting for any — neither sequential nor awaited.
+    explanation: >-
+      `forEach` calls the callback and discards its return value, so the promises are
+      created and abandoned. The function returns immediately, before any save has
+      finished — and an error inside becomes an unhandled rejection. `for...of` with `await`
+      gives you sequential execution; `Promise.all(items.map(fn))` gives you concurrent.
+      Those are different behaviours, so choose rather than defaulting.
+
+  - id: forin-array
+    kind: choice
+    concept: loops
+    prompt: "Why is `for...in` the wrong tool for an array?"
+    options:
+      - text: It enumerates keys as strings, including inherited and non-index properties
+        correct: true
+        feedback: >-
+          So `"0"` not `0`, and any added property shows up. `for...of` yields the values.
+      - text: It is slower
+        feedback: Speed is not the issue — correctness is.
+      - text: It does not work on arrays at all
+        feedback: It works, which is what makes it dangerous.
+    explanation: >-
+      `for...in` is for enumerating an object's keys. Over an array it gives you `"0"`,
+      `"1"` as *strings*, plus any other enumerable property anyone has attached, plus
+      inherited ones. `for...of` yields values and `.entries()` yields index/value pairs —
+      both are what you actually wanted.
+
+  - id: perf-cost
+    kind: choice
+    concept: iteration
+    prompt: "In a chain like `data.map(f).filter(g).reduce(h)` over five million rows, where is the real cost?"
+    options:
+      - text: The intermediate arrays each stage allocates, not the per-element function calls
+        correct: true
+        feedback: >-
+          Which is why collapsing into one `reduce` or going lazy helps far more than
+          switching to an index loop.
+      - text: The function call overhead, which dominates everything
+        feedback: >-
+          Real, but usually small and often inlined by the JIT. Allocation is what shows up
+          in profiles.
+      - text: There is no meaningful cost; the engine fuses the chain automatically
+        feedback: >-
+          JavaScript engines do not fuse array method chains. Each stage materialises a new
+          array.
+    explanation: >-
+      Each stage builds a complete new array, so a three-stage chain over five million rows
+      allocates roughly three five-million-element arrays and gives two of them straight to
+      the garbage collector. Per-call overhead is comparatively minor. So the optimisation
+      is to remove the intermediates — one combined `reduce`, a lazy pipeline, or a single
+      pass — rather than to abandon declarative style for an index loop.
+
+  - id: explain-loop-choice
+    kind: recall
+    concept: iteration
+    prompt: >-
+      A reviewer asks you to rewrite a `for` loop as `map`. Under what circumstances would
+      you push back, and what would you accept?
+    key_points:
+      - Push back if the loop breaks early — `map` cannot stop
+      - Push back if it is not one output per input — building a lookup, grouping, or a different length
+      - Push back for a measured hot path where the allocation matters
+      - Accept if it is a straightforward one-to-one transformation
+      - "\"I need the index\" is not a reason — `entries()` and `map`'s second argument provide one"
+      - Note that `find`, `some` and `filter` cover most early-exit cases declaratively anyway
+    model: >-
+      I would accept it if the loop is a straightforward one-to-one transformation, because
+      `map` then says something the `for` does not: the output has exactly one element per
+      input and nothing exits early. I would push back in three cases. First, if the loop
+      breaks early — `map` and `forEach` cannot stop, so rewriting it either does unnecessary
+      work or quietly changes behaviour; `find` or `some` is usually the right declarative
+      answer there. Second, if it is not one-to-one — building a lookup object, grouping, or
+      producing a different length is a `reduce` or `Object.fromEntries`, not a `map`. Third,
+      if it is a hot path I have actually measured, where the intermediate array matters. What
+      I would not push back with is "I need the index", because `entries()` and `map`'s second
+      argument both supply one.

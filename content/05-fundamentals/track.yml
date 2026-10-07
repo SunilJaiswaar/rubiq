@@ -1,0 +1,24 @@
+title: Programming Fundamentals
+tagline: The ideas every language is an arrangement of.
+category: Foundations
+icon: blocks
+accent: indigo
+difficulty: beginner
+order: 5
+prerequisites: []
+description: >-
+  Every language you will ever learn is a particular arrangement of about a dozen ideas:
+  names that refer to values, decisions, repetition, grouping code into functions,
+  grouping data into structures, and what happens when something goes wrong.
+
+
+  This track teaches those ideas once, properly, so that learning your second language
+  takes days instead of months. It uses JavaScript for the runnable examples because it
+  runs in your browser, but nothing here is about JavaScript — every lesson shows how
+  other languages make the same choice differently, and why.
+outcomes:
+  - Read code in a language you have never seen and work out what it does
+  - Explain the difference between a value and a reference, and predict aliasing bugs
+  - Choose a data structure from how you need to access the data
+  - Trace a program by hand, which is the skill debugging is made of
+  - Say what a stack frame is and why recursion has a depth limit
