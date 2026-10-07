@@ -261,6 +261,31 @@ config.active_record.dump_schema_after_migration = Rails.env.development?
 ```
 :::
 
+:::mistakes
+**Editing a migration that has already run elsewhere.** Your database has the new version and
+everyone else's has the old one, with the same version number recorded — so nobody's schema
+matches and nothing reports it. Write a new migration instead.
+
+**Putting data changes in a schema migration.** A backfill inside a schema change means the
+migration holds its lock for the length of the backfill, and re-running it in a fresh environment
+executes business logic against an empty database. Separate them.
+
+**Referencing a model class from a migration.** `User.find_each` uses today's model against a
+historical schema, so a validation or a callback added later breaks a migration that used to work.
+Use `execute` or a bare table reference.
+
+**Trusting `schema.rb` as the source of truth for structure the dumper cannot represent.**
+Partial indexes, check constraints, triggers and functions are lost in the Ruby dumper. Switch to
+`structure.sql` if you use any of them.
+
+**No `down` and no plan.** `irreversible migration` discovered during a rollback is the worst
+possible timing. If it genuinely cannot be reversed, say so explicitly and make the forward path
+safe instead.
+
+**Running a migration without a statement or lock timeout.** Covered in the locking lesson: the
+migration waits politely and queues production behind it.
+:::
+
 :::tradeoffs
 **Running migrations with the app up** means no maintenance window and no coordination, and
 the price is the expand-and-contract discipline — more deploys, intermediate states, and

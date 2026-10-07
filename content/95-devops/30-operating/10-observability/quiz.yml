@@ -1,0 +1,196 @@
+passScore: 0.7
+questions:
+  - id: incident-test
+    kind: choice
+    concept: observability
+    prompt: "Which statement demonstrates observability rather than monitoring?"
+    options:
+      - text: "\"The errors are all users on the new pricing plan, in eu-west, on requests touching the recommendation service, since 14:02\""
+        correct: true
+        feedback: >-
+          \"Error rate is 4%\" is monitoring — it tells you something is wrong, not what.
+      - text: "\"Error rate is 4%, up from 0.1% an hour ago\""
+        feedback: >-
+          A threshold on a pre-decided metric, which is monitoring.
+      - text: "\"CPU is at 85% on three of eight nodes\""
+        feedback: >-
+          A cause-based observation on a known dimension.
+    explanation: >-
+      The difference is whether the dimensions used to narrow the problem were chosen in advance.
+      An error-rate graph is valuable and was decided on before the incident, so it can report that
+      something is wrong but not which population is affected. Slicing by pricing plan, region and
+      downstream dependency requires those attributes to be present on the telemetry and queryable
+      ad hoc — nobody built a dashboard for that combination, because the number of plausible
+      combinations is far larger than the number of dashboards anyone would build. Reaching the
+      second statement is what ends an incident.
+
+  - id: cardinality
+    kind: choice
+    concept: metrics
+    prompt: "Why can a metrics system not hold `user_id` as a label?"
+    options:
+      - text: "It stores one time series per unique label combination — 4 methods × 5 statuses × 20 paths is 400 series, and adding a million users makes it 400 million"
+        correct: true
+        feedback: >-
+          The most common way people take down a Prometheus instance.
+      - text: Because user ids are strings and labels must be numeric
+        feedback: >-
+          Labels are strings; cardinality is the constraint.
+      - text: Because it would violate privacy requirements
+        feedback: >-
+          A separate and real concern, not the technical limit.
+    explanation: >-
+      Dimensional metrics work by materialising a separate series for every distinct combination of
+      label values, each with its own storage, index entry and memory footprint. That is what makes
+      queries over long windows instant, and it means cost scales with the product of label
+      cardinalities rather than with request volume. A label whose values are unbounded therefore
+      multiplies the series count without limit. The correct response is not a larger metrics
+      system but a different tool: structured events or spans hold one record per request, so
+      arbitrary attributes cost nothing extra.
+
+  - id: three-questions
+    kind: choice
+    concept: observability
+    prompt: "Which question do traces answer that the others cannot?"
+    options:
+      - text: "\"Where did the time go, and which hop failed\" — following one request across services as a tree of spans"
+        correct: true
+        feedback: >-
+          Metrics answer \"is something wrong\"; logs answer \"what happened to this\".
+      - text: "\"Is the error rate rising\", with low storage cost"
+        feedback: >-
+          That is what metrics are for.
+      - text: "\"What was the exact payload of this request\""
+        feedback: >-
+          Logs or span attributes hold that; the distinctive value is the cross-service timing.
+    explanation: >-
+      A trace records a single request's path through a distributed system, with each service's work
+      as a timed span nested under its caller. That structure answers questions the other two
+      cannot: which of twelve services consumed the latency, whether calls that should have been
+      parallel ran sequentially, and exactly where in the chain an error originated. Metrics
+      aggregate away the individual request, and logs from separate services are disconnected
+      unless a trace identifier joins them — which is itself part of the tracing mechanism.
+
+  - id: log-line
+    kind: choice
+    concept: structured-logging
+    prompt: "What makes a log line useful beyond its message?"
+    options:
+      - text: "Structure so it can be queried by field, the relevant ids, a trace id to join it to the trace, and a duration"
+        correct: true
+        feedback: >-
+          A prose log can be searched for substrings, which is not the same as being queried.
+      - text: A severity level and a precise timestamp
+        feedback: >-
+          Necessary and nowhere near sufficient for investigation.
+      - text: A human-readable sentence explaining what went wrong
+        feedback: >-
+          Helpful for a reader and not queryable or correlatable.
+    explanation: >-
+      The decisive property is structure: a record with named fields can be filtered, grouped and
+      aggregated — counted per tenant, compared across regions — whereas a prose line supports only
+      substring search. Identifiers make correlation possible, so one order or one request can be
+      followed across many lines. A trace identifier connects the line to the distributed picture,
+      which is what lets you move between "this request was slow" and "this specific log explains
+      why". And including a duration means the same event answers a performance question without
+      needing a second system.
+
+  - id: symptom-alerts
+    kind: choice
+    concept: observability
+    prompt: "Why alert on symptoms rather than causes?"
+    options:
+      - text: "Cause-based alerts page for conditions nobody is affected by, which trains people to ignore pages — and they miss every failure mode that was not predicted"
+        correct: true
+        feedback: >-
+          Every alert should be actionable, urgent and user-visible.
+      - text: Because causes are harder to measure accurately
+        feedback: >-
+          CPU and queue depth are easy to measure; relevance is the issue.
+      - text: Because symptom alerts fire sooner than cause alerts
+        feedback: >-
+          Often later, in fact — and more reliably about something that matters.
+    explanation: >-
+      High CPU, a restarted pod or replication lag may all be entirely benign, so alerting on them
+      generates pages that require no action. Each such page erodes the responder's assumption that
+      a page means something, and the erosion applies uniformly — including to the one that mattered.
+      The deeper problem is coverage: a cause-based alert can only fire for a failure someone
+      anticipated, whereas error rate and journey success rate rise for any cause whatsoever,
+      including the mechanism nobody imagined. The cost is less specificity about what to fix, which
+      is what investigation tooling is for.
+
+  - id: split-latency
+    kind: choice
+    concept: metrics
+    prompt: "Why split latency by success and failure?"
+    options:
+      - text: "Fast errors otherwise mask slow successes — a flood of 500s returning in 5ms pulls the aggregate down while real requests are timing out"
+        correct: true
+        feedback: >-
+          And report percentiles rather than a mean, since the distribution is the user experience.
+      - text: Because failed requests should not count toward an SLO
+        feedback: >-
+          They usually should; the mixing problem is separate.
+      - text: Because errors are logged separately from successes
+        feedback: >-
+          Storage arrangement is not the reason.
+    explanation: >-
+      Combining both outcomes in one latency series makes the metric describe a mixture rather than
+      an experience. Failures frequently return very quickly — a validation rejection, a connection
+      refused, a circuit breaker tripping — so a rising error rate can pull aggregate latency down
+      while the requests that actually succeed are getting dramatically slower. The graph then
+      improves precisely as the service degrades. Separating the two makes each series describe one
+      population, and reporting percentiles rather than means keeps the tail visible, which is what
+      users encounter.
+
+  - id: error-budget
+    kind: choice
+    concept: observability
+    prompt: "What does an error budget add, and what does burn-rate alerting add on top?"
+    options:
+      - text: "It converts a reliability argument into arithmetic agreed in advance; burn-rate alerting pages when the budget will be exhausted before the window ends, so fast burn pages and slow burn becomes a ticket"
+        correct: true
+        feedback: >-
+          This avoids both alert fatigue and silent degradation.
+      - text: It sets a hard limit on deployments per month
+        feedback: >-
+          It informs that decision rather than prescribing a count.
+      - text: It replaces percentile monitoring with a single availability figure
+        feedback: >-
+          Percentiles remain how the indicator is measured.
+    explanation: >-
+      Without an agreed target, "is this reliable enough" is settled by whoever argues most
+      persuasively, and the answer changes per conversation. An objective expressed as a proportion
+      over a window produces a concrete allowance of failure, so the decision to prioritise
+      reliability over features becomes a reading rather than a debate. Burn-rate alerting then
+      derives thresholds honestly from that allowance: a rate consuming the month's budget within
+      days warrants waking someone, while a rate that would exhaust it over weeks is a ticket. Fixed
+      error-percentage thresholds are arbitrary by comparison and tend to be set either too
+      sensitively or too loosely.
+
+  - id: explain-sampling
+    kind: recall
+    concept: observability
+    prompt: >-
+      Why is head-based sampling at 1% backwards, and what would you do instead?
+    key_points:
+      - The decision is made before the outcome is known
+      - So 99% of errors and slow requests are discarded along with the rest
+      - Those are precisely the traces needed during an incident
+      - Tail-based sampling decides after the request completes
+      - Keep 100% of errors and slow requests, a small percentage of the rest
+      - Requires a collector that buffers spans until the trace finishes
+      - Cost stays low because errors are a small fraction of traffic
+    model: >-
+      Head-based sampling decides whether to record a trace when the request starts, which is before
+      anything is known about how it went — so the sample is uniform over outcomes and discards
+      ninety-nine percent of the failures along with ninety-nine percent of the successes. That
+      inverts the value: the traces worth keeping are overwhelmingly the ones that errored or were
+      slow, and those are exactly what you have thrown away by the time an incident starts. The
+      alternative is to defer the decision until the request has completed and the outcome is known,
+      which is what tail-based sampling does: retain every trace containing an error or exceeding a
+      latency threshold, plus a small random percentage of ordinary ones for baseline comparison.
+      Cost stays low because errors and slow requests are a small fraction of traffic in a healthy
+      system, so keeping all of them is cheap. The requirement is a collector that buffers spans
+      until the trace is complete before applying the policy, which is additional infrastructure and
+      the reason head-based sampling persists despite being the wrong default.

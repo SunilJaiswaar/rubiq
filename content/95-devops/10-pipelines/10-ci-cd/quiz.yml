@@ -1,0 +1,194 @@
+passScore: 0.7
+questions:
+  - id: three-terms
+    kind: choice
+    concept: continuous-integration
+    prompt: "Which distinction between the three terms is a business decision rather than a technical one?"
+    options:
+      - text: "Delivery versus deployment — both require the same preparedness; whether the button is pressed automatically is a choice about coordination"
+        correct: true
+        feedback: >-
+          Most teams should reach continuous delivery first.
+      - text: Integration versus delivery, since both are about merge frequency
+        feedback: >-
+          Delivery additionally requires releasable artefacts and tested migrations.
+      - text: None — all three are purely technical capabilities
+        feedback: >-
+          The last step is a decision about when to release, not what is possible.
+    explanation: >-
+      Continuous delivery requires everything continuous deployment does: a build that produces a
+      deployable artefact, migrations verified, configuration externalised, a rollback path. Once
+      that exists, releasing automatically rather than on a human trigger changes nothing about
+      capability — it changes who decides the timing, which may be constrained by marketing
+      coordination, customer communication, regulatory review or simply organisational comfort.
+      Reaching delivery is the engineering work and captures most of the benefit, since the ability
+      to ship at any moment is what shortens lead time.
+
+  - id: stage-order
+    kind: choice
+    concept: pipeline-design
+    prompt: "Why order stages by expected time to failure rather than by importance?"
+    options:
+      - text: "So an obvious mistake costs forty seconds rather than being found after eighteen minutes of tests — and multiplied by how often that happens, it is the highest-return pipeline change"
+        correct: true
+        feedback: >-
+          Importance affects whether something gates, not where it runs.
+      - text: Because the most important checks are also the slowest
+        feedback: >-
+          Sometimes true and not the organising principle.
+      - text: Because CI runners charge by stage rather than by minute
+        feedback: >-
+          Billing is by time; feedback speed is the reason.
+    explanation: >-
+      Every check that gates the build must pass eventually, so ordering does not change what is
+      verified — only how quickly a failure is reported. Putting the cheapest and most
+      frequently-failing checks first means the common case of a typo, a formatting error or a type
+      mistake is reported almost immediately, while the author still has the change in mind. Running
+      the slowest suite first means the same mistake consumes an entire pipeline before being
+      detected. Importance belongs in the decision about whether something blocks a merge, which is
+      independent of position.
+
+  - id: slow-pipeline
+    kind: choice
+    concept: pipeline-design
+    prompt: "How does a slow pipeline change behaviour rather than just costing time?"
+    options:
+      - text: "People stop waiting and context-switch, so a two-minute fix becomes fifteen — and they batch work into larger pull requests to amortise the wait, which makes reviews worse and deploys riskier"
+        correct: true
+        feedback: >-
+          Duration therefore propagates into change size and incident rate.
+      - text: Developers run fewer tests locally, reducing local confidence
+        feedback: >-
+          A related effect, and the batching consequence is the more serious one.
+      - text: It delays releases by the pipeline duration
+        feedback: >-
+          That is the direct cost rather than the behavioural change.
+    explanation: >-
+      Beyond the waiting itself, duration alters how people work. Once feedback takes longer than
+      attention can reasonably be held, the author moves to something else and returns having lost
+      the mental model, so diagnosing the failure costs far more than it would have immediately. And
+      a long wait creates an incentive to make fewer, bigger submissions, which directly opposes
+      everything that makes changes safe — a large diff is harder to review carefully, harder to
+      reason about, and harder to roll back cleanly. That chain from duration to change size to
+      failure rate is why build time deserves an explicit budget.
+
+  - id: npm-ci
+    kind: choice
+    concept: build-caching
+    prompt: "Why `npm ci` rather than `npm install` in a build?"
+    options:
+      - text: "`install` can update the lockfile, so the build may resolve different versions than the author tested — making the build non-reproducible in exactly the way a lockfile exists to prevent"
+        correct: true
+        feedback: >-
+          `ci` also fails if the lockfile and manifest disagree, which is useful information.
+      - text: Because `ci` is faster, as it skips integrity checks
+        feedback: >-
+          It is faster, and it performs integrity checks; speed is a side benefit.
+      - text: Because `install` cannot be used in a non-interactive environment
+        feedback: >-
+          It works fine non-interactively.
+    explanation: >-
+      A lockfile records the exact dependency graph that was tested, and the value of having one is
+      that every subsequent install reproduces it. The ordinary install command treats the manifest
+      as authoritative and will update the lockfile to satisfy it, so a build can legitimately
+      resolve a newer transitive dependency than anyone has run — reintroducing the irreproducibility
+      the lockfile was adopted to eliminate. The CI-specific command installs strictly from the
+      lockfile and errors if it disagrees with the manifest, which converts a silent divergence into
+      a build failure.
+
+  - id: coverage-gate
+    kind: choice
+    concept: deployment-gates
+    prompt: "Why should coverage thresholds not gate a build?"
+    options:
+      - text: "They reward tests that execute code and assert nothing, so the gate produces cost without benefit — gate on tests passing and measure coverage without blocking"
+        correct: true
+        feedback: >-
+          Uncovered error paths remain a useful signal when read rather than enforced.
+      - text: Because coverage tools are too slow to run on every build
+        feedback: >-
+          Instrumentation overhead is modest.
+      - text: Because coverage varies between runs, making the gate flaky
+        feedback: >-
+          It is deterministic for a given suite.
+    explanation: >-
+      Coverage measures which lines were executed, a property satisfiable by invoking code without
+      verifying anything about it. Making it a blocking threshold therefore creates a direct
+      incentive to write exactly those tests whenever the number is short, and such tests carry
+      maintenance cost, consume review attention, and detect nothing. The metric remains useful
+      descriptively — an uncovered error-handling branch is genuinely unverified and worth knowing
+      about — so the right arrangement is to report it prominently and gate on something that
+      actually indicates correctness.
+
+  - id: build-once
+    kind: choice
+    concept: pipeline-design
+    prompt: "Why build once and promote rather than rebuilding per stage?"
+    options:
+      - text: "Rebuilding produces a different artefact, so the tests verified something other than what is deployed — and it multiplies the largest cost in the pipeline"
+        correct: true
+        feedback: >-
+          Promote a content-addressed artefact through the stages.
+      - text: Because rebuilds invalidate the dependency cache
+        feedback: >-
+          Caching mitigates the cost and does not address the correctness issue.
+      - text: Because build tools are not deterministic enough to produce identical output
+        feedback: >-
+          Determinism varies, and the argument holds even for perfectly reproducible builds.
+    explanation: >-
+      The purpose of a pipeline is to establish that a specific thing is safe to deploy, and that
+      guarantee attaches to the artefact that was tested. Rebuilding before deployment breaks the
+      chain: even with a deterministic toolchain the new build may pick up a different base image, a
+      different transitive dependency or a different environment, so the deployed bytes are not the
+      bytes that passed. Building once and passing the artefact forward keeps the guarantee intact,
+      and as a side effect removes the duplicated build cost from every subsequent stage.
+
+  - id: migration-gates
+    kind: choice
+    concept: deployment-gates
+    prompt: "Which migration pattern is worth failing a build over?"
+    options:
+      - text: "Adding an index without CONCURRENTLY — it takes a lock blocking writes for the whole build, which on a large table is minutes of failed writes"
+        correct: true
+        feedback: >-
+          Also a volatile default on a large table, and NOT NULL without a NOT VALID step.
+      - text: Adding a nullable column, which rewrites the table
+        feedback: >-
+          On modern Postgres that is metadata-only.
+      - text: Creating a new table, which requires an exclusive lock on the schema
+        feedback: >-
+          No existing table is affected.
+    explanation: >-
+      These are static properties of a migration file, invisible in review and catastrophic in
+      production, which makes them exactly the sort of thing a gate should catch. A non-concurrent
+      index build holds a lock that blocks writes to the table for the entire build — minutes on a
+      large table — while the concurrent form allows them. Similar known-dangerous patterns include
+      adding a column with a volatile default, which forces a full table rewrite on older versions,
+      and adding NOT NULL directly rather than via a NOT VALID constraint that is validated
+      separately. A migration linter encodes these so nobody has to remember them.
+
+  - id: explain-frequency-stability
+    kind: recall
+    concept: continuous-integration
+    prompt: >-
+      Why do deployment frequency and stability correlate positively rather than trading off?
+    key_points:
+      - Frequent deploys are necessarily smaller
+      - A small diff is genuinely reviewable; a large one is reviewed superficially
+      - Smaller blast radius makes attribution of a problem easy
+      - The rollback path is exercised regularly rather than being theoretical
+      - Fear of deploying causes batching, which makes each deploy riskier
+      - So the intuitive trade-off is actually a reinforcing loop in both directions
+    model: >-
+      Because frequency forces size down, and size is what actually drives risk. A team deploying
+      several times a day is deploying individual changes, so each diff is small enough to be read
+      carefully, the set of things that could have broken is tiny, and when something does break the
+      cause is obvious and the revert is unambiguous. A team deploying monthly is deploying hundreds
+      of changes at once: the review was necessarily superficial, any problem could have come from
+      any of them, and rolling back means reverting work that was fine along with the work that was
+      not. The rollback path matters too — deploying often means the procedure is exercised
+      constantly and known to work, whereas a rarely-used rollback is a plan nobody has tested at
+      the moment it is most needed. The relationship runs both ways and reinforces itself: fear of
+      deploying produces batching, batching makes each deploy riskier, which justifies more fear and
+      less frequency. Breaking that loop by deploying smaller changes more often improves both
+      numbers simultaneously, which is why the research finds them correlated rather than opposed.

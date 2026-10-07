@@ -1,0 +1,194 @@
+passScore: 0.7
+questions:
+  - id: what-is-it
+    kind: choice
+    concept: containers
+    prompt: "What follows from a container being a process rather than a machine?"
+    options:
+      - text: "Startup is milliseconds because nothing boots, overhead is near zero because there is no second kernel, and isolation is weaker than a VM's because the kernel is shared"
+        correct: true
+        feedback: >-
+          `ps aux` on the host shows the process.
+      - text: It can run an image built for any operating system, since the kernel is abstracted
+        feedback: >-
+          The opposite — a Linux image needs a Linux kernel.
+      - text: Resource limits are advisory, since there is no hypervisor to enforce them
+        feedback: >-
+          cgroups enforce them in the kernel.
+    explanation: >-
+      Everything distinctive about containers traces back to there being no guest operating system.
+      Nothing has to initialise, so a container starts about as fast as the program inside it. There
+      is no duplicated kernel consuming memory, so hundreds can share a host. And the flip side is
+      that the kernel providing the isolation is the same kernel every container uses, so a
+      privilege-escalation vulnerability in it is a vulnerability across all of them — which is why
+      providers hosting untrusted workloads place virtual machines beneath the containers rather
+      than relying on namespaces alone.
+
+  - id: layer-cache
+    kind: choice
+    concept: layers
+    prompt: "Why does `COPY . .` before `npm ci` cost minutes instead of seconds?"
+    options:
+      - text: "The cache invalidates from the first changed layer downwards, so any source change invalidates the install layer beneath it and dependencies are reinstalled every build"
+        correct: true
+        feedback: >-
+          Copy the manifest, install, then copy the source.
+      - text: Because copying the whole directory is itself slow
+        feedback: >-
+          The copy is fast; the invalidated install is the cost.
+      - text: Because `npm ci` cannot use a cache when the source is present
+        feedback: >-
+          It is the layer cache rather than npm's that matters here.
+    explanation: >-
+      A build step is reused only if every preceding step is unchanged, so placing a frequently
+      changing input early forces everything after it to re-execute. Source files change on every
+      commit, so an install step positioned after them never hits the cache. Reordering so that
+      only the dependency manifest precedes the install means the install layer is reused until
+      dependencies actually change, and the source copy becomes a cheap final layer — which is
+      typically the difference between a four-minute and a ten-second rebuild.
+
+  - id: additive-layers
+    kind: choice
+    concept: layers
+    prompt: "Why does `rm` in a later layer not shrink the image?"
+    options:
+      - text: "Layers are additive — the deletion is a new layer that hides the file while the bytes remain below, which is also why a secret copied in during a build stays permanently extractable"
+        correct: true
+        feedback: >-
+          Do it in one RUN, and use BuildKit secret mounts for credentials.
+      - text: Because the registry stores layers uncompressed
+        feedback: >-
+          Compression is irrelevant to whether the bytes exist.
+      - text: Because `rm` only removes the directory entry, not the data
+        feedback: >-
+          Within one layer it does remove the data; the issue is cross-layer.
+    explanation: >-
+      Each layer records a delta over the ones beneath, and deletions are recorded as whiteout
+      markers rather than by modifying earlier content — earlier layers are immutable and shared.
+      So the removed file is absent from the merged view and still present in the image's storage
+      and transfer size, visible in the layer history. The security consequence is more serious
+      than the size one: a credential copied in and then deleted can be recovered by anyone who
+      pulls the image, so build-time secrets must use a mechanism that never writes them to a layer.
+
+  - id: shell-form
+    kind: choice
+    concept: containers
+    prompt: "Why does `CMD npm start` break graceful shutdown?"
+    options:
+      - text: "It runs under `/bin/sh -c`, so the shell is PID 1 and does not forward SIGTERM to npm — the exec form makes your process PID 1 instead"
+        correct: true
+        feedback: >-
+          Responsible for a large share of \"my container will not stop gracefully\" reports.
+      - text: Because npm spawns a child that cannot receive signals
+        feedback: >-
+          A related complication; the shell wrapper is the primary cause.
+      - text: Because the shell form ignores the entrypoint's grace period
+        feedback: >-
+          The grace period applies either way.
+    explanation: >-
+      The shell form wraps the command, so the process the runtime signals is a minimal shell rather
+      than the application. That shell has no signal-forwarding logic, so a termination signal
+      arrives and is simply not passed on; the application continues until the grace period expires
+      and the whole process tree is killed. Using the array form execs the program directly, making
+      it the process that receives signals. It is a one-character-class change with a
+      disproportionate effect on whether rolling deployments drop requests.
+
+  - id: pid1-signals
+    kind: choice
+    concept: containers
+    prompt: "Why does PID 1 differ from an ordinary process regarding SIGTERM?"
+    options:
+      - text: "PID 1 does not get default signal handlers, so a process with no explicit handler ignores SIGTERM entirely — then the grace period elapses and SIGKILL discards in-flight work"
+        correct: true
+        feedback: >-
+          PID 1 also inherits reaping orphaned children, which is what `--init` handles.
+      - text: PID 1 receives SIGTERM twice, which most runtimes mishandle
+        feedback: >-
+          It is delivered once.
+      - text: PID 1 cannot be signalled from outside its namespace
+        feedback: >-
+          It can; the question is whether anything acts on the signal.
+    explanation: >-
+      The kernel treats the initial process in a PID namespace specially, in part so that an init
+      system cannot be killed accidentally: signals without an installed handler are discarded
+      rather than applying the usual default action. An ordinary process would terminate on
+      SIGTERM with no code at all, whereas the same program as PID 1 continues running. The
+      practical consequence is that a container's graceful shutdown requires an explicit handler,
+      and the secondary duty of PID 1 — reaping orphaned children so they do not accumulate as
+      zombies — is why a minimal init process is often inserted.
+
+  - id: readiness-first
+    kind: choice
+    concept: containers
+    prompt: "Why fail readiness before closing the server, and why wait in between?"
+    options:
+      - text: "So the load balancer stops routing new requests first — and the wait is needed because endpoint propagation takes seconds, so closing immediately drops requests already routed"
+        correct: true
+        feedback: >-
+          The grace period must then exceed the whole sequence.
+      - text: So in-flight requests have time to finish before the socket closes
+        feedback: >-
+          That is what server.close handles; the wait is for propagation.
+      - text: Because readiness changes require a restart to take effect
+        feedback: >-
+          They are polled and take effect without a restart.
+    explanation: >-
+      Shutdown has two distinct problems: requests already being handled, and requests about to
+      arrive. Closing the listener addresses the first and does nothing about the second, because
+      the load balancer's view of healthy endpoints updates on a polling interval measured in
+      seconds. Marking the instance unready first starts that clock, the delay lets it elapse, and
+      only then is it safe to stop accepting — at which point draining in-flight work completes the
+      sequence. Since all three steps take time, the orchestrator's grace period has to be longer
+      than their sum or the process is killed partway through.
+
+  - id: liveness-dependency
+    kind: choice
+    concept: containers
+    prompt: "Why is a liveness probe that checks the database harmful?"
+    options:
+      - text: "A brief database problem restarts every pod simultaneously, turning a degraded dependency into a full outage — and the cold restarts make recovery slower"
+        correct: true
+        feedback: >-
+          Liveness asks whether this process is wedged; readiness is where dependency checks belong.
+      - text: Because the probe's connection consumes a pool slot
+        feedback: >-
+          A minor cost compared with the restart cascade.
+      - text: Because liveness probes cannot make outbound connections
+        feedback: >-
+          They can; the problem is what the failure causes.
+    explanation: >-
+      The two probes trigger different actions, which is why conflating them is dangerous. Failing
+      readiness removes an instance from rotation and is reversible the moment it recovers. Failing
+      liveness destroys and recreates the container. If the check depends on an external service,
+      any transient problem there fails the check everywhere at once, so the entire fleet restarts
+      — losing warm caches, warm connection pools and in-flight work, and arriving back cold just
+      as the dependency recovers. A degradation that would have resolved itself becomes an outage
+      with a slow recovery.
+
+  - id: explain-proc
+    kind: recall
+    concept: namespaces
+    prompt: >-
+      Why does a runtime that reads `/proc/cpuinfo` or `/proc/meminfo` misbehave in a container?
+    key_points:
+      - Those files report the host's resources, not the cgroup limits
+      - So a runtime sizes thread pools or heaps for the whole machine
+      - Too many threads exhaust a CPU quota quickly and throttle
+      - A heap sized to host memory exceeds the memory limit and gets OOM-killed
+      - Modern JVMs and Go read cgroup limits; many other things do not
+      - Set the limits explicitly — GOMAXPROCS, ActiveProcessorCount, pool sizes
+      - The same class of bug as the scheduler lesson's throttling case
+    model: >-
+      Namespaces isolate the filesystem, network and process views, but they do not virtualise those
+      procfs entries, so a process inside a container reads the host machine's CPU count and total
+      memory regardless of what its cgroup permits. A runtime that derives configuration from those
+      numbers therefore sizes itself for hardware it cannot use. With CPUs, it creates a thread per
+      host core — perhaps sixty-four for a one-CPU quota — and those threads collectively exhaust the
+      quota almost immediately, so the process is throttled for most of every period and tail latency
+      collapses while average utilisation looks fine. With memory, it sets a heap bound near the
+      host's total, grows past the cgroup limit, and is killed outright, since memory is not
+      compressible. Recent JVM and Go versions detect cgroup limits and behave correctly, but many
+      runtimes, libraries and thread-pool defaults do not, so the reliable fix is to configure the
+      limits explicitly to match the cgroup — GOMAXPROCS, ActiveProcessorCount, worker and pool
+      sizes. It is exactly the same failure as the scheduling lesson's throttling example, arriving
+      from a different direction.

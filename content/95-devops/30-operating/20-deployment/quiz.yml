@@ -1,0 +1,197 @@
+passScore: 0.7
+questions:
+  - id: constraint
+    kind: choice
+    concept: backward-compatibility
+    prompt: "Which direction of compatibility is usually forgotten, and why?"
+    options:
+      - text: "Old code against the new schema — you naturally test new code against an unmigrated local database, while that case only arises during a rollback, which is during an incident"
+        correct: true
+        feedback: >-
+          So a forwards-only change fails exactly when you most need to undo it.
+      - text: New code against the old schema, since migrations usually run first
+        feedback: >-
+          That is the direction people do test, deliberately or by accident.
+      - text: Both are tested equally by a staging environment
+        feedback: >-
+          Staging rarely exercises a rollback against a migrated database.
+    explanation: >-
+      Development workflow makes one direction almost automatic: you write the new code, run it
+      locally before migrating, and discover immediately if it depends on a column that does not
+      exist yet. Nothing in the normal loop produces the reverse situation — the previous release
+      running against a schema that has already changed — because it only occurs when reverting. So
+      the untested compatibility direction is precisely the one a rollback depends on, which means
+      the discovery happens while something is already broken and the escape route turns out to be
+      closed.
+
+  - id: rename-steps
+    kind: choice
+    concept: migrations
+    prompt: "Why must dropping the old column be a separate release?"
+    options:
+      - text: "Rolling back the release that stopped using it lands on code which still references it — the old column must outlive every version you might deploy"
+        correct: true
+        feedback: >-
+          Each of the six steps is independently reversible, which is the property being bought.
+      - text: Because dropping a column requires an exclusive lock that needs its own maintenance window
+        feedback: >-
+          The lock is brief; reversibility is the reason.
+      - text: Because the backfill may not have completed
+        feedback: >-
+          The backfill completes several steps earlier.
+    explanation: >-
+      The whole point of the sequence is that every intermediate state can be rolled back into, and
+      that requires the old column to exist for as long as any deployable version reads or writes it.
+      Removing it in the same release that stops using it collapses that property: reverting to the
+      immediately previous version produces code querying a column that no longer exists, so both
+      the new state and the rollback are broken. Deferring the removal to a later release means that
+      by the time it happens, no version anyone would deploy mentions the column.
+
+  - id: not-null
+    kind: choice
+    concept: migrations
+    prompt: "Why is `ADD NOT NULL` dangerous, and what is the alternative?"
+    options:
+      - text: "It scans every row under an exclusive lock, blocking all access — add the constraint `NOT VALID` and then `VALIDATE` it, which takes a much weaker lock"
+        correct: true
+        feedback: >-
+          Backfill the nulls first, in batches.
+      - text: It fails if any row is null, which aborts the deploy
+        feedback: >-
+          A real consideration and not the performance hazard.
+      - text: It rewrites the table, doubling disk usage temporarily
+        feedback: >-
+          No rewrite is required for the constraint itself.
+    explanation: >-
+      Declaring a column NOT NULL requires proving that no existing row violates it, and the
+      straightforward implementation verifies that while holding a lock that excludes every other
+      operation on the table — so on a large table the whole table is unavailable for the duration of
+      a full scan. Splitting it into two statements avoids that: adding the constraint as NOT VALID
+      records the rule without checking existing rows, taking only a brief lock, and validating it
+      afterwards performs the scan under a lock that permits concurrent reads and writes. The nulls
+      must of course be backfilled in batches before either step.
+
+  - id: job-arguments
+    kind: choice
+    concept: rolling-deploys
+    prompt: "What breaks if you change a job's argument shape in one deploy?"
+    options:
+      - text: "Jobs enqueued by the old version are executed by the new one with arguments that no longer match, so every in-flight job fails — add a parameter with a default, or a new job class"
+        correct: true
+        feedback: >-
+          This is why passing ids rather than serialised objects matters.
+      - text: The queue rejects the malformed payloads, so they are safely dead-lettered
+        feedback: >-
+          They are well-formed for the old signature; the consumer is what mismatches.
+      - text: Nothing, because the queue drains before the deploy completes
+        feedback: >-
+          Nothing guarantees that, and retried or delayed jobs can be hours old.
+    explanation: >-
+      A queue decouples production from consumption in time, which means a payload written by one
+      version of the code can be read by another — and during a deploy that is guaranteed to happen
+      for anything enqueued moments before. Changing the parameter list makes those payloads
+      unprocessable, so they fail, retry, fail again and eventually dead-letter. Delayed and retried
+      jobs widen the window from seconds to hours. The safe forms are adding an optional parameter
+      with a default, or introducing a separate job class and retiring the old one once its queue has
+      drained.
+
+  - id: cache-keys
+    kind: choice
+    concept: rolling-deploys
+    prompt: "Why version a cache key across a deploy?"
+    options:
+      - text: "An entry written by the old version may be read by the new one with a different structure — changing the key prefix means old entries are simply never read and expire"
+        correct: true
+        feedback: >-
+          Otherwise the new code either crashes or silently misinterprets the value.
+      - text: To force a cache warm-up, improving post-deploy latency
+        feedback: >-
+          It causes a cold cache, which is a cost rather than a benefit.
+      - text: Because cache entries cannot be deleted during a rolling deploy
+        feedback: >-
+          They can; the issue is interpretation rather than deletion.
+    explanation: >-
+      A cache is shared mutable state between the two versions, and nothing marks an entry with the
+      code that produced it. If the serialised shape changes — a field added, a type altered, a
+      different object graph — the new version deserialises the old value and either raises or, worse,
+      proceeds with wrong data. Changing the key prefix sidesteps the problem entirely: the new
+      version misses on every key, writes its own entries, and the stale ones are never consulted
+      again and expire on their own. The cost is a cold cache, which is why it is worth bounding
+      what gets versioned.
+
+  - id: strategies
+    kind: choice
+    concept: rollback
+    prompt: "What does canary buy that rolling and blue-green do not?"
+    options:
+      - text: "Detection before most users are affected — a small percentage receives the new version and metrics are compared automatically before proceeding"
+        correct: true
+        feedback: >-
+          It needs traffic splitting, automated analysis and enough traffic for significance.
+      - text: Instant rollback, since the old version is still running
+        feedback: >-
+          That is blue-green's distinctive property.
+      - text: No requirement for backward compatibility, since versions are isolated
+        feedback: >-
+          Both versions still share the database.
+    explanation: >-
+      Rolling grows exposure gradually but does not evaluate anything — if nobody is watching, the
+      rollout completes regardless. Blue-green switches all traffic at once, so a bad release reaches
+      every user before anyone can react, and its benefit is the speed of reverting afterwards.
+      Canary is the only one of the three that makes the decision to proceed conditional on observed
+      behaviour, which is what prevents most users ever encountering the problem. The costs are real:
+      traffic splitting infrastructure, automated statistical comparison, and sufficient request
+      volume for a small slice to produce a meaningful signal.
+
+  - id: flags-vs-strategy
+    kind: choice
+    concept: rollback
+    prompt: "Why does a feature flag give better risk control than any deployment strategy?"
+    options:
+      - text: "A strategy controls how the code arrives; a flag controls what it does — reverting a deploy takes minutes and reverts the whole release, while disabling a flag takes seconds and reverts one behaviour"
+        correct: true
+        feedback: >-
+          It also separates \"does this deploy\" from \"does this work\".
+      - text: Because flags remove the need for backward-compatible migrations
+        feedback: >-
+          Schema compatibility is unaffected by flags.
+      - text: Because a flag can be changed without a code review
+        feedback: >-
+          That is a governance question, not the safety property.
+    explanation: >-
+      Deployment mechanisms differ only in the choreography of replacing one artefact with another,
+      and reverting any of them means another deployment — minutes of work that undoes everything in
+      the release, including unrelated changes that were fine. A flag operates on behaviour instead,
+      so the unit of reversal is one feature and the operation is a configuration write that takes
+      effect immediately. It also decomposes the risk: shipping the code with the flag off verifies
+      that the deployment itself is sound, and enabling the flag afterwards tests the new behaviour
+      separately, so a failure in either can be attributed and reverted on its own.
+
+  - id: explain-checklist
+    kind: recall
+    concept: migrations
+    prompt: >-
+      Name pre-deploy checks that are statically checkable, and why that matters.
+    key_points:
+      - Is every schema change expand-only
+      - Can the previous version run against the new schema
+      - Does each migration set a lock_timeout with a retry
+      - Are backfills batched with commits between
+      - Have any job argument shapes changed
+      - Are cache keys versioned
+      - Does the API response still contain the old field names
+      - All are properties of the diff, so a linter or review checklist catches them before shipping
+    model: >-
+      Most of the list is a property of the diff rather than of the running system, which means it can
+      be checked before anything is deployed — by a migration linter, a CI gate or a review checklist.
+      Whether a schema change is expand-only is visible in the migration file. Whether the previous
+      version can run against the new schema follows from that. Whether a migration sets a lock
+      timeout, whether a backfill is batched with commits between batches, whether it adds NOT NULL
+      directly rather than via a NOT VALID constraint — all textual. Whether a job's parameter list
+      changed is visible in the diff of the job class, as is whether a cache key prefix moved
+      alongside a change to the cached structure, and whether a serialiser removed a field that
+      clients may still read. That matters because the alternative is discovering these during a
+      deploy, when the feedback arrives as an incident and the usual escape route — rolling back — is
+      exactly what the unchecked change has disabled. Since the same handful of mistakes accounts for
+      most deployment incidents, encoding them as automated checks converts a repeated outage class
+      into a build failure.

@@ -1,0 +1,3 @@
+title: Pipelines
+summary: What a build should check, in what order, and why a pipeline that takes thirty minutes stops being a safety net.
+level: intermediate

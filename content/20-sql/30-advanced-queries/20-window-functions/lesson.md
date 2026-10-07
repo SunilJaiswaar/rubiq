@@ -269,6 +269,27 @@ FROM (
 ```
 :::
 
+:::mistakes
+**Filtering on a window function in `WHERE`.** It has not been computed yet. Wrap it in a CTE and
+filter outside.
+
+**`ROW_NUMBER` with a non-unique `ORDER BY`.** Ties are ordered arbitrarily and the order can
+differ between runs, so a paginated result can repeat or drop rows.
+
+**Assuming `GROUP BY` and a window can be mixed freely.** A window function is evaluated after
+grouping, so `SUM(x) OVER ()` in a grouped query sums the *groups*, not the original rows — which
+is sometimes what you want and rarely what people expect.
+
+**Reusing a `DISTINCT` with a window.** `SELECT DISTINCT x, ROW_NUMBER() OVER (...)` computes the
+window first and then deduplicates, so the numbering has gaps.
+
+**Writing the same `OVER` clause several times** instead of naming it with `WINDOW w AS (...)`. It
+is identical in meaning and may cost an extra sort.
+
+**Forgetting that `COUNT(*) OVER ()` counts the filtered rows**, not the table. Useful for a total
+alongside a page, and wrong if you wanted the unfiltered count.
+:::
+
 :::tradeoffs
 **Window function** — one scan plus a sort, no self-join, and the row survives. Not available
 in very old MySQL (pre-8.0) or SQLite (pre-3.25), which is the only real reason to avoid one

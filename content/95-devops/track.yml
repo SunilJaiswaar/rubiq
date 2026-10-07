@@ -21,3 +21,4 @@ outcomes:
   - Write a pipeline that fails for the right reasons
   - Choose between logs, metrics and traces for a given question
   - Define an SLO that means something, and explain an error budget
+  - Ship a schema change that can be rolled back, in the right number of deploys

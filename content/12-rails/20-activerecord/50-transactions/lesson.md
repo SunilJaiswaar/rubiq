@@ -299,6 +299,30 @@ single conditional UPDATE is atomic by itself, and "did it affect a row?" is the
 "was there stock?". Most inventory and counter problems reduce to this.
 :::
 
+:::mistakes
+**Rescuing an exception inside a transaction and continuing.** The block completes, so the
+transaction commits — the rescue silently converted an abort into a partial write. Re-raise, or
+roll back explicitly.
+
+**`rescue ActiveRecord::Rollback` outside the block.** It is swallowed by the transaction by
+design and never reaches your handler, so the code after it runs as though nothing happened.
+
+**Assuming a nested `transaction` call is a nested transaction.** By default it joins the outer
+one, so an inner rollback rolls back everything. `requires_new: true` creates a savepoint, which
+is what people usually mean.
+
+**Doing anything non-transactional inside the block.** An email, an HTTP call, a job enqueued to
+Redis — none of it is rolled back, so a failed transaction leaves the side effect behind. Enqueue
+after commit, or use `after_commit`.
+
+**`after_save` where `after_commit` was meant.** `after_save` runs inside the transaction, so a
+job it enqueues can start before the record is visible to another connection — and may run at all
+when the transaction then rolls back.
+
+**Holding a transaction open across a user interaction or a slow loop.** Locks and the connection
+are held for the duration, and the transaction's snapshot blocks VACUUM. Open late, commit early.
+:::
+
 :::tradeoffs
 **Pessimistic.** Correct by construction, no retry logic, and the conflict is resolved by
 waiting. Costs: waiting under contention, deadlock risk if ordering is inconsistent, and
