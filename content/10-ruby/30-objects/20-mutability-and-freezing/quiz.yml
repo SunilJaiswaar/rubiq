@@ -1,0 +1,138 @@
+passScore: 0.7
+questions:
+  - id: aliasing
+    kind: choice
+    concept: aliasing
+    prompt: "`a = [\"x\"]; b = a; a << \"y\"`. What is `b`?"
+    options:
+      - text: "`[\"x\", \"y\"]` — both names refer to one array, and `<<` mutated it"
+        correct: true
+        feedback: >-
+          With `a = a + ["y"]` instead, `b` stays `["x"]`, because `+` builds a new array.
+      - text: "`[\"x\"]`, because `b` was copied at assignment"
+        feedback: >-
+          Assignment never copies in Ruby; it binds another name.
+      - text: "`[\"x\", \"y\"]`, because Ruby arrays are value types"
+        feedback: >-
+          The result is right, the reason is not — arrays are references.
+    explanation: >-
+      `b = a` makes `b` a second name for the same object, which `a.object_id == b.object_id`
+      confirms. `<<` mutates that object, so both names see the change. `a = a + ["y"]` builds a
+      new array and rebinds only `a`, leaving `b` pointing at the original. Choosing between a
+      mutating and a non-mutating method is therefore choosing whether other holders observe
+      your change.
+
+  - id: shallow-freeze
+    kind: choice
+    concept: freezing
+    prompt: "`config = { hosts: [\"a\"] }.freeze`. Which operation raises?"
+    options:
+      - text: "`config[:x] = 1` raises; `config[:hosts] << \"b\"` succeeds, because freeze is shallow"
+        correct: true
+        feedback: >-
+          Deep freezing has no built-in — it is a recursive walk you write.
+      - text: Both raise, since freeze is recursive
+        feedback: >-
+          It protects only the receiver's own state.
+      - text: Neither raises, since freeze only prevents reassignment
+        feedback: >-
+          Adding a key to a frozen hash does raise FrozenError.
+    explanation: >-
+      `freeze` prevents modification of that one object: for a hash, adding, removing or
+      replacing entries. The values it holds are separate objects and remain mutable, so
+      appending to the nested array works. This shallowness is the main source of false
+      confidence about frozen configuration — the structure is locked and the contents are not.
+      Deep freezing requires walking the structure yourself, or `Ractor.make_shareable`, which
+      does it and then enforces shareability.
+
+  - id: dup-vs-clone
+    kind: choice
+    concept: copying
+    prompt: "`FROZEN = [\"a\"].freeze`. Which of `FROZEN.dup` and `FROZEN.clone` is mutable?"
+    options:
+      - text: "`dup` gives a mutable copy; `clone` preserves the frozen state"
+        correct: true
+        feedback: >-
+          `clone(freeze: false)` is the explicit way to get a mutable copy from clone.
+      - text: Both are mutable, since copying always clears the flag
+        feedback: "`clone` copies the frozen state by design."
+      - text: Both are frozen, since you cannot unfreeze an object
+        feedback: >-
+          You cannot unfreeze an object, and a copy is a different object.
+    explanation: >-
+      `clone` copies the frozen state and the singleton class; `dup` copies neither. So `dup` is
+      the right choice when you duplicated something in order to change it, and it means `dup`
+      cannot be used to pass an immutability guarantee along. Both are shallow, which usually
+      matters more: the copy's elements are the same objects as the original's.
+
+  - id: shared-constant
+    kind: choice
+    concept: mutability
+    prompt: >-
+      Why does `EMPTY = []; def add(x, l = EMPTY) = l << x` accumulate across calls, while
+      `def add(x, l = []) = l << x` does not?
+    options:
+      - text: "Ruby evaluates default expressions on every call, so `[]` is a fresh array — but `EMPTY` names one permanently shared object"
+        correct: true
+        feedback: >-
+          Python evaluates defaults once at definition, which is where the famous version comes from.
+      - text: Constants are memoised, so the default is cached after the first call
+        feedback: >-
+          Nothing is memoised; the constant simply refers to a single array.
+      - text: "`<<` behaves differently on a constant"
+        feedback: "`<<` is the same method; the difference is how many arrays exist."
+    explanation: >-
+      A default argument in Ruby is an expression evaluated at call time, so `l = []` allocates a
+      new array per call and the mutation is private to that call. `l = EMPTY` resolves to the
+      one array the constant names, so every call mutates the same object and the contents
+      accumulate — permanently, since the constant is never reassigned. Ruby's version of this
+      bug therefore hides in constants and memoised instance variables rather than in default
+      arguments, which is where Python puts it.
+
+  - id: marshal-deep-copy
+    kind: choice
+    concept: copying
+    prompt: "Give two reasons `Marshal.load(Marshal.dump(x))` is a poor general-purpose deep copy."
+    options:
+      - text: "It fails on procs, IO objects, singleton methods and connections; and `Marshal.load` on untrusted input instantiates arbitrary objects, which is remote code execution"
+        correct: true
+        feedback: >-
+          Acceptable for plain config data, a liability as a general tool.
+      - text: It is slow, and it does not preserve object identity within the graph
+        feedback: >-
+          It is slow, and it does preserve shared references within a single dump.
+      - text: It only copies one level, so it is not actually deep
+        feedback: >-
+          It is genuinely deep; the problems are coverage and safety.
+    explanation: >-
+      Two independent objections. Coverage: Marshal cannot serialise procs, lambdas, IO objects,
+      singleton methods, anonymous classes, or anything holding a live connection, so it works
+      until the object graph contains one of those. Safety: `Marshal.load` reconstructs arbitrary
+      object types and invokes methods during deserialisation, so loading data you did not
+      produce is a code-execution vulnerability. For plain nested hashes and arrays from a config
+      file it is fine; as a general deep-copy utility it is not.
+
+  - id: explain-boundaries
+    kind: recall
+    concept: mutability
+    prompt: >-
+      A class exposes `attr_reader :hosts` and a caller mutates the returned array. Explain the
+      fix and where else the same problem appears.
+    key_points:
+      - dup and freeze the array in the constructor, so the caller's reference is separate
+      - Then attr_reader is safe and allocates nothing per call
+      - Duping on every read also works and allocates each call
+      - The same issue applies to what you accept — the caller keeps their reference
+      - And to constants holding collections, where mutation produces no warning
+      - freeze is shallow, so nested values still need handling
+    model: >-
+      The reader handed out the actual array, so the caller has write access to the object's
+      state. I would fix it at construction: `@hosts = hosts.dup.freeze`. The `dup` severs the
+      caller's reference so they cannot change it afterwards, and the `freeze` means `attr_reader`
+      is safe to expose directly with no per-call allocation — duping on every read also works but
+      pays for a copy each time. The same pattern applies at all three boundaries: what I accept,
+      because the caller keeps their reference; what I return, which is this case; and what I
+      share, especially constants holding collections, since Ruby warns about reassigning a
+      constant and says nothing at all about mutating one. The caveat is that `freeze` is shallow,
+      so if `hosts` contained nested structures I would need a recursive freeze rather than
+      assuming one call covers it.

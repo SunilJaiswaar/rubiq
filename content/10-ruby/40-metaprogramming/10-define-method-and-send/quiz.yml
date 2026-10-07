@@ -1,0 +1,141 @@
+passScore: 0.7
+questions:
+  - id: def-no-closure
+    kind: choice
+    concept: metaprogramming
+    prompt: "Why can't you use `def` inside `names.each do |name|` to define one method per name?"
+    options:
+      - text: "`def` takes a literal name and opens a new scope that cannot see `name`; `define_method` takes a block, which is a closure"
+        correct: true
+        feedback: >-
+          This is the reason `define_method` exists at all.
+      - text: "`def` inside a block is a syntax error"
+        feedback: >-
+          It parses fine — it just defines one method whose body cannot see the loop variable.
+      - text: "`each` runs after the class body is evaluated, so the methods never get defined"
+        feedback: >-
+          The block runs immediately as the class body executes.
+    explanation: >-
+      Two separate problems. The method name must be a literal after `def`, so you cannot
+      parameterise it. And the body opened by `def` is a new scope with no access to local
+      variables from outside it, so referencing `name` raises NameError. `define_method(name) {
+      ... }` solves both: the name is an ordinary argument, and the block is a closure over the
+      enclosing scope.
+
+  - id: send-visibility
+    kind: choice
+    concept: metaprogramming
+    prompt: "Why is `@user.send(params[:field])` dangerous, and what is the correct fix?"
+    options:
+      - text: "`send` ignores visibility, so `destroy`, `exit` or `instance_variable_set` are reachable — validate against an explicit allow list and use `public_send`"
+        correct: true
+        feedback: >-
+          A regex such as `/\\A\\w+\\z/` is not an allow list; it admits `destroy`.
+      - text: "It is safe as long as you check `respond_to?` first"
+        feedback: >-
+          The object responds to `destroy` too. That check permits the attack.
+      - text: Dangerous only if the field name contains punctuation
+        feedback: >-
+          The dangerous names are plain words.
+    explanation: >-
+      `send` can invoke private and protected methods, so handing it user input exposes the
+      object's entire interface — reading `password_digest`, calling `destroy`, or reaching
+      reflection methods that can set arbitrary state. `public_send` at least restricts it to the
+      public interface, and an explicit allow list of permitted field names is what actually
+      makes it safe. Pattern matching does not help, because the names an attacker wants are
+      ordinary identifiers.
+
+  - id: define-vs-missing
+    kind: choice
+    concept: dynamic-dispatch
+    prompt: "Why does a method made with `define_method` dispatch faster than one handled by `method_missing`?"
+    options:
+      - text: "It is a real entry in the method table, so it hits the inline method cache; `method_missing` runs only after a full ancestor-chain lookup has failed"
+        correct: true
+        feedback: >-
+          Hence the hybrid: use method_missing, then define the method on first call.
+      - text: "`method_missing` is implemented in Ruby rather than C"
+        feedback: >-
+          The cost is the failed lookup preceding it, not the language it is written in.
+      - text: They dispatch identically; the difference is only readability
+        feedback: >-
+          The failed lookup happens on every single call.
+    explanation: >-
+      `define_method` installs an ordinary method, so calls resolve through normal dispatch and a
+      repeated call site is served by the inline method cache. `method_missing` is a fallback: Ruby
+      first walks the singleton class, the class, every included module and every ancestor, fails
+      to find the method, then walks again looking for `method_missing`, then calls it — and that
+      happens on every invocation. The standard mitigation is to have `method_missing` define the
+      real method before calling it, so only the first call is slow.
+
+  - id: eval-backtrace
+    kind: choice
+    concept: metaprogramming
+    prompt: "What does `class_eval \"...\", __FILE__, __LINE__` fix?"
+    options:
+      - text: "Backtraces — without it, errors inside the generated method report `(eval):1` instead of a real file and line"
+        correct: true
+        feedback: >-
+          Essential whenever a string form is genuinely required.
+      - text: It prevents code injection from interpolated values
+        feedback: >-
+          Only an allow list does that; the file and line are purely diagnostic.
+      - text: It makes the evaluated code share the enclosing closure
+        feedback: >-
+          A string form never gets a closure, with or without those arguments.
+    explanation: >-
+      When you evaluate a string, Ruby has no idea where the source came from, so any exception
+      raised inside the resulting method reports its location as `(eval):1` — which tells you
+      nothing about where the definition lives. Passing `__FILE__` and `__LINE__` labels the
+      evaluated source with its true origin, so backtraces point at the file that generated it.
+      It does nothing about safety, which is a separate concern handled by not interpolating
+      untrusted input at all.
+
+  - id: closure-retention
+    kind: choice
+    concept: closures
+    prompt: >-
+      `huge = File.read(\"big.csv\"); define_method(:size) { huge.length }`. What is the problem?
+    options:
+      - text: "The block captures `huge`, and the closure lives as long as the class, so the whole file stays in memory permanently"
+        correct: true
+        feedback: >-
+          Capture the small value you need — `len = huge.length` — rather than the large object.
+      - text: "`define_method` cannot capture local variables"
+        feedback: >-
+          It can; that capture is the problem here.
+      - text: "`huge` is garbage collected before the method is first called, so it raises"
+        feedback: >-
+          The closure holds a strong reference, which is exactly why it is not collected.
+    explanation: >-
+      A `define_method` block is a closure over the scope where it was written, and the resulting
+      method is attached to the class, so everything the block captures is retained for the life
+      of the class. Capturing a 200MB string means 200MB that can never be collected. The fix is
+      to capture only what is needed — compute `len = huge.length` outside and close over the
+      integer — which is the general discipline for closures that outlive their defining scope.
+
+  - id: explain-when-not
+    kind: recall
+    concept: metaprogramming
+    prompt: >-
+      A colleague replaces six explicit predicate methods with a `define_method` loop. Give your
+      assessment.
+    key_points:
+      - Ask whether the list of names comes from data or is a fixed set
+      - Generated from a states constant — good, because hand-written versions drift
+      - Six known names typed once — the loop costs discoverability for no gain
+      - Dynamically defined methods do not appear in grep or editor autocomplete
+      - If generated, document the pattern and ship signatures so tooling can see them
+      - Reflection (instance_methods) is a partial substitute for grep
+    model: >-
+      It depends entirely on where the six names come from. If they are derived from a constant
+      like a list of states, generating them is right: the methods then cannot drift from the
+      list, and adding a state cannot leave a missing predicate behind. If the six names are just
+      six names someone was tired of typing, I would push back — a dynamically defined method does
+      not appear in grep, does not autocomplete, and puts the metaprogramming rather than the
+      behaviour in the backtrace, and grep is how people actually navigate an unfamiliar codebase.
+      That is a real cost paid for no correctness benefit. If we do generate them, the obligation
+      that comes with it is discoverability: a comment naming the generated method pattern and its
+      source list, and in a library an `.rbs` or YARD directive so editors and type checkers can
+      see them. `instance_methods(false).grep` helps at the console but does not help the person
+      reading a diff.

@@ -1,0 +1,167 @@
+passScore: 0.7
+questions:
+  - id: gvl-cpu
+    kind: choice
+    concept: gvl
+    prompt: "Four threads, four cores, CPU-bound work. Faster than running it on one thread?"
+    options:
+      - text: "No — only one thread executes Ruby bytecode at a time, so it takes the same wall-clock time plus switching overhead"
+        correct: true
+        feedback: >-
+          Four threads each waiting on a 500ms HTTP call, by contrast, finish in about 500ms.
+      - text: "Yes, roughly four times faster — threads map onto cores"
+        feedback: >-
+          They are OS threads, and the GVL prevents them running Ruby simultaneously.
+      - text: Yes, but only about twice as fast due to contention
+        feedback: >-
+          There is no speedup at all for pure Ruby computation.
+    explanation: >-
+      The GVL permits one thread per process to execute Ruby bytecode, so CPU-bound Ruby work is
+      interleaved rather than parallel and the total time is unchanged. The same four threads
+      blocked on I/O behave completely differently, because the GVL is released around blocking
+      calls — that asymmetry is the single most important consequence of the design, and it is why
+      threads are valuable for a web server whose requests are mostly waiting.
+
+  - id: gvl-release
+    kind: choice
+    concept: gvl
+    prompt: "Which of these releases the GVL?"
+    options:
+      - text: "`sleep`, socket reads, file I/O and database driver calls release it; Ruby computation and String/Array operations do not"
+        correct: true
+        feedback: >-
+          A C extension releases it only if it explicitly chooses to.
+      - text: Any method call releases it briefly, so all threads make progress equally
+        feedback: >-
+          Dispatch does not release the lock; only blocking operations do.
+      - text: Only `sleep` releases it; real I/O holds it for correctness
+        feedback: >-
+          Drivers such as pg and mysql2 release it around the query precisely so other threads run.
+    explanation: >-
+      The lock is released whenever a thread is about to block outside the VM: sleeping, waiting on
+      a socket, reading a file, or waiting for a database to answer. During that window other
+      threads execute Ruby. Pure computation — arithmetic, string manipulation, array traversal —
+      holds the lock throughout. A C extension can release it around its own blocking work, and
+      well-written database drivers do, which is what makes a threaded web server effective.
+
+  - id: not-atomic
+    kind: choice
+    concept: thread-safety
+    prompt: "If only one thread runs Ruby at a time, how can `@count += 1` lose an increment?"
+    options:
+      - text: "It is several bytecode instructions, and a thread can be preempted between them — so two threads both read 5 and both write 6"
+        correct: true
+        feedback: >-
+          The GVL protects the VM's internals, not your application's invariants.
+      - text: It cannot — the GVL makes all single-line operations atomic
+        feedback: >-
+          Atomicity is per bytecode instruction, not per line of source.
+      - text: Only if the variable is a class variable rather than an instance variable
+        feedback: >-
+          The same interleaving applies to either.
+    explanation: >-
+      `@count += 1` compiles to roughly four instructions: read the variable, push 1, add, write
+      the variable. The scheduler can switch threads between any two of them, so two threads can
+      both read the same value, both compute the same successor, and both store it — one increment
+      disappears. The GVL's purpose is to keep the interpreter's own data structures consistent so
+      that C extensions do not need locking; it makes no promise about operations you care about.
+      A `Mutex` or `Concurrent::AtomicFixnum` is what makes the increment safe.
+
+  - id: puma-pool
+    kind: choice
+    concept: concurrency
+    prompt: "Puma runs 4 workers × 5 threads with a database pool of 5. What is wrong?"
+    options:
+      - text: "Nothing in the arithmetic — the pool is per process, so 5 threads and pool 5 is exactly matched; the problem appears the moment threads are raised without raising the pool"
+        correct: true
+        feedback: >-
+          Starved threads queue for a connection, and the symptom looks exactly like a slow database.
+      - text: "The pool must be 20, since there are 20 threads in total"
+        feedback: >-
+          The pool is per process; each worker has its own.
+      - text: Workers should never exceed threads
+        feedback: >-
+          There is no such relationship; workers track cores, threads track I/O overlap.
+    explanation: >-
+      The connection pool is per process, so a worker running 5 threads needs a pool of at least 5.
+      Matched exactly, it works but has no headroom for anything else in the process that wants a
+      connection. The dangerous version is raising threads to improve throughput without raising
+      the pool: threads then block inside `checkout`, waiting for a connection rather than for the
+      database, and every dashboard reports database latency while the database sits idle. It is
+      among the most common Rails misconfigurations because the symptom points away from the cause.
+
+  - id: thread-local
+    kind: choice
+    concept: thread-safety
+    prompt: "What is wrong with using `Thread.current[:user]` for request-scoped state?"
+    options:
+      - text: "It is fiber-local despite the name, and pooled threads are reused between requests, so leftover state leaks forward"
+        correct: true
+        feedback: >-
+          `thread_variable_set` is genuinely thread-local, and `CurrentAttributes` also resets.
+      - text: It is not thread-safe, so two threads can overwrite each other's value
+        feedback: >-
+          Each thread has its own storage; the problems are fiber scope and reuse.
+      - text: It is cleared automatically after each request, so values vanish unexpectedly
+        feedback: >-
+          Nothing clears it, which is precisely the leak.
+    explanation: >-
+      Two distinct problems. `Thread.current[]` is fiber-local storage, so under a fiber-based
+      server or inside a lazy enumerator the value is not where you expect;
+      `Thread.current.thread_variable_set` is the genuinely thread-scoped form. And threads in a
+      server are pooled and reused, so anything left behind is visible to the next request handled
+      by that thread — which with authentication state is a security bug, not an inconvenience.
+      `ActiveSupport::CurrentAttributes` handles both by using thread variables and resetting
+      between requests.
+
+  - id: ractor-shareable
+    kind: choice
+    concept: concurrency
+    prompt: "Why can two Ractors not share `{ a: [1] }.freeze`?"
+    options:
+      - text: "`freeze` is shallow — the nested array is still mutable, so the object is not deeply immutable and therefore not shareable"
+        correct: true
+        feedback: >-
+          `Ractor.make_shareable` deep-freezes it, which is the mutability lesson as a runtime check.
+      - text: Ractors cannot share hashes at all, only primitives
+        feedback: >-
+          A deeply-frozen hash is shareable.
+      - text: Frozen objects cannot cross Ractor boundaries; only copies can
+        feedback: >-
+          Shareable objects cross by reference; it is mutable ones that must be copied.
+    explanation: >-
+      Ractors enforce isolation by permitting only shareable objects to be referenced from more
+      than one Ractor, and shareable means deeply immutable. `{ a: [1] }.freeze` locks the hash and
+      leaves the array mutable, so `Ractor.shareable?` is false. `Ractor.make_shareable` walks the
+      structure and freezes it throughout. This is the same shallowness that makes frozen config
+      hashes misleading, except that here the runtime checks it instead of trusting you — which is
+      what turns thread safety from a discipline into a guarantee.
+
+  - id: explain-model-choice
+    kind: recall
+    concept: parallelism
+    prompt: >-
+      You must process 10,000 images (CPU-bound) and separately fetch 10,000 URLs (I/O-bound).
+      Describe the concurrency model for each and why.
+    key_points:
+      - Images — CPU-bound, so threads give nothing; use processes
+      - Or Ractors in principle, with the caveat that they are experimental and gems may not be safe
+      - Image libraries in C may release the GVL, which is worth checking before assuming
+      - URLs — I/O-bound, so threads are ideal since the GVL is released while waiting
+      - Bound the concurrency with a fixed thread pool, not 10,000 threads
+      - Use Thread#value so exceptions surface, and set per-request timeouts from the library
+    model: >-
+      The image work is CPU-bound, so threads buy nothing — four threads on four cores execute Ruby
+      one at a time and finish no sooner. I would use separate processes, one per core, each handed
+      a slice of the work, because that gives real parallelism and every gem works normally. Ractors
+      are the in-process answer in principle and I would not reach for them in production yet, since
+      they are experimental and most image gems touch global state. One thing worth checking first:
+      if the resizing happens inside a C extension such as libvips, that extension may release the
+      GVL around its own work, in which case threads do help and the measurement will say so. The
+      URL fetching is the opposite case: the GVL is released while waiting on a socket, so threads
+      overlap the waiting almost perfectly and 10,000 sequential 200ms requests become minutes
+      instead of half an hour. I would use a bounded pool — `Concurrent::FixedThreadPool` with
+      something like 20 to 50 workers — rather than 10,000 threads, since unbounded concurrency
+      becomes its own failure as sockets and file descriptors run out. And I would collect results
+      with `Thread#value` or `Future#value!` so a failure surfaces instead of being silent, with
+      timeouts set through the HTTP library rather than `Timeout.timeout`.

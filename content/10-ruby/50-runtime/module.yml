@@ -1,0 +1,3 @@
+title: The runtime
+summary: Where the memory goes, what the garbage collector is doing while your request waits, and why threads help with I/O and not with computation.
+level: expert

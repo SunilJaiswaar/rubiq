@@ -1,0 +1,167 @@
+passScore: 0.7
+questions:
+  - id: minor-gc
+    kind: choice
+    concept: garbage-collection
+    prompt: "Why is a minor GC cheap?"
+    options:
+      - text: "It traces only the young generation, and most objects die young — so little work finds most of the garbage"
+        correct: true
+        feedback: >-
+          Surviving three minor collections promotes an object out of that set.
+      - text: It frees memory without tracing reachability
+        feedback: >-
+          It still marks and sweeps; it just restricts the set it traces.
+      - text: It runs in a background thread without pausing the program
+        feedback: >-
+          Marking is incremental but not concurrent; minor GCs do pause.
+    explanation: >-
+      Generational collection exploits the fact that the overwhelming majority of objects become
+      unreachable almost immediately — a web request allocates hundreds of thousands of objects
+      that are all garbage by the time it responds. Tracing the whole heap to discover that would
+      be enormous work for a small amount of reclaimed memory. A minor GC traces only young
+      objects, so the work is proportional to recent allocation rather than to heap size.
+
+  - id: write-barrier
+    kind: choice
+    concept: garbage-collection
+    prompt: "What is the write barrier for?"
+    options:
+      - text: "Recording old-to-young references, so a minor GC does not free a young object that only an old object points to"
+        correct: true
+        feedback: >-
+          It also explains why a growing long-lived cache makes minor GCs progressively slower.
+      - text: Preventing two threads from writing to the same object
+        feedback: >-
+          That is a lock; the write barrier is a GC bookkeeping mechanism.
+      - text: Stopping writes to frozen objects
+        feedback: >-
+          Frozen checks are unrelated to GC.
+    explanation: >-
+      A minor GC traces only young objects, so it would not discover that a young object is
+      reachable from an old one and would wrongly free it. Ruby therefore instruments reference
+      stores: when an old object gains a reference to a young one, the old object is remembered
+      and scanned during minor collections too. The consequence for application design is that a
+      long-lived collection which keeps absorbing new objects enlarges the remembered set, so the
+      "cheap" collections get steadily less cheap.
+
+  - id: cycles
+    kind: choice
+    concept: garbage-collection
+    prompt: "`a` and `b` reference each other and nothing else references them. Are they collected?"
+    options:
+      - text: "Yes — mark-and-sweep traces from roots, and neither is reachable, so neither is marked"
+        correct: true
+        feedback: >-
+          Reference counting would leave both counts at 1 and never free them.
+      - text: No — the mutual references keep both alive
+        feedback: >-
+          Reachability from roots is what matters, not whether anything points at them.
+      - text: Only after an explicit `GC.start`
+        feedback: >-
+          Any collection that traces them will reclaim them.
+    explanation: >-
+      Mark-and-sweep starts from roots — globals, constants, the stack, live frames — and marks
+      everything reachable. A cycle that nothing reachable points into is never marked, so it is
+      swept. This is the primary reason Ruby does not use reference counting: each object in the
+      cycle would hold a count of 1 forever, and collecting cycles would require a separate cycle
+      detector on top.
+
+  - id: leak-vs-fragmentation
+    kind: choice
+    concept: memory
+    prompt: "A process's RSS keeps rising. Which `GC.stat` field distinguishes a leak from fragmentation?"
+    options:
+      - text: "`heap_live_slots` — rising monotonically means retention; flat while RSS climbs means fragmentation or heap high-water mark"
+        correct: true
+        feedback: >-
+          Check it first, because the two problems need completely different responses.
+      - text: "`major_gc_count` — a leak shows as more major collections"
+        feedback: >-
+          Both conditions can raise it; it does not separate them.
+      - text: "`total_allocated_objects` — a leak allocates more"
+        feedback: >-
+          That counts churn since boot and rises in both cases.
+    explanation: >-
+      From outside, a leak and fragmentation look identical: RSS going up and not coming down.
+      `heap_live_slots` counts objects currently alive, so monotonic growth there means something
+      is retaining references — a real leak, and the next step is finding the retainer. Flat live
+      slots with high RSS and many free slots means Ruby's heap simply never returned pages to the
+      OS, or glibc malloc cannot reuse freed memory in the middle of an arena. That one is fixed
+      by jemalloc, `MALLOC_ARENA_MAX`, or compaction, and no amount of code review will find it.
+
+  - id: pluck
+    kind: choice
+    concept: allocations
+    prompt: "`User.all.map(&:email)` versus `User.pluck(:email)` on 50,000 rows?"
+    options:
+      - text: "`map` instantiates 50,000 full records with all their attributes; `pluck` returns 50,000 strings and nothing else"
+        correct: true
+        feedback: >-
+          Roughly an order of magnitude difference in object count.
+      - text: They allocate the same; `pluck` is only shorter to type
+        feedback: >-
+          `pluck` never builds model instances at all.
+      - text: "`pluck` is slower because it bypasses the query cache"
+        feedback: >-
+          It issues a narrower query and builds far less.
+    explanation: >-
+      `User.all.map(&:email)` runs `SELECT *`, builds an ActiveRecord object per row, and
+      populates an attribute set per object — several objects per row before you reach the string
+      you wanted. `pluck` issues `SELECT email` and returns the values directly. This is the most
+      common single source of allocation pressure in Rails applications, and the cost is deferred:
+      allocation is fast, and you pay for it later as GC time, which is why the symptom appears
+      somewhere other than the cause.
+
+  - id: string-plus-equals
+    kind: choice
+    concept: allocations
+    prompt: "Why does `report += \"line\\n\"` in a loop get quadratically worse?"
+    options:
+      - text: "`+=` is `report = report + \"...\"`, which allocates a new string containing everything so far on every iteration"
+        correct: true
+        feedback: >-
+          `<<` mutates one buffer, and building an array then `join` allocates once.
+      - text: Because string concatenation triggers a GC each time
+        feedback: >-
+          No collection is forced; the cost is the copying itself.
+      - text: Because each literal is frozen and must be duplicated
+        feedback: >-
+          Frozen literals are shared, not duplicated.
+    explanation: >-
+      `+` builds a new string, so `report += x` copies the entire accumulated content on every
+      iteration. Over n iterations that is n/2 average length copied n times — quadratic in total
+      bytes, plus n garbage strings of increasing size for the collector to handle. `report << x`
+      appends into one buffer that grows geometrically, and `items.map { ... }.join` allocates the
+      intermediate array plus one result string. Both are linear.
+
+  - id: explain-memory-diagnosis
+    kind: recall
+    concept: memory
+    prompt: >-
+      A Rails process grows from 300 MB to 2 GB over a day and gets restarted nightly. Walk
+      through your diagnosis.
+    key_points:
+      - First decide whether it is retention or fragmentation — check heap_live_slots over time
+      - Flat live slots with high RSS - allocator, not code
+      - Try jemalloc and MALLOC_ARENA_MAX before touching code
+      - Rising live slots - find the retainer with memory_profiler's retained section
+      - Look for class-level collections, unbounded memoisation, closures capturing large objects
+      - Separately reduce churn - pluck, find_each, join instead of +=
+      - Nightly restart is a mitigation, not a diagnosis
+    model: >-
+      First I would establish which problem it is, because the two have no overlap in their fixes.
+      I would log `GC.stat[:heap_live_slots]` periodically across the day. If live slots are flat
+      while RSS climbs and `heap_free_slots` is large, it is not a leak: Ruby's heap never returns
+      pages to the OS, and glibc malloc cannot reuse freed memory in the middle of an arena.
+      That is an allocator problem, and I would try jemalloc via LD_PRELOAD and
+      `MALLOC_ARENA_MAX=2` before touching any code — typically 20 to 40 percent off RSS for no
+      risk. If live slots rise monotonically, it is genuine retention, and I would use
+      `memory_profiler`'s retained section rather than its allocated section, since retained is
+      what defines a leak. The usual culprits are a class-level or constant collection that only
+      grows, memoisation keyed on something unbounded on a long-lived object, and a closure or
+      `define_method` block capturing something large. Separately, and regardless of which it
+      turns out to be, I would look at churn — `pluck` instead of mapping full records,
+      `find_each` instead of `each`, `join` instead of `+=` — because that reduces GC time even
+      when memory is not the complaint. The nightly restart is worth keeping as a safety net while
+      investigating, but it is a mitigation and not an answer.

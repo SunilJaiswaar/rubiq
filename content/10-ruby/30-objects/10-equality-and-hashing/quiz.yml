@@ -1,0 +1,137 @@
+passScore: 0.7
+questions:
+  - id: hash-lookup-float
+    kind: choice
+    concept: equality
+    prompt: "`1 == 1.0` is true. Why is `{ 1 => :a }[1.0]` nil?"
+    options:
+      - text: "`Hash` uses `eql?`, which does not convert types, and `1.eql?(1.0)` is false"
+        correct: true
+        feedback: >-
+          The split between `==` and `eql?` exists precisely so Hash can be stricter.
+      - text: Float keys are not supported by Hash
+        feedback: "`{ 1.0 => :a }[1.0]` works fine."
+      - text: Floating-point imprecision makes 1.0 not exactly 1
+        feedback: >-
+          1.0 is exactly representable; the reason is the equality method used.
+    explanation: >-
+      `==` permits numeric conversion because arithmetic comparison should not care about
+      storage. A hash cannot work that way: for `1` and `1.0` to be the same key they would
+      need identical hash codes, and the same would then be demanded of every other
+      near-equal float. So `Hash` uses `eql?`, which requires the same type. The cost is this
+      one surprise; the benefit is that hashing stays well defined.
+
+  - id: missing-hash
+    kind: choice
+    concept: hashing
+    prompt: "You override `==` but not `hash`. What breaks?"
+    options:
+      - text: "`uniq`, `Set`, `group_by` and hash lookup all treat equal objects as distinct — silently"
+        correct: true
+        feedback: >-
+          `==` keeps working, so unit tests comparing two objects still pass.
+      - text: Nothing, since Ruby derives `hash` from `==`
+        feedback: >-
+          It cannot: `hash` must be an Integer and Ruby has no way to infer one from `==`.
+      - text: "`==` itself starts returning false"
+        feedback: "`==` is unaffected, which is what makes the bug hard to see."
+    explanation: >-
+      Everything built on hashing locates candidates by hash code before comparing. With
+      different hash codes, two equal objects land in different buckets and are never
+      compared, so `uniq` keeps both, a `Set` holds both, `group_by` makes two groups, and a
+      lookup with an equal key returns nil. `==` continues to work perfectly, so the object
+      looks correct in any test that only compares two instances — the failure appears
+      wherever the code happens to use a hash.
+
+  - id: mutated-key
+    kind: choice
+    concept: hashing
+    prompt: "`key = [\"a\"]; h = { key => 1 }; key << \"b\"`. What does `h[key]` return?"
+    options:
+      - text: "nil — the entry sits in the bucket for the old hash code, and is visible in `h.keys` but unreachable until `h.rehash`"
+        correct: true
+        feedback: >-
+          Which is why value objects used as keys should be frozen.
+      - text: "1, because the key is the same object"
+        feedback: >-
+          Lookup is by hash code first; identity never gets consulted.
+      - text: A RuntimeError about a modified key
+        feedback: >-
+          Ruby does not detect this. It fails silently.
+    explanation: >-
+      The entry was filed in the bucket matching the key's hash code at insertion time.
+      Mutating the key changes its hash code, so the lookup searches a different bucket and
+      finds nothing — while `h.keys.first` still shows the mutated array, making the entry
+      visibly present and unreachable. `h.rehash` refiles every entry and fixes it. Ruby
+      special-cases String keys by duplicating and freezing them, because strings are both
+      mutable and extremely common as keys.
+
+  - id: hash-contract
+    kind: choice
+    concept: hashing
+    prompt: "What is the hash contract, and which direction is not required?"
+    options:
+      - text: "Equal objects must have equal hashes; equal hashes need not mean equal objects — collisions are legal and merely cost a comparison"
+        correct: true
+        feedback: >-
+          Which is why `def hash = 1` is correct and catastrophically slow.
+      - text: Both directions are required, so hash codes must be unique per value
+        feedback: >-
+          Impossible in general: there are more possible values than Integers in a bucket space.
+      - text: Equal hashes must mean equal objects, but equal objects may hash differently
+        feedback: >-
+          Exactly backwards — that is the direction that breaks lookup.
+    explanation: >-
+      The requirement is one-directional. `a.eql?(b)` implies `a.hash == b.hash`, because
+      otherwise the two objects occupy different buckets and are never compared. The converse
+      is not required: two unequal objects sharing a hash code is a collision, which the hash
+      resolves by comparing with `eql?` within the bucket. `def hash = 1` therefore satisfies
+      the contract while turning every hash into a linear scan.
+
+  - id: comparable
+    kind: choice
+    concept: comparable
+    prompt: "What does `include Comparable` require, and what does it give you?"
+    options:
+      - text: "You define `<=>` returning -1, 0, 1 or nil; you get `<`, `<=`, `>`, `>=`, `==`, `between?`, `clamp` and sortability"
+        correct: true
+        feedback: >-
+          Return nil for an incomparable argument so comparisons raise rather than lie.
+      - text: You define `<` and `>`; it derives the rest
+        feedback: "The single required method is `<=>`."
+      - text: You define `==` and `hash`; it derives ordering
+        feedback: >-
+          Equality cannot imply an ordering.
+    explanation: >-
+      `Comparable` is the clearest instance of Ruby's one-method-for-an-interface pattern, the
+      same deal `Enumerable` offers for `each`. Defining `<=>` yields seven methods plus `sort`,
+      `min` and `max`. Returning nil is how you declare two values incomparable, which makes
+      `Version.new("1.0") > 5` raise ArgumentError instead of producing nonsense. Note that
+      `Comparable` defines `==` via `<=>`, so if the object is also a hash key you still need
+      `eql?` and `hash`.
+
+  - id: explain-value-object
+    kind: recall
+    concept: value-objects
+    prompt: >-
+      You are writing a `Money` class used as a hash key and compared in tests. Describe what
+      you would implement and why.
+    key_points:
+      - Data.define on Ruby 3.2+ gives ==, eql?, hash and immutability for free
+      - By hand - define ==, alias eql?, and hash over the same attributes
+      - "[cents, currency].hash because it mixes bits and respects order"
+      - Freeze instances so the hash code cannot change after insertion
+      - Guard the type in == so equality is symmetric
+      - Value object versus entity is the real decision — Money is a value, Order is an entity
+    model: >-
+      On Ruby 3.2 or later I would use `Data.define(:cents, :currency)`, which gives `==`,
+      `eql?`, `hash`, keyword construction and immutability in one line — and immutability
+      matters specifically because a mutated hash key leaves its entry unreachable. By hand it
+      is three methods that must agree: `==` comparing the attributes with an `is_a?` guard so
+      equality stays symmetric, `alias eql? ==`, and `hash` returning `[cents, currency].hash`.
+      I would use `Array#hash` rather than combining by hand because it mixes the bits, respects
+      ordering, and is process-seeded against hash flooding — whereas `cents + currency.hash`
+      loses ordering and clusters. And I would freeze instances in the constructor. The
+      underlying decision is that Money is a value object, where sameness means the same
+      contents, as opposed to something like an Order, where two records with identical
+      attributes are still different orders and identity or id equality is correct.

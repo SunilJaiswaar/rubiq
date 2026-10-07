@@ -1,0 +1,145 @@
+passScore: 0.7
+questions:
+  - id: no-super
+    kind: choice
+    concept: method-missing
+    prompt: "Your `method_missing` omits `super`. What does `config.enbaled` do?"
+    options:
+      - text: "Returns nil, so a typo becomes a value and the program carries on with no error to investigate"
+        correct: true
+        feedback: >-
+          Calling `super` sends unhandled names to BasicObject, which raises NoMethodError properly.
+      - text: Raises NoMethodError anyway, since the key does not exist
+        feedback: >-
+          Only `super` produces that; your handler returned nil instead.
+      - text: Raises NameError
+        feedback: >-
+          Nothing raises. That is the problem.
+    explanation: >-
+      Without `super`, your handler answers every message the object receives, so a misspelled
+      name returns whatever your lookup produces for a missing key — usually nil. `if
+      config.enbaled` is then permanently falsy and the feature is silently off. It is the most
+      expensive mistake in this area precisely because there is no exception, no log line and no
+      failing test unless someone wrote one for that exact name. `super` routes unhandled names
+      to `BasicObject#method_missing`, which raises NoMethodError naming both the method and the
+      receiver.
+
+  - id: respond-to-missing
+    kind: choice
+    concept: respond-to-missing
+    prompt: "You implement `method_missing` but not `respond_to_missing?`. What breaks?"
+    options:
+      - text: "`respond_to?` returns false, `method(:x)` raises NameError, and library code that checks before calling skips the object — while direct calls work fine"
+        correct: true
+        feedback: >-
+          The object works and lies about its own interface.
+      - text: Nothing — `respond_to?` consults `method_missing` automatically
+        feedback: >-
+          It cannot: there is no way to ask `method_missing` a question without calling the method.
+      - text: "`method_missing` itself stops being called"
+        feedback: >-
+          Direct calls continue to work, which is what hides the problem.
+    explanation: >-
+      `respond_to?` cannot infer anything from `method_missing`, so by default it reports false for
+      every ghost method. Ruby's documented extension point is `respond_to_missing?`, and
+      implementing it fixes `respond_to?`, `method(:x)` and therefore `&:x` symbol-to-proc and
+      anything built on `Object#method`. Overriding `respond_to?` directly fixes only the direct
+      question. Since checking `respond_to?` before calling is how careful duck typing works, an
+      object without the hook fails exactly with the libraries that are being careful.
+
+  - id: key-vs-falsy
+    kind: choice
+    concept: method-missing
+    prompt: "`@data[\"enabled\"] = false`. Why does `@data[name.to_s] || super` break?"
+    options:
+      - text: "`false` is falsy, so it falls through to `super` and raises NoMethodError for a key that exists"
+        correct: true
+        feedback: >-
+          Decide with `key?`; use the value only to answer.
+      - text: "`||` cannot be used with `super`"
+        feedback: >-
+          It can; the problem is which values are falsy.
+      - text: "`false` is converted to nil by the hash lookup"
+        feedback: >-
+          The hash returns `false` faithfully; `||` is what discards it.
+    explanation: >-
+      `||` conflates "no such key" with "the key holds a falsy value". A stored `false` or `nil` is
+      a legitimate value, and short-circuiting on it sends the call to `super`, which raises
+      NoMethodError for an attribute that genuinely exists. The correct shape separates the two
+      questions: `@data.key?(key) ? @data[key] : super`. This is the same distinction that makes
+      `Hash#fetch` preferable to `Hash#[]` when absence is meaningful.
+
+  - id: basicobject-proxy
+    kind: choice
+    concept: proxies
+    prompt: "Why does a transparent proxy inherit from `BasicObject`?"
+    options:
+      - text: "Object already defines `class`, `hash`, `to_s`, `send`, `method` and dozens more, so those calls never reach `method_missing`"
+        correct: true
+        feedback: >-
+          The cost is that you lose `puts` too — hence `::Kernel.puts` inside such a proxy.
+      - text: "`BasicObject` makes `method_missing` dispatch faster"
+        feedback: >-
+          A shorter chain is marginally cheaper; the reason is shadowing.
+      - text: Because `method_missing` is only defined on BasicObject
+        feedback: >-
+          It is inherited by everything, so any class can override it.
+    explanation: >-
+      `method_missing` is a fallback, so any method that actually exists wins. An Object-based
+      proxy therefore cannot forward `class`, `hash`, `inspect`, `to_s`, `send`, `method`,
+      `display` or around fifty other inherited methods — the proxy answers them about itself
+      instead of the target. `BasicObject` defines almost nothing, so almost everything reaches the
+      hook. The trade is that the proxy has no `puts`, no `inspect` and no `raise` of its own, so
+      those must be written as `::Kernel.puts` and the like.
+
+  - id: define-on-class
+    kind: choice
+    concept: dynamic-dispatch
+    prompt: >-
+      The define-on-first-call pattern uses `self.class.define_method`. When is that the wrong
+      place?
+    options:
+      - text: "When the names are per-instance — the defined method then reads the wrong object's data for every other instance"
+        correct: true
+        feedback: >-
+          `singleton_class.define_method` is correct there, at the cost of a class per object.
+      - text: Always — methods should never be defined at runtime
+        feedback: >-
+          It is the standard way to make method_missing fast when names are shared.
+      - text: When the class is frozen
+        feedback: >-
+          A real constraint, and not the general case being asked about.
+    explanation: >-
+      `self.class.define_method` installs the method for every instance of the class, which is
+      correct when the valid names come from something shared like a column list or a schema. If
+      each object has its own keys — a settings object built from a different hash each time —
+      then instance A's first call defines a method that instance B also gains, reading a key B
+      may not have or capturing the wrong receiver's data. The alternative,
+      `singleton_class.define_method`, is per-object and correct, but it creates a singleton class
+      per instance, which costs memory and defeats the inline method cache for that object.
+
+  - id: explain-when-mm
+    kind: recall
+    concept: method-missing
+    prompt: >-
+      When is `method_missing` the right tool rather than `define_method`, and what obligations
+      come with choosing it?
+    key_points:
+      - Only when the names cannot be enumerated at load time
+      - Proxies over an arbitrary target, a remote schema, an OpenStruct-style object
+      - If the names are knowable, define_method wins on speed, respond_to?, grep and autocomplete
+      - Obligation — super for unhandled names
+      - Obligation — respond_to_missing?
+      - Forward the block, use key? not ||, and consider define-on-first-call for hot paths
+    model: >-
+      Only when the set of valid names genuinely cannot be known at load time: a proxy wrapping an
+      object chosen at runtime, a client for a remote schema, or an object built from an arbitrary
+      hash. If I can enumerate the names — a state list, a column list I can read at boot —
+      `define_method` beats it on every axis: dispatch speed, `respond_to?` working for free,
+      appearing in grep and in autocomplete, and sensible backtraces. Choosing `method_missing`
+      brings three obligations. `super` for anything I do not handle, otherwise typos return nil
+      and the bug has no exception attached. `respond_to_missing?`, otherwise the object works when
+      called directly and is invisible to `method(:x)` and to every library that checks before
+      calling. And the smaller details that bite: forward the block with `&blk` or `...`, use
+      `key?` rather than `||` so a stored `false` still works, and if it is on a hot path, define
+      the real method on first use so only the first call pays the failed lookup.
