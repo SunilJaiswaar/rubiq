@@ -51,38 +51,56 @@ resources:
 
 ## Twenty lines
 
-```js
-class UnionFind {
-  #parent; #size; #count;
+```ruby
+class UnionFind
+  attr_reader :components
 
-  constructor(n) {
-    this.#parent = Array.from({ length: n }, (_, i) => i);   // each its own root
-    this.#size = new Array(n).fill(1);
-    this.#count = n;                                          // components
-  }
+  def initialize(n)
+    @parent = (0...n).to_a                     # each element its own root
+    @size = Array.new(n, 1)
+    @components = n
+  end
 
-  find(x) {
-    while (this.#parent[x] !== x) {
-      this.#parent[x] = this.#parent[this.#parent[x]];   // path halving
-      x = this.#parent[x];
-    }
-    return x;
-  }
+  def find(x)
+    until @parent[x] == x
+      @parent[x] = @parent[@parent[x]]         # path halving
+      x = @parent[x]
+    end
+    x
+  end
 
-  union(a, b) {
-    let ra = this.find(a), rb = this.find(b);
-    if (ra === rb) return false;                         // already together
-    if (this.#size[ra] < this.#size[rb]) [ra, rb] = [rb, ra];   // by size
-    this.#parent[rb] = ra;
-    this.#size[ra] += this.#size[rb];
-    this.#count--;
-    return true;
-  }
+  def union(a, b)
+    ra = find(a)
+    rb = find(b)
+    return false if ra == rb                   # already together
+    ra, rb = rb, ra if @size[ra] < @size[rb]   # union by size
+    @parent[rb] = ra
+    @size[ra] += @size[rb]
+    @components -= 1
+    true
+  end
 
-  connected(a, b) { return this.find(a) === this.find(b); }
-  get components() { return this.#count; }
-}
+  def connected?(a, b) = find(a) == find(b)
+end
+
+uf = UnionFind.new(10)
+uf.union(1, 2)        # => true
+uf.union(1, 2)        # => false — already in the same set
+uf.union(2, 3)
+uf.connected?(1, 3)   # => true, transitively
+uf.components         # => 8
 ```
+
+Three things to notice in the Ruby. `(0...n).to_a` is the whole "each element is its own root"
+initialisation — the array where `parent[i] == i` everywhere. `ra, rb = rb, ra if ...` is
+parallel assignment doing the union-by-size swap in one line with no temporary. And `union`
+returning `true`/`false` rather than nothing is the design decision that makes the next three
+algorithms short: "did this actually merge anything" is the question every caller has, and
+answering it costs nothing because `find` already knows.
+
+`attr_reader :components` gives the count as a plain method. Resist the urge to add
+`attr_writer` — the count is derived state that only `union` may change, and exposing a setter
+is how it drifts out of sync with the parent array.
 
 :::what
 A **disjoint-set** (union-find) structure maintains a partition of elements into disjoint sets.
@@ -174,74 +192,91 @@ why the implementation is twenty lines: there is very little to store.
 :::
 
 :::example
-```js
-// 1. Kruskal's minimum spanning tree. Union-find is what makes it work.
-function kruskal(n, edges) {
-  // edges: [weight, u, v]
-  edges.sort((a, b) => a[0] - b[0]);
-  const uf = new UnionFind(n);
-  const tree = [];
-  let total = 0;
+```ruby
+# 1. Kruskal's minimum spanning tree. Union-find is what makes it work.
+def kruskal(n, edges)
+  # edges: [weight, u, v]
+  #
+  # sort_by on the whole triple, not just the weight. Ruby's sort is NOT
+  # stable, so ties between equal-weight edges would otherwise break
+  # differently between runs — same total, different tree, flaky test.
+  sorted = edges.sort_by { |w, u, v| [w, u, v] }
+  uf = UnionFind.new(n)
+  tree = []
+  total = 0
 
-  for (const [w, u, v] of edges) {
-    if (uf.union(u, v)) {        // returns false if already connected
-      tree.push([u, v, w]);      // → adding this edge would make a cycle
-      total += w;
-      if (tree.length === n - 1) break;    // a spanning tree has n-1 edges
-    }
-  }
-  return uf.components === 1 ? { tree, total } : null;   // null = disconnected
-}
-// The greedy claim: taking the cheapest edge that does not create a
-// cycle is always safe. Union-find is precisely the cycle test, and it
-// is why the algorithm is O(E log E) — dominated by the sort, not by
-// the connectivity work.
+  sorted.each do |w, u, v|
+    next unless uf.union(u, v)    # false → adding this edge would make a cycle
+    tree << [u, v, w]
+    total += w
+    break if tree.size == n - 1   # a spanning tree has exactly n-1 edges
+  end
+  uf.components == 1 ? { tree: tree, total: total } : nil   # nil = disconnected
+end
 
-// 2. Cycle detection in an UNDIRECTED graph, as edges arrive.
-function hasCycle(n, edges) {
-  const uf = new UnionFind(n);
-  for (const [u, v] of edges) {
-    if (!uf.union(u, v)) return true;   // endpoints already connected
-  }
-  return false;
-}
-// Compare this with the DFS version from the traversal lesson: DFS
-// needs the whole graph up front and a parent check; this works on a
-// stream and is three lines.
+# The greedy claim: taking the cheapest edge that does not create a cycle
+# is always safe. Union-find is precisely that cycle test, and it is why
+# the algorithm is O(E log E) — dominated by the sort, not by the
+# connectivity work.
 
-// 3. Counting islands on a grid — union-find as a grouping tool.
-function countIslands(grid) {
-  const rows = grid.length, cols = grid[0].length;
-  const uf = new UnionFind(rows * cols);
-  const id = (r, c) => r * cols + c;
-  let land = 0;
+# 2. Cycle detection in an UNDIRECTED graph, as edges arrive.
+def cycle_in_edges?(n, edges)
+  uf = UnionFind.new(n)
+  edges.any? { |u, v| !uf.union(u, v) }   # endpoints already connected
+end
 
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (grid[r][c] !== 1) continue;
-      land++;
-      // Only look up and left — every pair gets considered once.
-      if (r > 0 && grid[r - 1][c] === 1 && uf.union(id(r, c), id(r - 1, c))) land--;
-      if (c > 0 && grid[r][c - 1] === 1 && uf.union(id(r, c), id(r, c - 1))) land--;
-    }
-  }
-  return land;
-}
-// Counting by decrementing on each successful union is neater than
-// counting roots afterwards, and avoids a second pass. Note that only
-// two of the four neighbours are checked: looking in all four
-// directions does the same unions twice.
+# Compare this with the DFS version from the traversal lesson: DFS needs
+# the whole graph up front and a parent check; this works on a stream and
+# is one line. `any?` also short-circuits, so it stops at the first cycle.
+
+# 3. Counting islands on a grid — union-find as a grouping tool.
+def count_islands(grid)
+  rows = grid.size
+  cols = grid[0].size
+  uf = UnionFind.new(rows * cols)
+  id = ->(r, c) { (r * cols) + c }
+  land = 0
+
+  rows.times do |r|
+    cols.times do |c|
+      next unless grid[r][c] == 1
+      land += 1
+      # Only look up and left — every pair gets considered exactly once.
+      land -= 1 if r.positive? && grid[r - 1][c] == 1 && uf.union(id.(r, c), id.(r - 1, c))
+      land -= 1 if c.positive? && grid[r][c - 1] == 1 && uf.union(id.(r, c), id.(r, c - 1))
+    end
+  end
+  land
+end
+
+count_islands([[1, 1, 0], [1, 0, 0], [0, 0, 1]])   # => 2
+count_islands([[1, 0], [0, 1]])                    # => 2 — diagonals do not touch
+
+# Counting by decrementing on each successful union is neater than
+# counting roots afterwards, and avoids a second pass. Only two of the
+# four neighbours are checked: looking in all four directions does every
+# union twice.
+#
+# `id.(r, c)` is the terse call syntax for a lambda — `id.call(r, c)` and
+# `id[r, c]` do the same thing. Flattening the 2-D coordinates to a
+# single integer is the trick that lets a structure that knows nothing
+# about grids solve a grid problem.
 ```
 :::
 
 :::failure
 **No union by size.** Unioning in order 0-1, 0-2, 0-3 the wrong way round builds a chain:
 
-```js
-// A naive union that always attaches ra under rb:
-this.#parent[ra] = rb;
-// With a particular input order this produces depth n, so find is
-// O(n) and the whole structure is no better than a linked list.
+```ruby
+# A naive union that always attaches ra under rb:
+@parent[ra] = rb
+# With a particular input order this produces depth n, so `find` is O(n)
+# and the whole structure is no better than a linked list. The input that
+# does it is not adversarial: union(0,1), union(1,2), union(2,3)... which
+# is exactly how you would merge a stream of sequential ids.
+#
+# With union-by-size and path halving, that same 100,000-element chain
+# still answers `connected?(0, 99_999)` immediately.
 ```
 
 **No path compression.** Correct, and each query re-walks the full path. The difference on a
@@ -250,17 +285,20 @@ line.
 
 **Comparing elements instead of roots.**
 
-```js
-if (a === b) return;                    // wrong: compares the elements
-if (this.find(a) === this.find(b)) ...  // correct: compares the sets
+```ruby
+return if a == b                 # wrong: compares the elements
+return if find(a) == find(b)     # correct: compares the sets
 ```
 
 **Caching a root.** A root is only a root until something merges into it:
 
-```js
-const root = uf.find(5);
-uf.union(5, 9);
-// `root` may no longer be 5's representative. Always call find.
+```ruby
+root = uf.find(5)
+uf.union(5, 9)
+# `root` may no longer be 5's representative. Always call `find` again.
+# This is why the representative is an implementation detail and not an
+# identifier — never store it in a database column, a cache key or a
+# Sidekiq argument. Store the members, derive the root.
 ```
 
 **Expecting deletion.** You cannot remove an edge. The structure records that two things became
@@ -303,35 +341,42 @@ algorithm.
                               distinct regions.
 ```
 
-```js
-// Account merging — the shape that recurs in production work.
-function mergeAccounts(signals, userCount) {
-  // signals: pairs of user ids that some heuristic says are the same
-  const uf = new UnionFind(userCount);
-  for (const [a, b] of signals) uf.union(a, b);
+```ruby
+# Account merging — the shape that recurs in production work.
+def merge_accounts(signals, user_count)
+  # signals: pairs of user ids that some heuristic says are the same
+  uf = UnionFind.new(user_count)
+  signals.each { |a, b| uf.union(a, b) }
 
-  // Group by representative. Maintaining this during the unions is
-  // possible, and doing it once at the end is simpler and usually fine.
-  const groups = new Map();
-  for (let i = 0; i < userCount; i++) {
-    const root = uf.find(i);
-    if (!groups.has(root)) groups.set(root, []);
-    groups.get(root).push(i);
-  }
-  return [...groups.values()];
-}
-// The property that makes union-find right here: the signals arrive
-// from independent sources in no particular order, and merges are
-// transitive — if a=b from email and b=c from device id, then a=c.
-// Transitive closure of an equivalence relation is exactly what this
-// structure is.
-//
-// And the property that should worry you: it is irreversible. A bad
-// merge signal permanently joins two real users, and there is no undo.
-// In production that means keeping the raw signals so the partition
-// can be rebuilt from scratch without the bad one — the structure
-// itself cannot help you.
+  # Group by representative. Maintaining this during the unions is
+  # possible; doing it once at the end is simpler and usually fine.
+  (0...user_count).group_by { |i| uf.find(i) }.values
+end
+
+merge_accounts([[0, 1], [3, 4], [1, 2]], 6)
+# => [[0, 1, 2], [3, 4], [5]]
 ```
+
+`group_by` collapses the whole grouping pass into one line, and it is worth recognising the
+shape: `group_by { |x| canonical_form(x) }` is how you turn any equivalence relation into
+buckets, with union-find supplying the canonical form.
+
+The property that makes union-find right here is that the signals arrive from independent
+sources in no particular order, and merges are transitive — if a=b from a shared email and b=c
+from a device id, then a=c. The transitive closure of an equivalence relation is exactly what
+this structure is.
+
+And the property that should worry you: **it is irreversible.** A bad merge signal permanently
+joins two real users, and the structure has no undo — un-merging would require knowing which
+edge to cut, and the parent array has already forgotten. In production that means keeping the
+raw signals in a table so the partition can be rebuilt from scratch without the bad one. Treat
+the union-find as a cache derived from an append-only log of signals, never as the system of
+record. The same reasoning applies to anything built this way: if the merge is irreversible and
+the inputs are heuristics, the inputs are the data you must not lose.
+
+Worth saying plainly for anyone about to ship this: merging two real people's accounts is a
+privacy incident, not just a bug. Whatever threshold the heuristic uses, the recovery path
+needs to exist before the feature ships.
 :::
 
 :::mistakes
@@ -352,7 +397,7 @@ function mergeAccounts(signals, userCount) {
 **Forgetting that merges are irreversible** when the merge signals are heuristic. Keep the
 inputs so you can rebuild.
 
-**Initialising with the wrong size.** `new UnionFind(n)` where ids run 1..n gives an
+**Initialising with the wrong size.** `UnionFind.new(n)` where ids run 1..n gives an
 out-of-bounds or a phantom extra component. Off-by-one here produces a wrong count, not a
 crash.
 :::
@@ -388,7 +433,7 @@ structure and the right one is considerably more work.
 3. What is α(n), and what does "effectively constant" precisely mean here?
 4. In Kruskal's, what question is `union` answering, and what does its return value mean?
 5. Why can union-find not support edge deletion?
-6. Why does `countIslands` only check up and left?
+6. Why does `count_islands` only check up and left?
 7. Why can union-find not answer directed reachability?
 8. A heuristic merges two accounts wrongly. What can the structure do about it?
 :::
@@ -435,3 +480,7 @@ permanent and the only remedy is rebuilding the partition without it."*
 - It cannot enumerate a component or give a path — only answer the partition question.
 - It models an undirected equivalence relation, so directed reachability needs Tarjan's.
 - Merges are irreversible; keep the raw signals so the partition can be rebuilt.
+- `union` returning true/false is what makes Kruskal and cycle detection one-liners.
+- Sort with `sort_by { |w, u, v| [w, u, v] }` in Kruskal: Ruby's sort is not stable, so equal
+  weights otherwise produce a different tree each run.
+- The representative is an implementation detail — never persist it as an identifier.

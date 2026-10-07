@@ -53,54 +53,86 @@ resources:
 
 ## Two representations
 
-```js
-// Adjacency list — O(V + E) space. The default.
-const graph = {
-  a: ["b", "c"],
-  b: ["d"],
-  c: ["d"],
+```ruby
+# Adjacency list — O(V + E) space. The default.
+graph = {
+  a: %i[b c],
+  b: %i[d],
+  c: %i[d],
   d: [],
-};
+}
 
-// Adjacency matrix — O(V²) space, O(1) edge test.
-//      a  b  c  d
-// a [  0, 1, 1, 0 ]
-// b [  0, 0, 0, 1 ]
-// c [  0, 0, 0, 1 ]
-// d [  0, 0, 0, 0 ]
+# Adjacency matrix — O(V²) space, O(1) edge test.
+#      a  b  c  d
+# a [  0, 1, 1, 0 ]
+# b [  0, 0, 0, 1 ]
+# c [  0, 0, 0, 1 ]
+# d [  0, 0, 0, 0 ]
 ```
+
+A Ruby-specific warning before any of the traversals, because it is the bug you will actually
+write. The tempting way to avoid a `nil` for a node with no listed edges is an auto-vivifying
+Hash:
+
+```ruby
+graph = Hash.new { |h, k| h[k] = [] }
+
+graph.keys          # => [:a]
+graph[:typo]        # => []      looks harmless
+graph.keys          # => [:a, :typo]      ← it added the key
+```
+
+The default *block* runs on a miss and assigns, so merely looking at a node inserts it. During
+a traversal that means the graph grows as you walk it, `graph.size` changes under you, and a
+loop over `each_key` can raise `RuntimeError: hash modified during iteration`. Use
+`graph.fetch(node, [])`, which returns the default without storing it — that is the honest
+translation of `graph[node] ?? []`, and it is what every traversal below uses.
 
 ## Two traversals, one difference
 
-```js
-function bfs(graph, start) {
-  const seen = new Set([start]);
-  const queue = [start];
-  const order = [];
-  while (queue.length) {
-    const node = queue.shift();        // ← FIFO
-    order.push(node);
-    for (const next of graph[node] ?? []) {
-      if (!seen.has(next)) { seen.add(next); queue.push(next); }
-    }
-  }
-  return order;
-}
+```ruby
+require 'set'
 
-function dfs(graph, start) {
-  const seen = new Set([start]);
-  const stack = [start];
-  const order = [];
-  while (stack.length) {
-    const node = stack.pop();          // ← LIFO. The only change.
-    order.push(node);
-    for (const next of graph[node] ?? []) {
-      if (!seen.has(next)) { seen.add(next); stack.push(next); }
-    }
-  }
-  return order;
-}
+def bfs(graph, start)
+  seen = Set[start]
+  queue = [start]
+  order = []
+  until queue.empty?
+    node = queue.shift                 # ← FIFO, and O(1) in Ruby
+    order << node
+    graph.fetch(node, []).each do |nxt|
+      next if seen.include?(nxt)
+      seen << nxt
+      queue << nxt
+    end
+  end
+  order
+end
+
+def dfs(graph, start)
+  seen = Set[start]
+  stack = [start]
+  order = []
+  until stack.empty?
+    node = stack.pop                   # ← LIFO. The only change.
+    order << node
+    graph.fetch(node, []).each do |nxt|
+      next if seen.include?(nxt)
+      seen << nxt
+      stack << nxt
+    end
+  end
+  order
+end
+
+bfs(graph, :a)   # => [:a, :b, :c, :d]
+dfs(graph, :a)   # => [:a, :c, :d, :b]
 ```
+
+`Set[start]` is the literal constructor — shorter than `Set.new([start])` and the form worth
+knowing. And `next` inside the block is Ruby's `continue`: it skips to the next neighbour, not
+out of the method. That collision of keywords is worth being deliberate about, which is why
+the neighbour variable here is `nxt` rather than `next`.
 
 One line differs, and it changes which problems the function can solve.
 
@@ -174,104 +206,138 @@ it produces a wrong one.
 
   MARK WHEN ENQUEUED, NOT WHEN DEQUEUED
 
-    if (!seen.has(next)) { seen.add(next); queue.push(next); }
+    next if seen.include?(nxt)
+    seen << nxt
+    queue << nxt
 
     Marking on dequeue lets a node be pushed many times before it is
     first processed — in a dense graph, O(E) copies of the same node
-    in the queue. Correct output, badly wrong memory.
+    in the queue. Measured on a 60-node complete graph: a peak queue
+    of 3,481 entries instead of 60, for identical output. Correct
+    result, badly wrong memory.
 ```
 :::
 
 :::example
-```js
-// 1. Shortest path in an unweighted graph, with the path itself.
-function shortestPath(graph, start, goal) {
-  if (start === goal) return [start];
-  const prev = new Map([[start, null]]);
-  const queue = [start];
-  while (queue.length) {
-    const node = queue.shift();
-    for (const next of graph[node] ?? []) {
-      if (prev.has(next)) continue;
-      prev.set(next, node);
-      if (next === goal) {                    // reconstruct and return
-        const path = [goal];
-        for (let at = node; at !== null; at = prev.get(at)) path.push(at);
-        return path.reverse();
-      }
-      queue.push(next);
-    }
-  }
-  return null;
-}
-// `prev` doubles as the visited set, which is a common simplification:
-// "has a predecessor" and "has been seen" are the same condition.
+```ruby
+# 1. Shortest path in an unweighted graph, with the path itself.
+def shortest_path(graph, start, goal)
+  return [start] if start == goal
+  prev = { start => nil }
+  queue = [start]
+  until queue.empty?
+    node = queue.shift
+    graph.fetch(node, []).each do |nxt|
+      next if prev.key?(nxt)
+      prev[nxt] = node
+      if nxt == goal                          # reconstruct and return
+        path = [goal]
+        at = node
+        while at
+          path << at
+          at = prev[at]
+        end
+        return path.reverse
+      end
+      queue << nxt
+    end
+  end
+  nil
+end
 
-// 2. Cycle detection in a DIRECTED graph — three states.
-function hasCycle(graph) {
-  const WHITE = 0, GREY = 1, BLACK = 2;        // unseen, in-progress, done
-  const colour = new Map();
+shortest_path(graph, :a, :d)   # => [:a, :b, :d]
 
-  function visit(node) {
-    colour.set(node, GREY);
-    for (const next of graph[node] ?? []) {
-      const c = colour.get(next) ?? WHITE;
-      if (c === GREY) return true;             // back edge → cycle
-      if (c === WHITE && visit(next)) return true;
-      // BLACK is fine: already fully explored by another route.
-    }
-    colour.set(node, BLACK);
-    return false;
-  }
+# `prev` doubles as the visited set, which is a common simplification:
+# "has a predecessor" and "has been seen" are the same condition. Note
+# `prev.key?(nxt)` rather than `prev[nxt]` — the start node's
+# predecessor is nil, so a truthiness test would re-visit it forever.
 
-  for (const node of Object.keys(graph)) {
-    if ((colour.get(node) ?? WHITE) === WHITE && visit(node)) return true;
-  }
-  return false;
-}
-// The outer loop matters: a graph can be disconnected, so one DFS
-// from one node may not reach everything.
+# 2. Cycle detection in a DIRECTED graph — three states.
+def cycle?(graph)
+  colour = {}                                 # nil = unseen
 
-// 3. Topological sort — DFS post-order, reversed.
-function topoSort(graph) {
-  const seen = new Set(), out = [];
-  function visit(node) {
-    if (seen.has(node)) return;
-    seen.add(node);
-    for (const next of graph[node] ?? []) visit(next);
-    out.push(node);                            // POST-order
-  }
-  for (const node of Object.keys(graph)) visit(node);
-  return out.reverse();
-}
-// Why post-order reversed: a node is pushed only after everything it
-// depends on has been pushed, so reversing puts dependencies first.
-// This is the same post-order-because-the-value-flows-upward argument
-// as computing a tree's height.
-// Note: this version assumes no cycles. Combine with hasCycle, or use
-// Kahn's algorithm, which detects them naturally.
+  visit = lambda do |node|
+    colour[node] = :grey                      # in progress
+    graph.fetch(node, []).each do |nxt|
+      case colour[nxt]
+      when :grey then return true             # back edge → cycle
+      when nil   then return true if visit.call(nxt)
+      end                                     # :black is fine: already explored
+    end
+    colour[node] = :black                     # done
+    false
+  end
 
-// 4. Kahn's algorithm — BFS-flavoured topological sort that reports
-//    cycles for free.
-function kahn(graph) {
-  const indegree = new Map(Object.keys(graph).map((n) => [n, 0]));
-  for (const node of Object.keys(graph))
-    for (const next of graph[node]) indegree.set(next, indegree.get(next) + 1);
+  graph.each_key.any? { |node| colour[node].nil? && visit.call(node) }
+end
 
-  const queue = [...indegree].filter(([, d]) => d === 0).map(([n]) => n);
-  const out = [];
-  while (queue.length) {
-    const node = queue.shift();
-    out.push(node);
-    for (const next of graph[node]) {
-      indegree.set(next, indegree.get(next) - 1);
-      if (indegree.get(next) === 0) queue.push(next);
-    }
-  }
-  return out.length === Object.keys(graph).length ? out : null;   // null = cycle
-}
-// The length check is the cycle detection: nodes in a cycle never
-// reach indegree 0, so they are never enqueued.
+cycle?(graph)                        # => false
+cycle?({ a: [:b], b: [:c], c: [:a] })   # => true
+cycle?({ a: [] , b: [:c], c: [:b] })    # => true — a different component
+
+# Symbols beat integer constants here: `:grey` needs no legend. And the
+# outer `any?` matters — a graph can be disconnected, so one DFS from one
+# node may not reach everything.
+#
+# Ruby cannot nest a `def`, so the recursive helper is a lambda. Two
+# reasons it must be a lambda and not a proc: `return` inside a lambda
+# returns from the lambda, which is what the `when :grey then return true`
+# needs, and a lambda checks its arity. A `proc` would make that `return`
+# try to return from `cycle?` itself.
+
+# 3. Topological sort — DFS post-order, reversed.
+def topo_sort(graph)
+  seen = Set.new
+  out = []
+  visit = lambda do |node|
+    next if seen.include?(node)               # `next` exits the lambda
+    seen << node
+    graph.fetch(node, []).each { |nxt| visit.call(nxt) }
+    out << node                               # POST-order
+  end
+  graph.each_key { |node| visit.call(node) }
+  out.reverse
+end
+
+topo_sort(graph)   # => [:a, :c, :b, :d]  — one of several valid orders
+
+# Why post-order reversed: a node is pushed only after everything it
+# depends on has been pushed, so reversing puts dependencies first. This
+# is the same post-order-because-the-value-flows-upward argument as
+# computing a tree's height.
+#
+# Note: this version assumes no cycles. Combine it with `cycle?`, or use
+# Kahn's algorithm, which detects them naturally.
+
+# 4. Kahn's algorithm — BFS-flavoured topological sort that reports
+#    cycles for free.
+def kahn(graph)
+  indegree = graph.each_key.to_h { |n| [n, 0] }
+  graph.each_value { |nexts| nexts.each { |n| indegree[n] += 1 } }
+
+  queue = indegree.select { |_, d| d.zero? }.keys
+  out = []
+  until queue.empty?
+    node = queue.shift
+    out << node
+    graph.fetch(node, []).each do |nxt|
+      indegree[nxt] -= 1
+      queue << nxt if indegree[nxt].zero?
+    end
+  end
+  out.size == graph.size ? out : nil          # nil = cycle
+end
+
+kahn(graph)                              # => [:a, :b, :c, :d]
+kahn({ a: [:b], b: [:c], c: [:a] })      # => nil
+
+# The size check is the cycle detection: nodes in a cycle never reach
+# indegree 0, so they are never enqueued. `each_key.to_h { ... }` builds
+# the counter in one pass — and note that `indegree[n] += 1` on a node
+# that appears only as a target would raise on nil, which is precisely
+# why every node must be a key in the graph Hash. A graph that lists only
+# nodes with outgoing edges is a malformed input, and this is where you
+# find out.
 ```
 :::
 
@@ -281,17 +347,20 @@ cannot, and "it worked on my test data" means your test data was a tree.
 
 **Marking visited on dequeue instead of on enqueue.**
 
-```js
-while (queue.length) {
-  const node = queue.shift();
-  if (seen.has(node)) continue;
-  seen.add(node);
-  for (const next of graph[node]) queue.push(next);   // no check
-}
-// Correct output. The queue can hold O(E) entries — the same node
-// pushed once per incoming edge. On a dense graph that is the
-// difference between megabytes and gigabytes.
+```ruby
+until queue.empty?
+  node = queue.shift
+  next if seen.include?(node)
+  seen << node
+  graph.fetch(node, []).each { |nxt| queue << nxt }   # no check
+end
 ```
+
+The output is correct. The queue is not: it can hold O(E) entries, because the same node gets
+pushed once per incoming edge. Measured on a 60-node complete graph — 3,540 edges — the
+late-checking version's queue peaked at **3,481 entries** against the early-checking version's
+60. The results were identical. On a dense graph at scale that is the difference between
+megabytes and gigabytes, and nothing about the output tells you it is happening.
 
 **Two-state cycle detection on a directed graph.**
 
@@ -310,20 +379,27 @@ while (queue.length) {
 **Using the directed rule on an undirected graph.** In an undirected graph every edge appears
 twice, so the edge you arrived on always leads back to a visited node:
 
-```js
-function hasCycleUndirected(graph, node, parent, seen) {
-  seen.add(node);
-  for (const next of graph[node]) {
-    if (next === parent) continue;            // skip the edge we came from
-    if (seen.has(next)) return true;
-    if (hasCycleUndirected(graph, next, node, seen)) return true;
-  }
-  return false;
-}
-// Without the parent check, every single edge reports a cycle.
-// (This breaks with multi-edges between the same pair; use edge
-// identity rather than node identity if those are possible.)
+```ruby
+def cycle_undirected?(graph, node, parent, seen)
+  seen << node
+  graph.fetch(node, []).each do |nxt|
+    next if nxt == parent                     # skip the edge we came from
+    return true if seen.include?(nxt)
+    return true if cycle_undirected?(graph, nxt, node, seen)
+  end
+  false
+end
+
+cycle_undirected?({ a: %i[b c], b: %i[a c], c: %i[a b] }, :a, nil, Set.new)   # => true
+cycle_undirected?({ a: [:b], b: %i[a c], c: [:b] }, :a, nil, Set.new)         # => false
 ```
+
+Without the parent check every single edge reports a cycle, because an undirected edge appears
+in both nodes' lists. Passing `nil` as the initial parent works because no node is ever `nil`.
+
+This also breaks with multi-edges between the same pair: two distinct edges from `a` to `b` *are*
+a cycle, and the parent check suppresses it. If parallel edges are possible, track edge identity
+rather than node identity.
 
 **Forgetting disconnected components.** One traversal from one start node reaches only its
 component. Any "for the whole graph" question needs an outer loop over all nodes.
@@ -365,33 +441,64 @@ input-controlled.
                             a transaction.
 ```
 
-```js
-// The production shape of this: a dependency checker.
-function buildOrder(deps) {
-  // deps: { "app": ["auth", "db"], "auth": ["db"], "db": [] }
-  const order = kahn(deps);
-  if (!order) {
-    // Report WHICH cycle, not just that there is one — the three-state
-    // DFS can return the grey path, which is the actionable answer.
-    throw new Error("circular dependency");
-  }
-  return order;
-}
-// Worth noting: a good error message here is the difference between a
-// five-minute fix and an afternoon. "Circular dependency" is nearly
-// useless; "a → b → c → a" is immediately actionable, and the grey
-// stack at the moment of detection is exactly that path.
+```ruby
+# The production shape of this: a dependency checker.
+class CircularDependency < StandardError; end
+
+def build_order(deps)
+  # deps: { app: %i[auth db], auth: %i[db], db: [] }
+  kahn(deps) || raise(CircularDependency, 'circular dependency')
+end
 ```
 
-```js
-// Scale note: at a million nodes, the adjacency list is a Map of
-// arrays and the visited set is a Set — but for integer-labelled
-// nodes, typed arrays are dramatically better:
-const seen = new Uint8Array(V);         // 1 byte per node, not a hash entry
-const dist = new Int32Array(V).fill(-1);
-// A Set of a million numbers is tens of megabytes; a Uint8Array is
-// one. On graph-heavy code this is the difference that matters, and
-// it is the same locality argument as everywhere else.
+A good error message here is the difference between a five-minute fix and an afternoon.
+"Circular dependency" is nearly useless. `app → auth → db → app` is immediately actionable, and
+the grey path at the moment of detection *is* that answer — so the three-state DFS is worth
+keeping around purely for its error message, even when Kahn's algorithm is doing the sorting.
+
+If this shape feels familiar it is because you have met it: `rails db:migrate` ordering, Bundler
+resolving a dependency graph, Zeitwerk autoloading a constant that needs a constant that needs
+the first one, and `ActiveRecord` callbacks that touch an association whose callback touches
+back. Rails' own "Circular dependency detected while autoloading constant" is this algorithm
+reporting a grey edge.
+
+```ruby
+# Scale note. At a million nodes the visited Set is the thing that hurts,
+# and Ruby has no typed arrays to reach for. Measured on ruby 3.4.5 for
+# a million integer-labelled nodes:
+#
+#   Set of 1M Integers           ~31 MB     resident
+#   Array.new(1_000_000, false)    8.0 MB   (8 bytes per slot, exactly)
+#   String of 1M bytes             1.0 MB   (1 byte per node)
+#   Integer used as a bitmask      125 KB   (1 bit per node)
+#
+# For integer-labelled nodes an Array of booleans is the pragmatic
+# default — four times smaller than the Set, and faster, because an
+# index is not a hash lookup:
+seen = Array.new(v, false)
+dist = Array.new(v, -1)
+
+# When even that matters, a String is a byte buffer with no object
+# overhead per element:
+seen = +"\0" * v
+seen.setbyte(i, 1)
+seen.getbyte(i) == 1
+
+# And Ruby's arbitrary-precision Integers are a bitset for free, which
+# is the smallest option by a wide margin:
+seen = 0
+seen |= (1 << i)                  # mark
+(seen >> i) & 1 == 1              # test
+#
+# The catch is that each `|=` builds a whole new Integer, so filling a
+# bitmask one bit at a time allocates heavily even though the final
+# object is 125 KB. Use it for a set you build once and query often, not
+# one you mutate in a loop.
+#
+# The ordinary answer is still the Set. Reach for these when the node
+# count is in the millions and you have measured — which, in a Rails
+# application, is usually the point at which the graph should be a
+# recursive CTE in PostgreSQL instead.
 ```
 :::
 

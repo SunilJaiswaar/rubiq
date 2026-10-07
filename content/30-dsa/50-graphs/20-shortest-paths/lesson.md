@@ -53,39 +53,55 @@ resources:
 
 ## From BFS to Dijkstra
 
-```js
-// BFS: the queue is FIFO, so nodes come out in hop order.
-const node = queue.shift();
+```ruby
+# BFS: the queue is FIFO, so nodes come out in hop order.
+node = queue.shift
 
-// Dijkstra: the queue is a min-heap on distance, so nodes come out
-// in cost order. That one substitution is the whole algorithm.
-const [dist, node] = heap.pop();
+# Dijkstra: the queue is a min-heap on distance, so nodes come out
+# in cost order. That one substitution is the whole algorithm.
+dist, node = heap.pop
 ```
 
-```js
-function dijkstra(graph, start) {
-  // graph: { a: [["b", 4], ["c", 1]], ... }  — [neighbour, weight]
-  const dist = new Map([[start, 0]]);
-  const done = new Set();
-  const heap = new MinHeap((x, y) => x[0] - y[0]);
-  heap.push([0, start]);
+```ruby
+require 'set'
+# MinHeap is the one from the heaps lesson — Ruby has no priority queue.
 
-  while (heap.size) {
-    const [d, node] = heap.pop();
-    if (done.has(node)) continue;        // a stale entry; skip it
-    done.add(node);                      // d is now FINAL for node
+def dijkstra(graph, start)
+  # graph: { a: [[:b, 4], [:c, 1]], ... }  — [neighbour, weight]
+  dist = { start => 0 }
+  done = Set.new
+  heap = MinHeap.new { |x, y| x[0] <=> y[0] }
+  heap.push([0, start])
 
-    for (const [next, w] of graph[node] ?? []) {
-      const candidate = d + w;
-      if (candidate < (dist.get(next) ?? Infinity)) {
-        dist.set(next, candidate);
-        heap.push([candidate, next]);    // lazy deletion: push a duplicate
-      }
-    }
-  }
-  return dist;
-}
+  until heap.empty?
+    d, node = heap.pop                     # destructure [cost, node]
+    next if done.include?(node)            # a stale entry; skip it
+    done << node                           # d is now FINAL for node
+
+    graph.fetch(node, []).each do |nxt, w| # block params destructure too
+      candidate = d + w
+      next unless candidate < dist.fetch(nxt, Float::INFINITY)
+      dist[nxt] = candidate
+      heap.push([candidate, nxt])          # lazy deletion: push a duplicate
+    end
+  end
+  dist
+end
+
+graph = { a: [[:b, 4], [:c, 1]], c: [[:b, 2], [:d, 5]], b: [[:d, 1]], d: [] }
+dijkstra(graph, :a)   # => {a: 0, c: 1, b: 3, d: 4}
 ```
+
+Note what that result says: the cheapest route to `b` costs 3 and goes `a → c → b`, two hops,
+while the direct `a → b` edge costs 4. BFS would have returned the one-hop route. That gap
+between "fewest edges" and "cheapest" is the entire reason Dijkstra exists.
+
+Two Ruby details carry the implementation. `d, node = heap.pop` destructures the pair the heap
+stores, and `|nxt, w|` destructures each `[neighbour, weight]` entry automatically — block
+parameters unpack arrays without being asked, which is why the weighted adjacency list can be
+plain nested Arrays and still read cleanly. And `dist.fetch(nxt, Float::INFINITY)` is the
+translation of `?? Infinity`: a missing node is infinitely far away, so the first candidate
+always wins.
 
 :::what
 **Dijkstra's algorithm** finds shortest paths from one source in a graph with **non-negative**
@@ -189,88 +205,111 @@ algorithm rather than a tweak.
 :::
 
 :::example
-```js
-// 1. Dijkstra with the path, and with lazy deletion explained.
-function dijkstraPath(graph, start, goal) {
-  const dist = new Map([[start, 0]]);
-  const prev = new Map();
-  const done = new Set();
-  const heap = new MinHeap((x, y) => x[0] - y[0]);
-  heap.push([0, start]);
+```ruby
+# 1. Dijkstra with the path, and with lazy deletion explained.
+def dijkstra_path(graph, start, goal)
+  dist = { start => 0 }
+  prev = {}
+  done = Set.new
+  heap = MinHeap.new { |x, y| x[0] <=> y[0] }
+  heap.push([0, start])
 
-  while (heap.size) {
-    const [d, node] = heap.pop();
-    if (done.has(node)) continue;
-    if (node === goal) break;              // early exit: it is final
-    done.add(node);
+  until heap.empty?
+    d, node = heap.pop
+    next if done.include?(node)
+    break if node == goal                  # early exit: it is final
+    done << node
 
-    for (const [next, w] of graph[node] ?? []) {
-      if (d + w < (dist.get(next) ?? Infinity)) {
-        dist.set(next, d + w);
-        prev.set(next, node);
-        heap.push([d + w, next]);
-      }
-    }
-  }
+    graph.fetch(node, []).each do |nxt, w|
+      next unless d + w < dist.fetch(nxt, Float::INFINITY)
+      dist[nxt] = d + w
+      prev[nxt] = node
+      heap.push([d + w, nxt])
+    end
+  end
 
-  if (!dist.has(goal)) return null;
-  const path = [];
-  for (let at = goal; at !== undefined; at = prev.get(at)) path.push(at);
-  return { cost: dist.get(goal), path: path.reverse() };
-}
-// Two details worth naming. The early exit is valid precisely because
-// a popped node is final — without that guarantee you could not stop.
-// And `heap.push` on improvement rather than decrease-key is "lazy
-// deletion": the heap may hold several entries per node, and the
-// `done` check discards the stale ones. It makes the heap O(E) rather
-// than O(V), which is a worthwhile trade for not needing an indexed
-// heap.
+  return nil unless dist.key?(goal)
+  path = []
+  at = goal
+  while at
+    path << at
+    at = prev[at]
+  end
+  { cost: dist[goal], path: path.reverse }
+end
 
-// 2. Bellman-Ford, with negative cycle detection.
-function bellmanFord(nodes, edges, start) {
-  const dist = new Map(nodes.map((n) => [n, Infinity]));
-  dist.set(start, 0);
+dijkstra_path(graph, :a, :d)   # => {cost: 4, path: [:a, :c, :b, :d]}
 
-  for (let i = 0; i < nodes.length - 1; i++) {
-    let changed = false;
-    for (const [u, v, w] of edges) {
-      if (dist.get(u) + w < dist.get(v)) { dist.set(v, dist.get(u) + w); changed = true; }
-    }
-    if (!changed) break;                   // converged early
-  }
+# Two details worth naming. The early exit is valid precisely because a
+# popped node is final — without that guarantee you could not stop. And
+# pushing on improvement rather than using decrease-key is "lazy
+# deletion": the heap may hold several entries per node, and the `done`
+# check discards the stale ones. It makes the heap O(E) rather than O(V),
+# which is a worthwhile trade for not needing an indexed heap — and in
+# Ruby it is the only option, since the heap you wrote has no
+# decrease-key and there is no library one that does.
 
-  for (const [u, v, w] of edges) {
-    if (dist.get(u) + w < dist.get(v)) return { negativeCycle: true };
-  }
-  return { dist };
-}
+# 2. Bellman-Ford, with negative cycle detection.
+EPSILON = 1e-9
 
-// 3. A*, which is five lines different from Dijkstra.
-function aStar(graph, start, goal, h) {
-  const g = new Map([[start, 0]]);
-  const done = new Set();
-  const heap = new MinHeap((x, y) => x[0] - y[0]);
-  heap.push([h(start, goal), start]);
+def bellman_ford(nodes, edges, start)
+  dist = nodes.to_h { |n| [n, Float::INFINITY] }
+  dist[start] = 0
 
-  while (heap.size) {
-    const [, node] = heap.pop();
-    if (node === goal) return g.get(goal);
-    if (done.has(node)) continue;
-    done.add(node);
+  (nodes.size - 1).times do
+    changed = false
+    edges.each do |u, v, w|
+      next unless dist[u] + w < dist[v]
+      dist[v] = dist[u] + w
+      changed = true
+    end
+    break unless changed                   # converged early
+  end
 
-    for (const [next, w] of graph[node] ?? []) {
-      const candidate = g.get(node) + w;
-      if (candidate < (g.get(next) ?? Infinity)) {
-        g.set(next, candidate);
-        heap.push([candidate + h(next, goal), next]);   // f = g + h
-      }
-    }
-  }
-  return null;
-}
-// For a grid: h = Manhattan distance when movement is 4-directional,
-// Euclidean when movement is free. Using Euclidean on a 4-directional
-// grid still works (it underestimates) but prunes less.
+  # EPSILON, not zero — see the arbitrage note below. With float weights
+  # a bare `< 0` reports cycles that do not exist.
+  edges.each do |u, v, w|
+    return { negative_cycle: true } if dist[u] + w < dist[v] - EPSILON
+  end
+  { dist: dist }
+end
+
+# `Float::INFINITY + 5` is still Infinity and `Infinity < Infinity` is
+# false, so unreachable nodes relax to nothing without a special case.
+# That is cleaner than it is in languages where the sentinel overflows.
+
+# 3. A*, which is five lines different from Dijkstra.
+def a_star(graph, start, goal, &heuristic)
+  g = { start => 0 }
+  done = Set.new
+  heap = MinHeap.new { |x, y| x[0] <=> y[0] }
+  heap.push([heuristic.call(start), start])
+
+  until heap.empty?
+    _, node = heap.pop
+    return g[goal] if node == goal
+    next if done.include?(node)
+    done << node
+
+    graph.fetch(node, []).each do |nxt, w|
+      candidate = g[node] + w
+      next unless candidate < g.fetch(nxt, Float::INFINITY)
+      g[nxt] = candidate
+      heap.push([candidate + heuristic.call(nxt), nxt])   # f = g + h
+    end
+  end
+  nil
+end
+
+a_star(graph, :a, :d) { 0 }   # => 4, identical to Dijkstra
+
+# Taking the heuristic as a block (`&heuristic`) rather than a positional
+# argument is the Ruby idiom, and it makes the zero-heuristic case read
+# as what it is: `{ 0 }` turns A* back into Dijkstra exactly.
+#
+# For a grid: Manhattan distance when movement is 4-directional,
+# Euclidean when movement is free. Using Euclidean on a 4-directional
+# grid still works — it underestimates — but prunes less.
 ```
 :::
 
@@ -289,9 +328,11 @@ does.
 **Early exit on the wrong event.** You may stop when the goal is *popped*, not when it is first
 *reached*. Reaching it only gives a tentative distance:
 
-```js
-if (next === goal) return dist.get(next);   // WRONG — tentative
-// A cheaper route through a node still in the heap may exist.
+```ruby
+return dist[nxt] if nxt == goal   # WRONG — that distance is tentative
+# A cheaper route through a node still in the heap may exist. Only a
+# POPPED node has a final distance, which is why the early exit above
+# sits after `heap.pop` and not inside the neighbour loop.
 ```
 
 **Mutating a key held in the heap.** Same failure as everywhere else: the entry is in the wrong
@@ -304,11 +345,15 @@ appear to work on one input and fail on another.
 **An inadmissible A\* heuristic.** If `h` can overestimate, the path returned may not be
 optimal:
 
-```js
-// A road network where h is straight-line distance × 1.5 to "account
-// for roads not being straight". This overestimates, so A* may commit
-// to a worse route. It is also much faster, which is why games do it
-// deliberately — but it must be a decision, not an accident.
+```ruby
+# A road network where the heuristic is straight-line distance × 1.5, to
+# "account for roads not being straight". This OVERestimates, so A* may
+# commit to a worse route and never reconsider. It is also much faster,
+# which is why games do it deliberately — but it must be a decision, not
+# an accident.
+#
+#   admissible    h never exceeds the true remaining cost → optimal
+#   inadmissible  h may exceed it → faster, and no longer optimal
 ```
 
 **Float accumulation.** Summing many floating-point weights introduces error, so two genuinely
@@ -337,22 +382,41 @@ equal paths may compare unequal and the tie-break becomes arbitrary. Use integer
                     Bellman-Ford, then run Dijkstra from each node.
 ```
 
-```js
-// Arbitrage detection, because it is the clearest example of why
-// "negative cycle" is a useful thing to be able to detect.
-//
-// A cycle of exchanges multiplies to > 1 if it is profitable:
-//     USD → EUR → GBP → USD  with product 1.02
-// Taking -log of each rate turns multiplication into addition, so a
-// product > 1 becomes a sum < 0 — a negative cycle.
-const edges = rates.map(([from, to, rate]) => [from, to, -Math.log(rate)]);
-const result = bellmanFord(currencies, edges, "USD");
-if (result.negativeCycle) console.log("arbitrage exists");
-// The transform is the interesting part: it converts a multiplicative
-// question into an additive one so an existing algorithm applies.
-// That move — change the representation so a known tool fits — is
-// worth more than the algorithm itself.
+```ruby
+# Arbitrage detection, because it is the clearest example of why
+# "negative cycle" is a useful thing to be able to detect.
+#
+# A cycle of exchanges multiplies to > 1 if it is profitable:
+#     USD → EUR → GBP → USD  with product 1.05
+# Taking -log of each rate turns multiplication into addition, so a
+# product > 1 becomes a sum < 0 — a negative cycle.
+edges = rates.map { |from, to, rate| [from, to, -Math.log(rate)] }
+result = bellman_ford(currencies, edges, :usd)
+puts 'arbitrage exists' if result[:negative_cycle]
 ```
+
+The transform is the interesting part: it converts a multiplicative question into an additive
+one so an existing algorithm applies. That move — change the representation so a known tool
+fits — is worth more than the algorithm itself.
+
+And then the part that will bite you in production, which is why `EPSILON` is in the code above.
+Take a market that is exactly fair: USD → EUR at 0.9, EUR → USD at 1/0.9. The product is
+`1.0` exactly. The sum of the negated logs is not zero:
+
+```ruby
+-Math.log(0.9) + -Math.log(1.0 / 0.9)
+# => -6.938893903907228e-17
+```
+
+Negative. So a detector written with a bare `dist[u] + w < dist[v]` announces arbitrage on an
+efficient market, every time, for every currency pair — and it will do it in production against
+live rates while passing every test you wrote with small integers.
+
+The epsilon is what separates signal from rounding noise, and the gap is comfortable: real
+arbitrage in the worked example sums to `-0.0516`, fifteen orders of magnitude away from
+`-7e-17`. Choosing the threshold is a domain decision rather than a numerical one — it is the
+smallest profit worth acting on after fees — which is the useful framing: the floating-point
+problem and the business question have the same answer.
 
 ```text
 // Scale note. Dijkstra on a continental road network — tens of
@@ -428,6 +492,8 @@ dense graph → Floyd-Warshall.**
 6. What is lazy deletion, and which problem does it avoid?
 7. A* with h = 0 is what? With an overestimating h?
 8. Why does taking -log of exchange rates turn arbitrage into a negative-cycle problem?
+9. A market is exactly fair, so the rates multiply to 1.0. Why does a negative-cycle check
+   written as `< 0` report arbitrage anyway, and what is the fix?
 :::
 
 :::interview
@@ -471,4 +537,11 @@ tentative distance."*
 - An overestimating heuristic is faster and may return a worse path — a legitimate decision.
 - Use integer weights where possible to avoid float accumulation.
 - Taking -log turns a multiplicative arbitrage question into a negative-cycle question.
+- Compare float relaxations against an epsilon, not zero: an exactly fair round trip sums to
+  `-7e-17`, so a bare `< 0` reports arbitrage on an efficient market. Real arbitrage in the
+  worked example sums to `-0.05`, so the threshold is easy to choose — and it is a business
+  decision (the smallest profit worth acting on) rather than a numerical one.
+- `Float::INFINITY + w` stays Infinity and `Infinity < Infinity` is false, so unreachable nodes
+  need no special case.
+- Ruby has no indexed heap, so lazy deletion is not a trade here — it is the only option.
 - Real routing engines precompute hierarchies; Dijkstra alone does not scale to a continent.
