@@ -1,0 +1,165 @@
+passScore: 0.7
+questions:
+  - id: why-not-bfs
+    kind: choice
+    concept: union-find
+    prompt: "Why not run BFS for each connectivity query as edges arrive?"
+    options:
+      - text: "BFS is O(V + E) per query and recomputes from scratch, so a million interleaved edges and queries is quadratic; union-find maintains the answer incrementally"
+        correct: true
+        feedback: >-
+          For a single query on a finished graph, BFS is perfectly appropriate.
+      - text: Because BFS cannot determine connectivity in a graph with cycles
+        feedback: >-
+          BFS handles cycles fine with a visited set.
+      - text: Because BFS requires the graph to be connected
+        feedback: >-
+          It explores one component, which is enough to answer the question.
+    explanation: >-
+      The distinction is incremental versus one-off. Given a complete graph and one question, a
+      single traversal answers it in linear time and nothing beats that. The problem union-find
+      addresses is a stream: edges arrive, and connectivity questions are interleaved with them.
+      Re-traversing after each edge costs O(E) per edge, so O(E²) overall — a trillion operations
+      on a million edges. Union-find updates the partition on each merge instead, so both the
+      merge and the query are effectively constant.
+
+  - id: two-optimisations
+    kind: choice
+    concept: path-compression
+    prompt: "What does path compression fix, and what does union by size fix?"
+    options:
+      - text: "Compression flattens paths already walked; union by size prevents deep paths forming — each alone gives O(log n), together O(α(n))"
+        correct: true
+        feedback: >-
+          They attack different things, so neither subsumes the other.
+      - text: Both reduce the depth of the trees, so either one alone is sufficient
+        feedback: >-
+          Either alone leaves a logarithmic bound.
+      - text: Compression saves memory; union by size saves time
+        feedback: >-
+          Both are about time; neither changes the memory footprint.
+    explanation: >-
+      Path compression is retrospective: having walked from a node to its root, it repoints every
+      node on that path directly at the root, so the traversal cost is paid once and amortised over
+      all future queries through it. Union by size is preventative: attaching the smaller tree
+      under the larger means a tree's depth only increases when two equal-sized trees merge, which
+      can happen at most log n times. Because one repairs and the other prevents, applying both
+      yields the inverse-Ackermann bound while either alone stops at logarithmic.
+
+  - id: alpha
+    kind: choice
+    concept: amortised-analysis
+    prompt: "What does \"effectively constant\" precisely mean for union-find?"
+    options:
+      - text: "O(α(n)) amortised, where α is the inverse Ackermann function and is below 5 for any n that could physically exist — it is provably not O(1), but the distinction has no practical consequence"
+        correct: true
+        feedback: >-
+          Tarjan proved the bound is tight, so the α is real rather than an artefact of the analysis.
+      - text: "O(1) exactly, once both optimisations are applied"
+        feedback: >-
+          The α bound was proved tight; constant time is not achievable.
+      - text: "O(log* n), the iterated logarithm"
+        feedback: >-
+          That is the bound for compression alone combined with union by rank in some analyses; the tight bound is α.
+    explanation: >-
+      With both optimisations, m operations on n elements cost O(m · α(n)) where α is the inverse
+      Ackermann function. It grows so slowly that α(n) < 5 for n up to numbers vastly larger than
+      the number of atoms in the universe, so in any real program the per-operation cost is a small
+      constant. It is worth being precise that this is not O(1): Tarjan and van Leeuwen proved the
+      bound cannot be improved, so the α is a genuine property of the structure rather than a
+      limitation of the proof technique.
+
+  - id: kruskal-union
+    kind: choice
+    concept: union-find
+    prompt: "In Kruskal's algorithm, what question is `union(u, v)` answering?"
+    options:
+      - text: "\"Would adding this edge create a cycle\" — returning false means the endpoints are already connected, so the edge is skipped"
+        correct: true
+        feedback: >-
+          The sort dominates, so Kruskal's is O(E log E) rather than being limited by connectivity work.
+      - text: Whether the edge is the cheapest remaining
+        feedback: >-
+          The sort establishes that before union-find is consulted.
+      - text: Whether the graph is connected overall
+        feedback: >-
+          That is answered at the end by the component count.
+    explanation: >-
+      Kruskal's processes edges in increasing weight and keeps an edge only if it joins two
+      currently separate components — joining an already-connected pair would close a cycle, which a
+      tree cannot contain. `union` performs exactly that test and the merge in one step, returning
+      false when the roots already match. That is why the algorithm's cost is dominated by sorting
+      the edges: the connectivity bookkeeping is effectively free. At the end, a component count of
+      1 confirms the result spans the graph; anything more means the input was disconnected.
+
+  - id: no-deletion
+    kind: choice
+    concept: union-find
+    prompt: "Why can union-find not support removing an edge?"
+    options:
+      - text: "It records only that two sets became one and keeps no record of which edges caused it, so there is nothing to undo — dynamic connectivity with deletions needs link-cut or Euler tour trees"
+        correct: true
+        feedback: >-
+          Splitting a set would require knowing the structure that was collapsed away.
+      - text: Because the parent array is immutable once built
+        feedback: >-
+          It is mutated constantly by union and compression.
+      - text: Because deletion would break path compression
+        feedback: >-
+          Compression is a symptom; the missing information is the cause.
+    explanation: >-
+      The structure's efficiency comes from discarding information: after a merge, all that remains
+      is a tree with some root, and path compression actively destroys the shape that recorded how
+      the merge happened. Removing an edge could require splitting a component into two, which
+      demands knowing which members reach each other without that edge — information the structure
+      never stored. Supporting deletions therefore requires maintaining far more, which is what
+      link-cut trees and Euler tour trees do, at a large cost in complexity. If a problem has
+      removals, union-find is the wrong choice from the start.
+
+  - id: up-and-left
+    kind: choice
+    concept: connectivity
+    prompt: "Why does the island-counting version only check the neighbours above and to the left?"
+    options:
+      - text: "Scanning in row-major order means every adjacent pair is considered exactly once; checking all four directions repeats each union"
+        correct: true
+        feedback: >-
+          Repeating a union is harmless for correctness and doubles the work.
+      - text: Because down and right neighbours may not exist yet
+        feedback: >-
+          The grid is fully available; this is about avoiding duplicate work.
+      - text: Because union is not symmetric
+        feedback: >-
+          Union is symmetric, which is precisely why one direction suffices.
+    explanation: >-
+      Processing cells top-to-bottom and left-to-right means that when cell (r, c) is reached, its
+      up and left neighbours have already been visited while its down and right neighbours have not.
+      Since union is symmetric, the pair {(r,c), (r+1,c)} will be handled when the loop reaches
+      (r+1,c) and looks upward. Examining all four directions therefore performs each union twice —
+      not incorrect, since the second call simply returns false, but it doubles the work and makes
+      the decrement-on-success counting trick harder to reason about.
+
+  - id: explain-bad-merge
+    kind: recall
+    concept: union-find
+    prompt: >-
+      A heuristic signal wrongly merges two real users' accounts. What can the structure do, and
+      what should the system do?
+    key_points:
+      - The structure can do nothing — merges are irreversible
+      - Path compression has destroyed the shape that recorded the merge
+      - Splitting would need information never stored
+      - Keep the raw merge signals as the source of truth
+      - Rebuild the partition from scratch excluding the bad signal
+      - Treat the union-find as a derived cache, not as the record
+    model: >-
+      The structure itself can do nothing. A union collapses two trees into one and path compression
+      then rewrites the parent pointers, so by the time the error is discovered there is no record of
+      which edge caused which merge, and splitting a component would require knowing who still
+      reaches whom without that edge — information that was never stored. So the response has to be
+      architectural rather than algorithmic: keep the raw merge signals, with their provenance, as
+      the authoritative record, and treat the union-find structure as a derived cache. Removing a bad
+      signal then means deleting that row and rebuilding the partition from the remaining signals,
+      which is a linear pass and entirely routine. The general lesson is that irreversibility is a
+      property to design around rather than to discover: any structure that is cheap because it
+      discards information should be rebuildable from something that did not.

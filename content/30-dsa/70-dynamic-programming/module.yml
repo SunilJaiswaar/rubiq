@@ -1,0 +1,3 @@
+title: Dynamic programming
+summary: Recognising when a problem has overlapping subproblems, turning exponential recursion into a table, and the handful of shapes that cover most of what you will meet.
+level: advanced

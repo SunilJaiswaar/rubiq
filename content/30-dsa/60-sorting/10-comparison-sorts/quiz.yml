@@ -1,0 +1,164 @@
+passScore: 0.7
+questions:
+  - id: lower-bound
+    kind: choice
+    concept: lower-bounds
+    prompt: "Why can no comparison sort beat O(n log n)?"
+    options:
+      - text: "There are n! orderings and each comparison yields one bit, so at least log₂(n!) = Θ(n log n) comparisons are needed to distinguish them"
+        correct: true
+        feedback: >-
+          It is an information bound, and it assumes comparison is the only available operation.
+      - text: Because every known algorithm happens to be O(n log n) or worse
+        feedback: >-
+          The bound is proved, not observed.
+      - text: Because recursion depth cannot be less than log n
+        feedback: >-
+          Many O(n) algorithms recurse to log n depth; depth is not the constraint.
+    explanation: >-
+      Each comparison partitions the set of still-possible orderings into at most two groups, so k
+      comparisons can distinguish at most 2^k outcomes. With n! possible orderings, correctness
+      requires 2^k ≥ n!, hence k ≥ log₂(n!), which Stirling's approximation puts at Θ(n log n).
+      Nothing about implementation enters the argument — it is a statement about how much
+      information pairwise comparisons can yield. The escape hatch is explicit in the premise:
+      algorithms that use values as array indices, like counting sort, are outside the model.
+
+  - id: quicksort-worst
+    kind: choice
+    concept: sorting
+    prompt: "What makes quicksort O(n²), and why is that input realistic?"
+    options:
+      - text: "A pivot that is consistently the smallest or largest element removes one item per level — and already-sorted input does exactly that under a first-element pivot"
+        correct: true
+        feedback: >-
+          The same unpleasant coincidence as building a BST from sorted input.
+      - text: Deep recursion exhausting the stack
+        feedback: >-
+          A real risk, and separate from the time complexity.
+      - text: Many duplicate values, which the partition cannot separate
+        feedback: >-
+          Duplicates are a genuine issue for naive partitioning schemes, not the canonical worst case.
+    explanation: >-
+      Quicksort's efficiency depends on the pivot splitting the range roughly in half, giving log n
+      levels. If the pivot is always the extreme, each partition peels off one element and leaves
+      n-1, producing n levels of O(n) work. Choosing the first element as pivot on sorted or
+      reverse-sorted data does precisely this — and sorted input is extremely common, from
+      timestamps to primary keys to data that was sorted earlier in the pipeline. When the input is
+      attacker-controlled it also becomes a denial-of-service vector.
+
+  - id: hard-guarantee
+    kind: choice
+    concept: sorting
+    prompt: "Which pivot strategy gives a hard O(n log n) guarantee?"
+    options:
+      - text: "Introsort — count recursion depth and switch to heapsort past about 2 log n"
+        correct: true
+        feedback: >-
+          This is what C++ std::sort does, and it keeps quicksort's speed on normal input.
+      - text: Median-of-three, which eliminates the sorted-input case
+        feedback: >-
+          It handles sorted input and still has adversarial cases.
+      - text: A random pivot, which makes the worst case impossible
+        feedback: >-
+          It makes the worst case unlikely, not impossible — the bound is expected, not guaranteed.
+    explanation: >-
+      Median-of-three removes the common bad cases but can still be defeated by a constructed
+      input. A random pivot gives expected O(n log n) with no worst-case bound, and an adversary
+      who can predict the randomness can still force quadratic behaviour. Introsort is the only one
+      of the three that converts the bound into a guarantee: it monitors recursion depth and, when
+      the partitioning is evidently going badly, abandons quicksort for heapsort, which is O(n log
+      n) unconditionally. Normal inputs never hit the limit, so the usual speed is preserved.
+
+  - id: merge-stability
+    kind: choice
+    concept: stability
+    prompt: "Why does `left[i] <= right[j]` rather than `<` make mergesort stable?"
+    options:
+      - text: "On a tie it takes from the left half, which held the earlier elements, so equal items keep their original relative order"
+        correct: true
+        feedback: >-
+          A single character decides whether the sort is stable.
+      - text: Because `<=` performs fewer comparisons
+        feedback: >-
+          The comparison count is identical.
+      - text: Because `<` would skip equal elements entirely
+        feedback: >-
+          Both operators emit every element; only the tie order differs.
+    explanation: >-
+      The left half of the array contains the elements that appeared earlier in the input. When two
+      elements compare equal, taking from the left preserves that precedence; taking from the right
+      inverts it, and across log n merge levels equal elements end up arbitrarily reordered. So
+      stability in mergesort is not a property of the divide-and-conquer structure at all — it is
+      decided entirely by which side wins a tie in the merge step.
+
+  - id: random-shuffle
+    kind: choice
+    concept: sorting
+    prompt: "What is wrong with `arr.sort(() => Math.random() - 0.5)`?"
+    options:
+      - text: "The comparator is inconsistent, so the result is a biased non-uniform permutation determined by the sort's access pattern — and V8 may throw; use Fisher-Yates"
+        correct: true
+        feedback: >-
+          An inconsistent comparator is undefined behaviour in C++ and a thrown error in some JS engines.
+      - text: It is correct but slower than Fisher-Yates
+        feedback: >-
+          It is not correct; the distribution is measurably skewed.
+      - text: "`Math.random()` is not random enough for shuffling"
+        feedback: >-
+          The PRNG quality is not the problem; the comparator's inconsistency is.
+    explanation: >-
+      Sorting algorithms assume the comparator defines a total order — consistent and transitive. A
+      random comparator violates both, so the output depends on which pairs the particular algorithm
+      happens to compare, producing a distribution that is demonstrably non-uniform and varies by
+      engine. Beyond bias, an inconsistent comparator is explicitly dangerous: V8's Timsort can
+      detect it and throw, and C++ `std::sort` with an invalid comparator is undefined behaviour
+      that can read past the end of the range. Fisher-Yates is O(n), uniform and three lines.
+
+  - id: insertion-small
+    kind: choice
+    concept: sorting
+    prompt: "Why does every production sort fall back to insertion sort below about 16 elements?"
+    options:
+      - text: "Its constant factor is tiny, it has no recursion overhead and perfect locality, so at that size it beats algorithms with better asymptotics"
+        correct: true
+        feedback: >-
+          A clear reminder that Big-O describes growth, not which is faster at a given size.
+      - text: Because mergesort and quicksort are incorrect on very small inputs
+        feedback: >-
+          Both are correct at any size.
+      - text: Because insertion sort is stable and the others are not
+        feedback: >-
+          Stability is a side benefit, not the reason for the threshold.
+    explanation: >-
+      Asymptotic analysis describes how cost grows, deliberately discarding constants — and for
+      small n the constants dominate. Insertion sort does a simple scan-and-shift with no
+      recursion, no allocation, no pivot selection, and entirely sequential memory access, so its
+      per-element cost is far lower than the bookkeeping of a divide-and-conquer sort. Empirically
+      the crossover is somewhere between 10 and 32 elements, which is why every serious
+      implementation hard-codes a threshold in that range.
+
+  - id: explain-external
+    kind: recall
+    concept: sorting
+    prompt: >-
+      Sort a billion rows on a machine with 8 GB of RAM. Outline the approach and name where you
+      have seen it.
+    key_points:
+      - External merge sort — chunk, sort in memory, write run files
+      - Read as much as fits, sort it, write a sorted run, repeat
+      - Then merge all k runs with a heap of the current heads
+      - Memory during the merge is O(k), independent of total size
+      - Merging only needs sequential access, which is why mergesort fits and quicksort does not
+      - This is Postgres's external sort, Hadoop's shuffle, and LSM compaction
+    model: >-
+      External merge sort. First pass: read as many rows as fit comfortably in memory, sort that
+      chunk with the in-memory sort, and write it out as a sorted run file; repeat until the input
+      is exhausted, leaving k sorted files. Second pass: merge all k runs simultaneously using a
+      min-heap holding the current head of each run — pop the smallest, write it, and push the next
+      row from whichever run it came from. The merge needs only O(k) memory regardless of the total
+      data size, because it never holds more than one row per run. The reason mergesort rather than
+      quicksort underlies this is access pattern: merging reads each input strictly sequentially,
+      which is what disks and network streams are good at, whereas quicksort's partition requires
+      random access. This is exactly what Postgres does when a sort exceeds `work_mem`, which is why
+      raising that setting can change a query plan dramatically; it is also Hadoop's shuffle phase
+      and the merge step of every LSM-tree compaction.

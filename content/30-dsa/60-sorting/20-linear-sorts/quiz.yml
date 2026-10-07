@@ -1,0 +1,190 @@
+passScore: 0.7
+questions:
+  - id: escape-bound
+    kind: choice
+    concept: non-comparison-sorts
+    prompt: "How does counting sort achieve O(n) when the sorting lower bound is O(n log n)?"
+    options:
+      - text: "It never compares elements — it uses each value as an index, which is information the comparison model does not permit; the price is the assumption that keys are integers in a known range"
+        correct: true
+        feedback: >-
+          It solves a more constrained problem rather than solving the same one faster.
+      - text: It uses extra memory, and the bound only applies to in-place sorts
+        feedback: >-
+          Mergesort uses O(n) extra memory and is still bound by n log n.
+      - text: The bound is an average case, and counting sort beats it in the best case
+        feedback: >-
+          The bound is a worst-case floor derived from information theory.
+    explanation: >-
+      The n log n proof counts how much information pairwise comparisons can extract, so it only
+      constrains algorithms whose sole primitive is comparison. Counting sort steps outside that
+      model entirely: it treats the value as an address, which requires knowing the values are
+      integers within a bounded range. That extra knowledge is what buys the linear time, and the
+      corresponding cost is O(k) memory and complete inapplicability when the range is large or
+      the keys are not integers.
+
+  - id: prefix-sums
+    kind: choice
+    concept: counting-sort
+    prompt: "After the prefix-sum step, what does `count[v]` represent?"
+    options:
+      - text: "The number of values strictly less than v, which is exactly the output index where the first v belongs"
+        correct: true
+        feedback: >-
+          Incrementing it as you place each v walks through that value's slots.
+      - text: The number of occurrences of v, as before the prefix pass
+        feedback: >-
+          That was its meaning before the prefix sums overwrote it.
+      - text: The output index of the last v
+        feedback: >-
+          That would be the exclusive upper bound of v's range.
+    explanation: >-
+      The tally pass makes `count[v]` the number of occurrences. The prefix-sum pass replaces each
+      entry with the running total of everything before it, so `count[v]` becomes the count of
+      values less than v — and since all smaller values occupy the earliest output slots, that
+      number is precisely the first position available to v. The placement pass then writes each
+      element at `count[x]` and increments, consuming that value's run of slots in input order.
+
+  - id: counting-stability
+    kind: choice
+    concept: counting-sort
+    prompt: "What makes counting sort stable, and what would break it?"
+    options:
+      - text: "The placement pass walks the input left to right; iterating it backwards is still correct but no longer stable"
+        correct: true
+        feedback: >-
+          Stability here is a property of the final loop's direction, nothing else.
+      - text: The prefix sums, which record each value's first position
+        feedback: >-
+          Those give correctness; the loop direction gives stability.
+      - text: It is inherently unstable, like quicksort
+        feedback: >-
+          It is stable as written, which is what makes radix sort possible.
+    explanation: >-
+      Each occurrence of a value is assigned the next free slot in that value's range, so the
+      order in which occurrences are encountered becomes their output order. Scanning the input
+      forwards therefore preserves the original relative order of equal elements. Scanning
+      backwards assigns the last occurrence the first slot, which is still a correct sort and
+      reverses equal elements. Some textbook presentations iterate backwards deliberately, in
+      combination with decrementing counts — the detail matters because radix sort depends on
+      whichever variant you use being stable.
+
+  - id: radix-stability
+    kind: choice
+    concept: radix-sort
+    prompt: "Why must radix sort's per-digit sort be stable?"
+    options:
+      - text: "Each pass relies on the ordering established by previous, less significant digits surviving ties — without stability every pass destroys the last one's work and the output is unsorted"
+        correct: true
+        feedback: >-
+          This is a correctness requirement, not a performance preference.
+      - text: To keep the overall algorithm O(d·n) rather than O(d·n log n)
+        feedback: >-
+          Counting sort is linear either way; the issue is correctness.
+      - text: So that duplicate keys do not get lost
+        feedback: >-
+          No elements are lost; their ordering is scrambled.
+    explanation: >-
+      Consider two numbers already correctly ordered by their final two digits. The hundreds pass
+      compares only their hundreds digits, which may be equal — a tie. A stable sort leaves tied
+      elements in their incoming order, which is the order the tens pass established, so the
+      earlier work is preserved and extended. An unstable sort reorders them arbitrarily,
+      discarding everything the previous passes achieved. After all passes the array is not
+      approximately sorted; it is sorted only by the most significant digit.
+
+  - id: lsd-first
+    kind: choice
+    concept: radix-sort
+    prompt: "Why does radix sort process the least significant digit first?"
+    options:
+      - text: "It allows one clean pass per digit over the whole array, with stability carrying earlier results forward; most-significant-first requires recursing into each bucket separately"
+        correct: true
+        feedback: >-
+          MSD radix sort exists and is structurally a different algorithm.
+      - text: Because the least significant digit carries the most information
+        feedback: >-
+          It carries the least; the reason is structural, not informational.
+      - text: Because counting sort can only handle small digits at low positions
+        feedback: >-
+          Counting sort is indifferent to which digit it is given.
+    explanation: >-
+      Going least-significant-first means each pass can treat the entire array uniformly, because
+      stability guarantees that the previously established finer ordering survives wherever the
+      current digit ties. Starting from the most significant digit instead partitions the array
+      into groups that must not be mixed, so subsequent digits have to be sorted within each group
+      independently — that is a recursive, bucket-by-bucket algorithm (MSD radix sort, closely
+      related to a trie) rather than d sequential passes. Both work; LSD is simpler and has better
+      memory behaviour.
+
+  - id: unbounded-k
+    kind: choice
+    concept: counting-sort
+    prompt: "`countingSort([1, 2, 3, 2147483647])` derives k from the data. What is the problem?"
+    options:
+      - text: "It allocates a two-billion-entry array for four elements — memory becomes a function of the input's values rather than its size, which is an input-controlled allocation"
+        correct: true
+        feedback: >-
+          The same denial-of-service shape as unbounded recursion depth.
+      - text: It produces an incorrect result for large values
+        feedback: >-
+          The result would be correct if the allocation succeeded.
+      - text: It overflows the prefix sums
+        feedback: >-
+          The sums are bounded by n, which is tiny here.
+    explanation: >-
+      Counting sort's O(n + k) means its resource use depends on the key range, and deriving that
+      range from the data hands control of your allocation to whoever supplies the input. A single
+      outlier turns a four-element sort into gigabytes. That makes it the same class of
+      vulnerability as unbounded nesting depth or an unbounded queue: cheap for the attacker,
+      expensive for you. The defence is to bound k by construction — use counting sort only where
+      the range is a known constant, and fall back to radix or a comparison sort otherwise.
+
+  - id: collation
+    kind: choice
+    concept: non-comparison-sorts
+    prompt: "Why is byte-wise radix sort wrong for sorting names a user will read?"
+    options:
+      - text: "Byte order is not collation — \"ä\" belongs next to \"a\" in German, traditional Spanish treats \"ch\" as one letter, and case rules vary by language"
+        correct: true
+        feedback: >-
+          Correct for machine keys, wrong for anything a human reads. Use localeCompare or ICU.
+      - text: Because strings have variable length, which radix sort cannot handle
+        feedback: >-
+          Variable length is manageable by padding; collation is the real obstacle.
+      - text: Because UTF-8 bytes are not comparable
+        feedback: >-
+          UTF-8 byte order does match code-point order; it just is not the order humans expect.
+    explanation: >-
+      Radix sort orders by the numeric value of each byte or digit, which for text means code-point
+      order. Human expectations are defined by locale-specific collation rules: accented characters
+      usually sort adjacent to their base letter rather than after all unaccented letters, some
+      languages treat digraphs as single letters, and case-folding differs — Turkish dotless i being
+      the standard example. Those rules cannot be expressed as a fixed per-byte ordering, which is
+      why locale-aware comparison functions exist and why non-comparison sorts are restricted to
+      machine-generated keys.
+
+  - id: explain-groupby
+    kind: recall
+    concept: counting-sort
+    prompt: >-
+      `Object.groupBy(orders, o => o.status)` followed by concatenating the groups in a fixed order.
+      Identify what this is and why it matters that you can.
+    key_points:
+      - It is counting sort — distribute into buckets, then concatenate
+      - One pass to distribute, one to concatenate, so O(n)
+      - Stable, because each bucket preserves encounter order
+      - The small fixed key range is what makes it valid
+      - Recognising it tells you no comparator or optimisation is needed
+      - A comparison sort here would do ~n log n string comparisons for the same result
+    model: >-
+      It is counting sort, written in the way people actually write it. The grouping pass is the
+      distribution step and the ordered concatenation is the placement step, so the whole thing is
+      two linear passes — O(n) rather than O(n log n) — and it is stable, because each bucket
+      preserves the order in which elements were encountered. What makes it valid is precisely the
+      precondition from the lesson: the key comes from a small fixed set of statuses, so the number
+      of buckets is a constant rather than a function of the data. Recognising it as counting sort
+      matters for two reasons. First, it tells you the code is already optimal, so there is nothing
+      to improve by adding a comparator or reaching for a faster sort — whereas
+      `orders.sort((a,b) => compareStatus(a,b))` would perform roughly n log n string comparisons
+      for an identical result. Second, it is the general habit: the win came from noticing something
+      about the data, not from choosing a better algorithm.

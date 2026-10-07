@@ -15,9 +15,21 @@ description: >-
 
   Every topic here starts from a problem that gets slow, shows the slow solution, and then
   derives the fast one. You write the code, run it, and watch the operation count.
+
+
+  A theme runs through the whole track: the structure that knows the least while still
+  answering your question is usually the right one. Hashing destroys order to buy
+  constant-time equality. A heap discards everything but the extreme. Union-find keeps
+  only the partition. Knowing what each structure refuses to track is how you choose
+  between them.
 outcomes:
   - Estimate the cost of a loop before running it
   - Pick a data structure from the access pattern, not from habit
   - Recognise when sorting first makes the rest of a problem easy
   - Write binary search correctly, including the edge cases
   - Explain a solution's complexity convincingly in an interview
+  - Use two pointers and sliding windows, and state the precondition each needs
+  - Choose a traversal from the dependency direction rather than from habit
+  - Say why a BST is O(h) and what makes h equal log n
+  - Reach for a heap when you need the extreme and a tree when you need order
+  - Model a problem as a graph and pick BFS, DFS, Dijkstra or union-find deliberately

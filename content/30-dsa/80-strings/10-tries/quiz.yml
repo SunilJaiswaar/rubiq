@@ -1,0 +1,169 @@
+passScore: 0.7
+questions:
+  - id: prefix-capability
+    kind: choice
+    concept: prefix-search
+    prompt: "What can a trie answer that a hash map structurally cannot?"
+    options:
+      - text: "Prefix queries — hashing deliberately scatters similar keys into unrelated buckets, so \"car\" and \"cart\" have no relationship to exploit"
+        correct: true
+        feedback: >-
+          Also longest-prefix match, which is the IP routing operation.
+      - text: Exact lookups in better than O(1)
+        feedback: >-
+          A hash map is already constant for exact lookups and smaller.
+      - text: Membership testing without storing the keys
+        feedback: >-
+          That is a Bloom filter, and it is approximate.
+    explanation: >-
+      A good hash function spreads similar inputs across the table, which is exactly what keeps
+      collisions rare — and exactly what destroys any relationship between a key and its prefixes.
+      So answering "which keys begin with 'car'" requires examining every key. A trie encodes the
+      prefix as a path, so after three hops the entire matching set is the subtree beneath you, and
+      the cost is the prefix length plus the number of results rather than the size of the
+      dictionary.
+
+  - id: cost-comparison
+    kind: choice
+    concept: tries
+    prompt: "One million keys, a 3-character prefix, 10 matches. Compare trie and hash map."
+    options:
+      - text: "Trie: 3 hops plus 10 results. Hash map: one million startsWith comparisons."
+        correct: true
+        feedback: >-
+          And the trie's cost does not grow with the dictionary.
+      - text: "Trie: O(log n) descent. Hash map: O(1) plus a filter pass."
+        feedback: >-
+          A trie's descent is the prefix length, not log n, and the filter pass is the million comparisons.
+      - text: Both require scanning all keys; the trie is only faster by a constant factor
+        feedback: >-
+          The trie never visits non-matching keys at all.
+    explanation: >-
+      The trie walks one node per prefix character and then enumerates only the subtree beneath,
+      which contains precisely the matching keys — so the work is proportional to the answer, not
+      to the data. A hash map has no way to narrow the candidate set, so it must test every key,
+      and that cost rises linearly with the dictionary while the trie's stays fixed. This is the
+      gap that makes autocomplete feasible per keystroke.
+
+  - id: isword
+    kind: choice
+    concept: tries
+    prompt: "Why is an `isWord` flag necessary? Give the failure without it."
+    options:
+      - text: "Without it, a successful walk cannot distinguish a stored key from a prefix of one — inserting \"cart\" would make `has(\"car\")` return true"
+        correct: true
+        feedback: >-
+          The walk succeeding only proves the path exists.
+      - text: It is needed to free nodes during deletion
+        feedback: >-
+          Useful for deletion, and the correctness issue is false positives on lookup.
+      - text: It marks leaves, which are otherwise indistinguishable from internal nodes
+        feedback: >-
+          Leaf-ness is not the question — "cart" ends at a leaf, "car" might not.
+    explanation: >-
+      Reaching a node means every character of the query exists along some stored path; it says
+      nothing about whether the query itself was ever inserted. With only "cart" in the trie, the
+      nodes for c, a and r all exist, so walking "car" succeeds and a lookup without the flag
+      reports a key that was never stored. Marking terminal nodes separates "this path exists" from
+      "this path is a key", which are genuinely different facts — and the distinction is the whole
+      reason prefix search and exact lookup are different operations on the same structure.
+
+  - id: memory-fix
+    kind: choice
+    concept: space-time-tradeoffs
+    prompt: "A 26-pointer child array per node is a memory problem. What are the two standard fixes?"
+    options:
+      - text: "Use a Map or small sorted array per node so storage matches actual children; and compress single-child chains into one node holding a substring"
+        correct: true
+        feedback: >-
+          Path compression removes most nodes in a real vocabulary, where long unique suffixes are common.
+      - text: Store the keys in the leaves only, and reconstruct paths on demand
+        feedback: >-
+          Reconstruction requires the paths you just removed.
+      - text: Limit the alphabet to the characters actually used in the dictionary
+        feedback: >-
+          Helps marginally, and leaves the per-node overhead in place.
+    explanation: >-
+      Most nodes have one or two children, so a fixed array sized to the alphabet is almost
+      entirely null pointers — 208 bytes per node for 26 pointers, against the handful actually
+      needed. Replacing it with a map or a short sorted array makes the cost proportional to real
+      children at a few nanoseconds extra per hop. The second fix attacks the node count rather
+      than the node size: collapsing any chain of single-child nodes into one node storing the
+      whole substring eliminates the long tails that dominate real vocabularies, which is why
+      production implementations are radix trees rather than plain tries.
+
+  - id: like-index
+    kind: choice
+    concept: prefix-search
+    prompt: "Why can `LIKE 'auto%'` use a B-tree index while `LIKE '%auto'` cannot?"
+    options:
+      - text: "Keys sharing a prefix are contiguous in sorted order, so the planner rewrites it as a range scan; keys sharing a suffix are scattered, so there is no range to scan"
+        correct: true
+        feedback: >-
+          The same property a trie has, expressed in a different structure.
+      - text: Because a leading wildcard forces a type conversion that disables the index
+        feedback: >-
+          No conversion is involved; the issue is contiguity in the ordering.
+      - text: Because B-trees only store prefixes of their keys
+        feedback: >-
+          They store whole keys, ordered.
+    explanation: >-
+      A B-tree keeps keys in sorted order, and everything beginning with 'auto' falls between
+      'auto' and the next string above it — so the predicate becomes `name >= 'auto' AND name <
+      'autp'`, answerable by one descent and a sequential scan. Nothing about the ordering groups
+      keys by their endings, so a trailing-match predicate has matching rows spread arbitrarily
+      through the index and the only option is a full scan. The remedies are a trigram index, a
+      full-text index, or indexing `reverse(name)` when the pattern is always a suffix.
+
+  - id: uuid-worst-case
+    kind: choice
+    concept: tries
+    prompt: "A million UUIDs in a naive trie — why is this the worst case?"
+    options:
+      - text: "They share almost no prefixes beyond the first few characters, so you pay a node per character with none of the sharing the structure exists to exploit"
+        correct: true
+        feedback: >-
+          Here a hash map is better on memory, speed and simplicity.
+      - text: Because UUIDs contain hyphens, which break the path structure
+        feedback: >-
+          Hyphens are just another character.
+      - text: Because UUID keys are too long for a trie to index
+        feedback: >-
+          Length is handled fine; the absence of shared prefixes is the problem.
+    explanation: >-
+      A trie's economy comes from shared prefixes: storage is proportional to distinct prefixes
+      rather than to total characters. Random identifiers diverge within a few characters, so after
+      that point each key occupies its own chain of 30-odd nodes and almost nothing is shared — the
+      result is tens of millions of nodes with the full per-node overhead and none of the benefit.
+      Compression helps substantially here, but the honest conclusion is that prefix queries are
+      meaningless on random identifiers, so the structure is the wrong choice regardless.
+
+  - id: explain-autocomplete
+    kind: recall
+    concept: tries
+    prompt: >-
+      Design autocomplete for a million ranked search terms, serving suggestions per keystroke.
+      Describe your structure and the trade you make.
+    key_points:
+      - Radix tree rather than a naive trie, for memory
+      - Precompute the top K suggestions at every node
+      - Query becomes a walk of the prefix with no subtree traversal
+      - Cost is K entries per node plus more expensive inserts
+      - Justified because autocomplete is overwhelmingly read-heavy
+      - Bound key length and node count against untrusted input
+      - Consider whether a database index or search engine already does this
+    model: >-
+      A radix tree keyed on the term characters, with the top K suggestions precomputed and stored
+      at every node. The query then becomes a pure walk: consume the prefix character by character
+      and return the stored list, with no subtree traversal and no sorting at request time — which
+      is what makes a per-keystroke latency budget achievable. The costs are K entries of extra
+      storage per node and a more expensive insert, since adding a term must update the candidate
+      lists along its whole path. That is the right direction to trade, because autocomplete is
+      read-heavy by several orders of magnitude; terms change hourly and queries arrive thousands
+      per second. I would use a radix tree rather than a plain trie because a million terms in a
+      naive structure is mostly null child pointers and long unique tails. Two practical cautions:
+      bound the accepted key length and the total node count, since a structure built from
+      user-supplied strings otherwise grows a node per character on request; and check first whether
+      the data already lives somewhere that answers prefix queries — a B-tree index range scan or an
+      existing search engine often does, and maintaining a second in-memory copy has its own
+      consistency cost.

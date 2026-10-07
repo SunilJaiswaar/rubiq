@@ -1,0 +1,193 @@
+passScore: 0.7
+questions:
+  - id: two-properties
+    kind: choice
+    concept: optimal-substructure
+    prompt: "Which two properties must a problem have for DP to apply?"
+    options:
+      - text: "Overlapping subproblems, which makes caching pay, and optimal substructure, which makes the recurrence valid"
+        correct: true
+        feedback: >-
+          Mergesort has the second without the first; longest simple path has the first without the second.
+      - text: Overlapping subproblems and a polynomial number of states
+        feedback: >-
+          A polynomial state count affects tractability, not applicability.
+      - text: A recursive formulation and a bounded input size
+        feedback: >-
+          Neither is sufficient — plenty of bounded recursions gain nothing from caching.
+    explanation: >-
+      Overlap is the economic condition: if the recursion never revisits a subproblem, a cache is
+      pure overhead, which is why mergesort is divide-and-conquer rather than DP. Optimal
+      substructure is the correctness condition: it asserts that an optimal solution is composed
+      of optimal subsolutions, so committing to the best subresult cannot cost you a better global
+      answer. The longest simple path in a graph violates it — composing two optimal subpaths can
+      revisit a node, producing something that is not a simple path at all — so the recurrence is
+      invalid regardless of caching.
+
+  - id: fib-exponential
+    kind: choice
+    concept: memoisation
+    prompt: "Why is naive `fib` exponential when there are only n distinct answers?"
+    options:
+      - text: "The call tree branches twice per node, so it has O(2^n) nodes — the same few values recomputed enormously many times"
+        correct: true
+        feedback: >-
+          A cache turns that tree into a DAG with n nodes.
+      - text: Because addition of large numbers is itself expensive
+        feedback: >-
+          Bignum cost is a separate issue and not the source of the exponential.
+      - text: Because recursion has a constant overhead per call
+        feedback: >-
+          Overhead per call is constant; the number of calls is the problem.
+    explanation: >-
+      Each call spawns two more, so the tree doubles at every level and contains roughly 2^n
+      nodes — while only n distinct arguments appear among them. `fib(5)` computes `fib(3)` twice
+      and `fib(2)` three times, and the duplication compounds as n grows. Nothing about the
+      problem requires that work: memoising collapses the tree into a directed acyclic graph with
+      one node per distinct argument, making it linear. The exponential was never inherent, only
+      the consequence of answering the same question repeatedly.
+
+  - id: complexity-formula
+    kind: choice
+    concept: dynamic-programming
+    prompt: "What is the general complexity formula for a dynamic program?"
+    options:
+      - text: "(number of distinct states) × (work per state)"
+        correct: true
+        feedback: >-
+          Also a useful check that your state definition is not wider than necessary.
+      - text: "O(n log n), since the table is filled in sorted order"
+        feedback: >-
+          No sorting is involved and the bound varies by problem.
+      - text: "O(2^s) where s is the size of the state"
+        feedback: >-
+          That describes the state count only for subset-style states.
+    explanation: >-
+      Since each state is computed exactly once, the total cost is the number of states multiplied
+      by the cost of computing one from its dependencies. Fibonacci has n states and constant work,
+      giving O(n). Knapsack has n·(W+1) states and constant work, giving O(n·W). Edit distance has
+      |a|·|b| states and constant work. The formula doubles as a design check: if the complexity
+      comes out worse than expected, the usual cause is a state carrying more information than the
+      recurrence actually needs.
+
+  - id: memo-to-table
+    kind: choice
+    concept: tabulation
+    prompt: "Converting a memoised function to a table — what changes?"
+    options:
+      - text: "The expression stays identical; what changes is whether dependencies are guaranteed by recursive calls or by the loop order"
+        correct: true
+        feedback: >-
+          Which is why getting the loop direction wrong reads unfilled cells.
+      - text: The recurrence must be rewritten in terms of larger states
+        feedback: >-
+          The recurrence is unchanged.
+      - text: The base cases become unnecessary
+        feedback: >-
+          They become the table's initial values.
+    explanation: >-
+      Both forms compute the same recurrence; they differ only in how the dependencies are made
+      available. Recursion obtains them by calling, which guarantees availability at the cost of
+      stack depth. A loop obtains them by having already filled them, which requires you to
+      determine an order consistent with the dependency direction. Base cases do not disappear —
+      they become the table's pre-filled entries. The practical consequences of the switch are
+      that recursion depth stops mattering and that every state gets computed, needed or not.
+
+  - id: knapsack-downward
+    kind: choice
+    concept: tabulation
+    prompt: "Why does the single-row 0/1 knapsack iterate capacity downwards?"
+    options:
+      - text: "So `t[cap - w]` still holds the value from before the current item was considered — iterating upwards would let the item be used twice, which is unbounded knapsack"
+        correct: true
+        feedback: >-
+          One loop direction distinguishes two different problems.
+      - text: Because capacities must be processed in decreasing order for the max to be correct
+        feedback: >-
+          The max is order-independent; the staleness of the read cell is the point.
+      - text: To avoid reading past the end of the array
+        feedback: >-
+          Bounds are handled by the loop condition either way.
+    explanation: >-
+      Collapsing the two-dimensional table to one row means a cell holds either the pre-item or
+      post-item value depending on whether it has been visited yet in the current pass. The
+      recurrence for 0/1 knapsack requires the pre-item value at `cap - w`, so that cell must not
+      yet have been updated — which is guaranteed when you move from high capacity to low. Going
+      upwards reads a cell already updated with the current item, so the item contributes more than
+      once. That is precisely the unbounded-knapsack recurrence, making the loop direction the only
+      difference between the two solutions.
+
+  - id: memo-stack
+    kind: choice
+    concept: memoisation
+    prompt: "Why does memoising `fib` not prevent a stack overflow at `fib(100000)`?"
+    options:
+      - text: "The cache fixes the number of computations, not the recursion depth — the first call still descends 100,000 frames before anything is cached"
+        correct: true
+        feedback: >-
+          This is the main practical reason to convert to a table.
+      - text: Because the cache itself consumes the stack
+        feedback: >-
+          The cache lives on the heap.
+      - text: It does prevent it, since each level is computed only once
+        feedback: >-
+          Being computed once still requires being on the stack once.
+    explanation: >-
+      Memoisation eliminates repeated work but leaves the control flow unchanged: evaluating
+      `fib(100000)` must recurse down to the base case before any value exists to cache, so the
+      stack reaches full depth on the way down. Time becomes linear while depth stays linear too,
+      and typical runtimes allow only around ten thousand frames. A bottom-up table has no
+      recursion at all, which is why depth is one of the two main reasons to prefer tabulation —
+      the other being constant factors and locality.
+
+  - id: lost-path
+    kind: choice
+    concept: dynamic-programming
+    prompt: >-
+      You reduce a DP to a single row and now need to know which items produced the answer. What
+      went wrong?
+    options:
+      - text: "Space reduction discards the history, so only the optimal value survives — keep the full table or store parent pointers if the choices are needed"
+        correct: true
+        feedback: >-
+          Decide up front whether you need the value or the decisions.
+      - text: The row must be iterated in the opposite direction to recover the path
+        feedback: >-
+          Direction affects correctness of the value, not recoverability of choices.
+      - text: Nothing — the choices can be recomputed from the final row in O(n)
+        feedback: >-
+          The final row records values, not which items contributed.
+    explanation: >-
+      Reconstructing decisions works by examining, at each state, which dependency produced the
+      chosen value — which requires those earlier states still to be available. Collapsing to one
+      row overwrites them, so the final cell tells you the optimum's value and nothing about how it
+      was reached. The two remedies are keeping the full table, which costs the memory you were
+      trying to save, or recording a parent pointer or decision bit per state, which is cheaper
+      than a full table but still proportional to the state count. The decision belongs at design
+      time, since the reduced version cannot be augmented after the fact.
+
+  - id: explain-pseudo-poly
+    kind: recall
+    concept: dynamic-programming
+    prompt: >-
+      Why is O(n·W) knapsack not considered a polynomial-time algorithm, and why does that matter
+      in practice?
+    key_points:
+      - Complexity is measured against input size in bits, not against numeric values
+      - W is a value whose representation takes log W bits
+      - So O(n·W) is exponential in the number of bits of W
+      - Hence "pseudo-polynomial" and knapsack remaining NP-hard
+      - Practically fine for small W, useless for W around 2^40
+      - Large capacities call for approximation rather than DP
+    model: >-
+      Complexity is defined against the size of the input in bits, and a capacity W is written in
+      about log₂ W bits. So an algorithm running in time proportional to W is exponential in the
+      length of that number — doubling the bits of W doubles the running time's exponent, not its
+      coefficient. That is why the bound is called pseudo-polynomial and why knapsack remains
+      NP-hard despite having this algorithm. It matters practically because it tells you exactly
+      when the approach stops working: with W in the thousands the table is small and the DP is the
+      right answer, whereas with a capacity around 2^40 — a byte budget, say, expressed in bytes —
+      the table cannot be built at all. At that point the problem is not "write a better DP" but
+      "accept an approximation", via a greedy value-density heuristic or an FPTAS that scales the
+      values down to shrink the state space. Recognising which regime you are in is the useful part;
+      the recurrence itself is identical either way.

@@ -1,0 +1,3 @@
+title: Strings
+summary: The structures that exploit shared prefixes, and why a hash map cannot answer the questions they can.
+level: advanced

@@ -1,0 +1,3 @@
+title: Graphs
+summary: The structure almost every real problem turns out to be. How to store one, how to walk it, how to find a shortest path, and how to answer connectivity questions in near-constant time.
+level: intermediate

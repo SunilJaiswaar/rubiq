@@ -1,0 +1,190 @@
+passScore: 0.7
+questions:
+  - id: bfs-to-dijkstra
+    kind: choice
+    concept: dijkstra
+    prompt: "What single substitution turns BFS into Dijkstra?"
+    options:
+      - text: "Replace the FIFO queue with a min-priority queue ordered on accumulated cost"
+        correct: true
+        feedback: >-
+          BFS works because equal weights make arrival order equal distance order.
+      - text: Add a visited set, which BFS does not need
+        feedback: >-
+          BFS needs one too; a graph can revisit nodes either way.
+      - text: Relax every edge repeatedly instead of once
+        feedback: >-
+          That is Bellman-Ford.
+    explanation: >-
+      With unit weights, the order nodes come out of a FIFO queue is exactly increasing distance,
+      which is why BFS finds shortest paths. Differing weights break that coincidence: three
+      edges of cost 1 beat one of cost 10, and a FIFO queue cannot see it. Ordering the frontier
+      by accumulated cost restores the correspondence, so the node expanded next is always the
+      cheapest known — and the rest of the algorithm, including the relaxation step, is
+      structurally identical to BFS.
+
+  - id: finality-proof
+    kind: choice
+    concept: dijkstra
+    prompt: "Where does the proof that a popped node's distance is final use non-negativity?"
+    options:
+      - text: "In the step asserting the remainder of any alternative path adds a non-negative amount, so it cannot undercut the already-larger tentative distance of the queued node it passes through"
+        correct: true
+        feedback: >-
+          Remove that and a path through a further node can be shorter.
+      - text: In the priority queue, which cannot store negative keys
+        feedback: >-
+          Heaps order negative numbers perfectly well.
+      - text: In the initialisation of distances to Infinity
+        feedback: >-
+          Initialisation is unaffected by edge sign.
+    explanation: >-
+      The argument is by contradiction: if a shorter path to the popped node u existed, it must
+      leave the finalised set through some node v still in the queue. Because u was popped first,
+      v's tentative distance is at least d(u). The remaining edges from v onward then contribute
+      their total, and only if that total is non-negative can we conclude the whole alternative
+      path costs at least d(u). A negative edge lets the remainder subtract, so a path through a
+      more distant node can be cheaper — which means finality fails and the algorithm's central
+      claim collapses rather than merely degrading.
+
+  - id: negative-example
+    kind: choice
+    concept: negative-weights
+    prompt: "`a→b` costs 5, `a→c` costs 7, `c→b` costs -4. What does Dijkstra report for b?"
+    options:
+      - text: "5 — b is finalised before c is examined, and the true answer of 3 is never found"
+        correct: true
+        feedback: >-
+          No error is raised; the result is simply wrong.
+      - text: "3, since relaxation from c still updates b"
+        feedback: >-
+          b is already in the done set, so the update is discarded.
+      - text: An error, because Dijkstra validates weights
+        feedback: >-
+          Nothing checks the sign.
+    explanation: >-
+      Dijkstra pops a at 0 and relaxes b to 5 and c to 7. The next smallest is b at 5, which is
+      finalised. Only afterwards is c popped, and relaxing c→b yields 7 + (-4) = 3 — but b is in
+      the done set and is never reconsidered. The algorithm terminates reporting 5. This is the
+      most dangerous shape of failure: a correct-looking answer with no diagnostic, which is why
+      the right response is to use Bellman-Ford rather than attempt a patch.
+
+  - id: bellman-passes
+    kind: choice
+    concept: negative-weights
+    prompt: "Why V-1 passes in Bellman-Ford, and what does a Vth improving pass prove?"
+    options:
+      - text: "A shortest path has at most V-1 edges, so V-1 passes propagate any of them; a further improvement proves a negative cycle"
+        correct: true
+        feedback: >-
+          That detection comes for free and is sometimes the point of running it.
+      - text: "V-1 is a heuristic that works in practice; more passes are safer"
+        feedback: >-
+          It is an exact bound derived from path length.
+      - text: Because each pass finalises one node, as in Dijkstra
+        feedback: >-
+          Bellman-Ford finalises nothing until it has finished.
+    explanation: >-
+      A simple shortest path cannot repeat a node, so it contains at most V nodes and therefore
+      at most V-1 edges. Each full pass over all edges guarantees that shortest paths using one
+      more edge than before are correct, regardless of the order edges are examined in, so V-1
+      passes suffice. If an additional pass still reduces some distance, then some path is being
+      improved beyond V-1 edges, which can only happen by traversing a cycle whose total weight
+      is negative. Since that cycle can be traversed arbitrarily often, no shortest path exists —
+      so detection, not a number, is the correct output.
+
+  - id: pop-not-reach
+    kind: choice
+    concept: dijkstra
+    prompt: "Why must the early exit wait until the goal is popped rather than first reached?"
+    options:
+      - text: "Reaching it only sets a tentative distance; a cheaper route through a node still in the heap may exist"
+        correct: true
+        feedback: >-
+          Finality is a property of popping, which is exactly what the proof establishes.
+      - text: Because the path cannot be reconstructed until the node is popped
+        feedback: >-
+          The predecessor is recorded on relaxation, so reconstruction is possible either way.
+      - text: Because the heap may contain duplicate entries for the goal
+        feedback: >-
+          True, and not the reason — the issue is tentative versus final distance.
+    explanation: >-
+      Relaxation records the best distance found so far, which is an upper bound. The guarantee
+      that it is optimal arrives only when the node is selected as the minimum of the frontier,
+      because that is the moment the finality argument applies. Returning on first discovery can
+      therefore produce a longer path — in the example graph, b is discovered at 5 and is
+      genuinely 3. The same distinction explains why the `done` set is checked on pop rather than
+      on push.
+
+  - id: lazy-deletion
+    kind: choice
+    concept: dijkstra
+    prompt: "What is lazy deletion in a Dijkstra implementation?"
+    options:
+      - text: "Pushing a new heap entry on improvement instead of decreasing an existing key, and skipping stale pops via a done set — the heap becomes O(E) rather than O(V)"
+        correct: true
+        feedback: >-
+          Standard library heaps do not offer decrease-key, which is why this is the usual form.
+      - text: Deferring removal of finalised nodes from the adjacency list
+        feedback: >-
+          The graph is never modified.
+      - text: Delaying relaxation until all neighbours have been examined
+        feedback: >-
+          Relaxation happens immediately.
+    explanation: >-
+      The textbook formulation calls decrease-key when a shorter route is found, which requires a
+      heap that can locate an arbitrary element — an indexed heap with extra bookkeeping. Almost
+      no standard library provides it. Lazy deletion sidesteps the problem: push a second entry
+      for the node at its improved distance, and when popping, discard any node already
+      finalised. The heap grows to at most one entry per edge, so operations cost log E instead of
+      log V, which is a trivial difference, and the implementation stays short. It also avoids
+      mutating a key held inside a heap, which would corrupt the invariant.
+
+  - id: astar-heuristic
+    kind: choice
+    concept: heuristics
+    prompt: "A* with `h = 0` is what? With an overestimating `h`?"
+    options:
+      - text: "h = 0 is exactly Dijkstra; an overestimating h expands fewer nodes and may return a suboptimal path"
+        correct: true
+        feedback: >-
+          Games often do this deliberately — it should be a decision, not an accident.
+      - text: "h = 0 makes it BFS; an overestimating h makes it incorrect and non-terminating"
+        feedback: >-
+          It still terminates and still finds a path, just not necessarily the best one.
+      - text: "h = 0 is invalid, since the heuristic must be positive"
+        feedback: >-
+          Zero is admissible — it never overestimates.
+    explanation: >-
+      A* orders the frontier by g + h. With h identically zero the ordering reduces to g, which is
+      Dijkstra. An admissible heuristic — one that never exceeds the true remaining cost — preserves
+      optimality while pruning the search, because a node whose estimate is high cannot be on a
+      cheaper path than one already being expanded. Overestimating breaks that guarantee: the
+      search may commit to a route that looks better than it is and finalise the goal before
+      finding the genuine optimum. The result is faster and possibly worse, which is a legitimate
+      trade in a game and usually not in navigation.
+
+  - id: explain-arbitrage
+    kind: recall
+    concept: negative-weights
+    prompt: >-
+      Explain why detecting currency arbitrage becomes a negative-cycle problem after taking the
+      negative logarithm of exchange rates.
+    key_points:
+      - Arbitrage means a cycle of exchanges whose rates multiply to more than 1
+      - Logarithms turn multiplication into addition
+      - log of a product greater than 1 is positive, so the negated sum is negative
+      - A profitable cycle therefore becomes a cycle of negative total weight
+      - Bellman-Ford detects negative cycles directly
+      - The transferable idea is changing representation so an existing algorithm applies
+    model: >-
+      Arbitrage exists when some cycle of conversions returns more than you started with — the
+      product of the rates around the cycle exceeds 1. Graph algorithms work additively, not
+      multiplicatively, so the product form has no direct expression as a path weight. Taking
+      logarithms converts the product into a sum, since log(ab) = log a + log b, and a product
+      greater than 1 has a positive logarithm. Negating gives a sum that is negative exactly when
+      the cycle is profitable, so "profitable cycle exists" becomes "negative-weight cycle exists"
+      — which Bellman-Ford already detects as a side effect of its Vth pass. What makes this worth
+      remembering is less the finance than the move itself: rather than inventing an algorithm for
+      multiplicative cycles, you change the representation so a tool you already have fits. That
+      pattern recurs constantly, and it is usually cheaper and more reliable than a new algorithm.

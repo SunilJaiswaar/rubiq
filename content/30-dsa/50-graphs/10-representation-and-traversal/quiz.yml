@@ -1,0 +1,185 @@
+passScore: 0.7
+questions:
+  - id: queue-vs-stack
+    kind: choice
+    concept: bfs
+    prompt: "BFS and DFS differ by one line. What property does that give BFS?"
+    options:
+      - text: "A queue makes it dequeue nodes in non-decreasing distance order, so the first arrival at a node is by a shortest route"
+        correct: true
+        feedback: >-
+          DFS commits to a branch and may reach a near neighbour after a long detour.
+      - text: A queue makes it visit fewer nodes overall
+        feedback: >-
+          Both visit every reachable node exactly once.
+      - text: A queue guarantees lower memory use
+        feedback: >-
+          A BFS frontier is often much larger than a DFS path.
+    explanation: >-
+      The queue imposes a global ordering by distance: it always holds nodes at distance d
+      followed by nodes at distance d+1 and nothing beyond, so everything at distance d is
+      processed before anything at d+1. That makes the first discovery of a node its shortest
+      unweighted distance — a guarantee, not a tendency. A stack offers nothing comparable,
+      because it follows one branch to exhaustion and can reach a direct neighbour of the start
+      only after traversing a long cycle.
+
+  - id: visited-required
+    kind: choice
+    concept: graphs
+    prompt: "Why is a visited set mandatory for a graph but optional for a tree?"
+    options:
+      - text: "A graph can reach the same node by several routes, including a cycle, which without tracking becomes an infinite loop; a tree has exactly one path to each node"
+        correct: true
+        feedback: >-
+          \"It worked on my test data\" usually means the test data was a tree.
+      - text: Because graphs are larger, so the set is a performance optimisation
+        feedback: >-
+          It is required for termination, not for speed.
+      - text: Because graph nodes lack parent pointers
+        feedback: >-
+          Parent pointers are unrelated to re-reachability.
+    explanation: >-
+      A tree's defining property is a unique path from the root to every node, so a traversal
+      cannot revisit anything and needs no bookkeeping. A graph makes no such promise: diamonds
+      give two routes to one node, and cycles give infinitely many. Without a visited set the
+      traversal revisits nodes forever. This is the most common graph bug precisely because
+      acyclic test fixtures hide it.
+
+  - id: mark-on-enqueue
+    kind: choice
+    concept: bfs
+    prompt: "Why mark a node visited when enqueuing rather than when dequeuing?"
+    options:
+      - text: "Otherwise a node can be pushed once per incoming edge before it is first processed, so the queue grows to O(E) instead of O(V)"
+        correct: true
+        feedback: >-
+          The output is still correct, which is what makes it easy to miss.
+      - text: Because marking on dequeue produces incorrect distances
+        feedback: >-
+          Distances come out right; it is memory that suffers.
+      - text: Because dequeue order is not deterministic
+        feedback: >-
+          A queue is perfectly deterministic.
+    explanation: >-
+      If the check happens on dequeue, every edge into a node pushes a separate copy before any
+      of them is examined, so a dense graph puts O(E) entries into a queue that only ever needed
+      O(V). The results are identical, so tests pass and the problem shows up as memory pressure
+      under real data — the same failure profile as most of the quiet performance bugs in this
+      track. Checking and marking at push time means each node enters the queue at most once.
+
+  - id: three-state
+    kind: choice
+    concept: cycle-detection
+    prompt: "`a→b→d` and `a→c→d`. Why does two-state cycle detection report a cycle?"
+    options:
+      - text: "DFS reaches d from b, then reaches d again from c and sees it as visited — but d is finished, not on the current path, so this is a diamond rather than a cycle"
+        correct: true
+        feedback: >-
+          Three states distinguish \"in progress\" (a real back edge) from \"done\".
+      - text: Because d has two incoming edges, which is itself a cycle
+        feedback: >-
+          Multiple incoming edges are perfectly acyclic.
+      - text: It does not — two states are sufficient for directed graphs
+        feedback: >-
+          Two states cannot tell a back edge from a cross edge.
+    explanation: >-
+      A cycle means reaching a node that is still on the current recursion path. A single visited
+      flag conflates that with reaching a node whose exploration already completed by a different
+      route, so any node with two predecessors triggers a false positive. The three-colour scheme
+      — white unvisited, grey in-progress, black finished — makes the distinction explicit: grey
+      means a genuine back edge, black means a harmless cross edge. As a bonus, the grey stack at
+      detection time is the cycle itself, which makes a far better error message.
+
+  - id: undirected-parent
+    kind: choice
+    concept: cycle-detection
+    prompt: "In an undirected graph, why does every edge look like a cycle without a parent check?"
+    options:
+      - text: "Each undirected edge is stored in both directions, so from b the edge back to a leads to an already-visited node"
+        correct: true
+        feedback: >-
+          Skip the edge you arrived on — though with multi-edges you must compare edge identity, not node identity.
+      - text: Because undirected graphs always contain cycles
+        feedback: >-
+          A tree is an undirected acyclic graph.
+      - text: Because the visited set is shared across recursive calls
+        feedback: >-
+          Sharing it is correct; the problem is the reciprocal edge.
+    explanation: >-
+      An undirected edge between a and b appears as b in a's adjacency list and a in b's. So the
+      moment DFS moves from a to b, b's neighbour list contains a, which is already marked — and
+      a naive check calls that a cycle. Passing the parent down and skipping it fixes the common
+      case. The subtlety is parallel edges: if two distinct edges join a and b, that genuinely is
+      a cycle, and distinguishing it requires comparing which edge you traversed rather than
+      which node you came from.
+
+  - id: topo-postorder
+    kind: choice
+    concept: topological-sort
+    prompt: "Why is topological sort DFS post-order, reversed?"
+    options:
+      - text: "A node is appended only after everything it points to has been appended, so reversing puts dependencies before dependents"
+        correct: true
+        feedback: >-
+          Same reasoning as tree height: the value flows upward, so the visit happens on the way up.
+      - text: Because post-order visits nodes in increasing indegree
+        feedback: >-
+          Post-order has no relationship to indegree.
+      - text: Because reversing any DFS order gives a valid topological sort
+        feedback: >-
+          Reversing pre-order does not work.
+    explanation: >-
+      In post-order, a node is emitted only once all of its outgoing edges have been fully
+      explored — meaning every node it depends on is already in the list. That produces
+      dependents-before-dependencies, so a single reversal yields the required order. It is the
+      same structural argument as computing a tree's height: when the answer for a node depends
+      on the answers for its successors, the node must be handled after the recursion returns.
+
+  - id: kahn-cycle
+    kind: choice
+    concept: topological-sort
+    prompt: "How does Kahn's algorithm detect a cycle with no extra bookkeeping?"
+    options:
+      - text: "Nodes in a cycle never reach indegree 0, so they are never enqueued — if the output is shorter than the node count, a cycle exists"
+        correct: true
+        feedback: >-
+          A good reason to prefer Kahn's when the input is not known to be acyclic.
+      - text: It checks whether any node is enqueued twice
+        feedback: >-
+          No node is ever enqueued twice; indegree reaches 0 once.
+      - text: It compares the edge count against the node count
+        feedback: >-
+          Edge count alone cannot distinguish a cycle from a dense DAG.
+    explanation: >-
+      Kahn's repeatedly removes nodes whose indegree has fallen to zero, decrementing their
+      successors. Every member of a cycle has at least one predecessor that is also in the cycle,
+      so its indegree can never be fully decremented and it is never eligible for the queue. The
+      algorithm therefore terminates with a partial ordering, and comparing the output length
+      against the total node count is a complete cycle test that costs nothing extra — unlike the
+      DFS version, which silently emits an invalid ordering unless you add three-state detection.
+
+  - id: explain-bfs-weighted
+    kind: recall
+    concept: bfs
+    prompt: >-
+      A weighted graph where three cheap edges beat one expensive edge. What does BFS return, and
+      what would you use?
+    key_points:
+      - BFS returns the fewest-hops path, which here is the single expensive edge
+      - BFS counts edges and has no notion of weight
+      - The distance-ordering guarantee only holds when every edge costs the same
+      - Dijkstra with a priority queue instead — expand the cheapest frontier node
+      - Dijkstra requires non-negative weights
+      - Bellman-Ford for negative weights, which also detects negative cycles
+    model: >-
+      BFS returns the path with the fewest edges, so it picks the single expensive edge and reports
+      it as shortest — which is wrong by cost, though correct by hop count. The reason is that
+      BFS's guarantee comes from every edge contributing exactly one to the distance, so processing
+      the queue in arrival order happens to be processing it in distance order. Introduce differing
+      weights and those two orders diverge, and nothing in BFS notices. The fix is Dijkstra: replace
+      the queue with a min-priority queue keyed on accumulated cost, so the node expanded next is
+      always the cheapest known frontier node rather than the nearest in hops. That restores the
+      same argument — the first time a node is finalised, it is by a cheapest route — provided
+      weights are non-negative, since a negative edge could otherwise improve a path already
+      settled. With negative weights I would use Bellman-Ford, which is slower but handles them and
+      additionally detects negative cycles.

@@ -1,0 +1,171 @@
+passScore: 0.7
+questions:
+  - id: palindrome-shape
+    kind: choice
+    concept: intervals
+    prompt: "Which shape is \"longest palindromic substring\", and why is a 1D state insufficient?"
+    options:
+      - text: "Interval DP, state (i, j) — a palindrome is a property of a range, since s[i..j] depends on s[i+1..j-1]"
+        correct: true
+        feedback: >-
+          If the recurrence will not come, the state is usually wrong.
+      - text: "1D over i, where the state is the longest palindrome ending at i"
+        feedback: >-
+          Extending by one character cannot be decided from a single endpoint.
+      - text: "Two-sequence DP against the reversed string"
+        feedback: >-
+          That finds the longest common substring, which is a related and distinct problem.
+    explanation: >-
+      Whether a substring is a palindrome is determined by both of its endpoints together: s[i..j]
+      is a palindrome exactly when s[i] equals s[j] and s[i+1..j-1] is one. A state indexed only by
+      position cannot express that dependency, which is the practical signal that the shape is
+      wrong — you find yourself unable to write a recurrence you can justify. Indexing by (i, j)
+      gives O(n²) states with O(1) work each. The reversed-string trick solves longest common
+      *substring*, which coincides with the palindrome answer only sometimes.
+
+  - id: interval-order
+    kind: choice
+    concept: intervals
+    prompt: "Why must interval DP iterate by increasing range length?"
+    options:
+      - text: "A range's answer depends only on strictly shorter ranges, so those must already be filled — the obvious i-then-j nesting reads unfilled cells"
+        correct: true
+        feedback: >-
+          It is the interval analogue of filling row i-1 before row i.
+      - text: Because shorter ranges are cheaper, so doing them first is faster
+        feedback: >-
+          Ordering is about correctness, not cost.
+      - text: Because the table is triangular and must be filled diagonally for memory locality
+        feedback: >-
+          Locality is a side effect; the dependency direction is the reason.
+    explanation: >-
+      The recurrence for a range splits it at some interior point and reads the answers for both
+      halves, each strictly shorter than the whole. Any fill order must therefore complete all
+      shorter ranges before any longer one. Looping i from 0 upward and j from i upward violates
+      that — when computing (0, n-1) early, the sub-ranges it needs have not been touched, so it
+      reads initial values and produces a plausible wrong answer. Iterating by length, then by
+      starting index, satisfies the dependency exactly.
+
+  - id: simultaneous-update
+    kind: choice
+    concept: state-machines
+    prompt: "In the stock-trading state machine, why must the three mode updates be simultaneous?"
+    options:
+      - text: "Each new value must be computed from the previous day's modes; updating one at a time lets a later assignment read a value already advanced to today"
+        correct: true
+        feedback: >-
+          Either use a simultaneous assignment or snapshot the previous values first.
+      - text: Because the modes are mutually exclusive and cannot both be true
+        feedback: >-
+          They hold independent best values, not booleans.
+      - text: Because JavaScript evaluates assignments right to left
+        feedback: >-
+          Evaluation order of a destructuring assignment is irrelevant to the underlying issue.
+    explanation: >-
+      The recurrence relates day i's modes to day i-1's. Writing `hold = max(hold, rest - p)` and
+      then `sold = hold + p` makes the second line read the freshly updated `hold`, which
+      corresponds to buying and selling on the same day — a transition the problem may not allow,
+      and in any case not what the recurrence says. A destructuring assignment computes all
+      right-hand sides before any binding, which is why it reads correctly; the alternative is to
+      copy the previous values into temporaries first. This is the characteristic bug of
+      state-machine DP and it produces answers that are too good rather than obviously broken.
+
+  - id: coin-loop-order
+    kind: choice
+    concept: dynamic-programming
+    prompt: >-
+      Coin change with the amount loop outside permits coin reuse. What makes it 0/1 instead?
+    options:
+      - text: "Put the item loop outside and iterate amount downwards, so the cell being read predates the current item"
+        correct: true
+        feedback: >-
+          Both versions are correct code for different problems, which is what makes the mistake quiet.
+      - text: Add a visited set to prevent reusing a coin
+        feedback: >-
+          No auxiliary structure is needed; the loop structure encodes it.
+      - text: Subtract one from the count after each use
+        feedback: >-
+          There is no count in the single-row formulation.
+    explanation: >-
+      With amounts outside and coins inside, computing t[a] may read t[a - c] which was already
+      finalised using coin c, so c contributes repeatedly — the unbounded formulation. Putting
+      items outside and sweeping amount from high to low guarantees t[a - w] still holds the value
+      from before the current item was introduced, so each item contributes at most once. The
+      unsettling part is that both arrangements compile, run and return sensible-looking numbers,
+      so the only defence is knowing which problem the loop structure encodes.
+
+  - id: tails-sorted
+    kind: choice
+    concept: subsequences
+    prompt: "Why is the `tails` array in the O(n log n) LIS necessarily sorted?"
+    options:
+      - text: "A longer increasing subsequence cannot have a smaller minimal tail than a shorter one — truncating it would contradict the shorter one's minimality"
+        correct: true
+        feedback: >-
+          That ordering is what licenses the binary search.
+      - text: Because elements are inserted in sorted order from the input
+        feedback: >-
+          The input is arbitrary; insertions overwrite arbitrary positions.
+      - text: Because the array is re-sorted after each insertion
+        feedback: >-
+          No sorting happens; the invariant is maintained by construction.
+    explanation: >-
+      Suppose the minimal tail of a length-k subsequence were smaller than that of a length-(k-1)
+      subsequence. Dropping the final element of the length-k sequence yields a length-(k-1)
+      sequence whose tail is smaller still, contradicting the claim that the recorded value was
+      minimal. So the array is non-decreasing at all times, which permits locating the first entry
+      greater than or equal to a new element by binary search rather than by scanning. It is worth
+      stressing that the array is a set of candidate tails, not a subsequence — its contents need
+      not appear in that order in the input.
+
+  - id: greedy-matrix-chain
+    kind: choice
+    concept: intervals
+    prompt: "Multiplying 10×100, 100×5, 5×50. What do the two groupings cost?"
+    options:
+      - text: "(AB)C costs 5,000 + 2,500 = 7,500; A(BC) costs 25,000 + 50,000 = 75,000 — ten times worse, with nothing locally distinguishing the split points"
+        correct: true
+        feedback: >-
+          That absence of a local signal is exactly what rules out greedy.
+      - text: Both cost the same, since matrix multiplication is associative
+        feedback: >-
+          The result is identical; the operation count is not.
+      - text: "A(BC) is cheaper because it multiplies the smaller matrices first"
+        feedback: >-
+          BC produces a 100×50 intermediate, which is then multiplied by a 10×100.
+    explanation: >-
+      Multiplying a p×q by a q×r matrix costs p·q·r scalar operations. Grouping as (AB)C gives
+      10·100·5 = 5,000 to produce a 10×5, then 10·5·50 = 2,500, totalling 7,500. Grouping as A(BC)
+      gives 100·5·50 = 25,000 to produce a 100×50, then 10·100·50 = 50,000, totalling 75,000. The
+      order of magnitude separating them cannot be detected by inspecting either split in
+      isolation, since the cost depends on the dimensions of intermediates produced further along.
+      That is the defining condition for needing DP rather than a greedy rule.
+
+  - id: explain-state-size
+    kind: recall
+    concept: dynamic-programming
+    prompt: >-
+      Edit distance on two 1 MB files. Give the state count and explain what real diff tools do
+      instead.
+    key_points:
+      - Roughly 10^12 states — a million by a million
+      - Infeasible in both time and memory even with one-row space reduction
+      - Myers' algorithm is O(ND), fast when the files are similar
+      - Anchoring on unique lines splits the problem into small independent pieces
+      - Line-level rather than character-level granularity shrinks n enormously
+      - Bail-out heuristics for pathological inputs
+      - The general point - estimate the state count before writing the table
+    model: >-
+      The state is (i, j) over the two inputs, so a million characters against a million characters
+      is about 10¹² states. Even reducing space to a single row leaves the time cost at a trillion
+      cell evaluations, so the textbook recurrence is simply not an option — and knowing that
+      before writing anything is the practical value of estimating the state count. Real tools
+      attack it from several directions at once. They work at line granularity rather than
+      character granularity, which cuts n by an order of magnitude or two immediately. They use
+      Myers' algorithm, whose cost is O(ND) in the input size and the number of differences, so it
+      is fast precisely in the common case where two versions of a file are mostly identical. They
+      anchor on lines that appear exactly once in both files, which splits the comparison into many
+      small independent sub-problems that are individually cheap. And they include explicit bail-out
+      heuristics so that genuinely pathological inputs degrade to a worse but bounded diff rather
+      than hanging. The recurrence remains the conceptual foundation; everything that makes it
+      usable is input-dependent engineering layered on top.

@@ -1,0 +1,3 @@
+title: Sorting
+summary: Why O(n log n) is a floor and not an accident, what stability is for, and the sorts that beat the floor by not comparing at all.
+level: intermediate
