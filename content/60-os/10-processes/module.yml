@@ -1,0 +1,3 @@
+title: Processes and threads
+summary: What the kernel gives each running program, what a thread shares that a process does not, and why that one difference causes most concurrency bugs.
+level: intermediate

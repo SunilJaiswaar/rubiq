@@ -22,3 +22,6 @@ outcomes:
   - Reason about what a context switch costs and when it dominates
   - Recognise a race condition and a deadlock from their symptoms
   - Explain why blocking I/O limits concurrency and what the alternatives are
+  - Diagnose a slow containerised service by checking what the scheduler was told
+  - Tell a memory leak from fragmentation, and RSS from PSS from available
+  - Say what "durable" means for a write, and what fsync does and does not cover

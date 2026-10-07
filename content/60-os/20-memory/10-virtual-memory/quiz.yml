@@ -1,0 +1,194 @@
+passScore: 0.7
+questions:
+  - id: three-purposes
+    kind: choice
+    concept: virtual-memory
+    prompt: "Which purpose of virtual memory explains why `fork` is cheap?"
+    options:
+      - text: "Overcommit and lazy backing — the child's address space is duplicated as page-table entries marked copy-on-write, with no physical pages copied until written"
+        correct: true
+        feedback: >-
+          The other two purposes are isolation and relocation.
+      - text: Isolation, since the child gets its own address space immediately
+        feedback: >-
+          It does, and that alone would require copying the pages.
+      - text: Relocation, since the child's pages can be placed anywhere
+        feedback: >-
+          Placement freedom does not avoid the copy.
+    explanation: >-
+      Duplicating a process would be prohibitively expensive if the memory were genuinely copied.
+      Because mappings are indirections, the kernel can copy the page tables — small — and mark
+      every entry read-only in both processes, deferring the real work until one side writes to a
+      page. Most pages are never written after a fork, particularly in a preforking server where
+      the shared application code and loaded templates stay untouched, so the copy almost never
+      happens. Isolation and relocation are the other two purposes and neither would make fork
+      cheap on its own.
+
+  - id: fault-kinds
+    kind: choice
+    concept: page-faults
+    prompt: "Minor versus major page fault — cause and cost?"
+    options:
+      - text: "Minor is resolved from memory — a first touch, a copy-on-write, a page already cached — at a microsecond or two; major needs storage, at ~100μs on SSD to ~10ms on disk"
+        correct: true
+        feedback: >-
+          Three to four orders of magnitude, so a combined fault count is meaningless.
+      - text: Minor means a single page and major means a range of pages
+        feedback: >-
+          Both concern one page; the difference is whether I/O is required.
+      - text: Minor faults are handled in user space and major faults in the kernel
+        feedback: >-
+          Both are handled by the kernel.
+    explanation: >-
+      Every page fault is the MMU reporting that a virtual address has no valid translation; the
+      classification is about what the kernel must do next. If the data is already in RAM —
+      because the page cache holds it, because a fresh zero page suffices, or because a
+      copy-on-write duplication is needed — the fix is bookkeeping and a memory copy at most. If
+      the data must be fetched from storage or swap, the cost jumps by thousands of times. A
+      million minor faults is about a second of CPU; a million major faults is hours of waiting,
+      which is why the two must never be aggregated into one number.
+
+  - id: malloc-untouched
+  
+    kind: choice
+    concept: virtual-memory
+    prompt: "`malloc(1GB)` and touch nothing. What happens to VSZ and RSS?"
+    options:
+      - text: "VSZ increases by 1GB and RSS does not change — address space is reserved but no physical pages are backing it yet"
+        correct: true
+        feedback: >-
+          Touching one byte per page would then bring RSS up by the full gigabyte.
+      - text: Both increase by 1GB, since the allocator must zero the memory
+        feedback: >-
+          Zeroing happens per page on first touch, not up front.
+      - text: Neither changes until the memory is written
+        feedback: >-
+          The mapping is created immediately, so VSZ reflects it.
+    explanation: >-
+      An allocation of that size creates a mapping — recorded in the process's address space, hence
+      the rise in virtual size — without requesting any physical frames. The kernel supplies a page
+      only when one is actually touched, resolving a minor fault and mapping a zeroed frame. So a
+      process can show an enormous virtual size while occupying very little real memory, which is
+      why VSZ is almost useless as a usage metric and why instrumenting allocation volume tells you
+      little about memory pressure.
+
+  - id: rss-sum
+    kind: choice
+    concept: virtual-memory
+    prompt: "Why does summing RSS across eight preforked workers overstate usage?"
+    options:
+      - text: "Copy-on-write pages are shared but each worker counts them fully in its own RSS — PSS divides shared pages by the number of sharers and is the figure to sum"
+        correct: true
+        feedback: >-
+          `Private_Dirty` is the closest single number to what one process costs the machine.
+      - text: Because RSS includes swapped-out pages, which are counted twice
+        feedback: >-
+          RSS excludes swapped pages entirely.
+      - text: Because RSS includes the page cache for files the worker has read
+        feedback: >-
+          Page cache is accounted separately, not in a process's RSS.
+    explanation: >-
+      Resident set size answers "how many physical pages are mapped into this process", and a page
+      shared by eight processes is mapped into all eight — so it is reported eight times. After a
+      fork most of the application's memory is exactly that, so the arithmetic can suggest several
+      times the machine's actual commitment. Proportional set size exists for this: it attributes a
+      fraction of each shared page to each sharer, so the sum across processes approximates reality.
+      For per-process accountability, private dirty pages are the ones that genuinely cannot be
+      reclaimed without swapping.
+
+  - id: free-low
+    kind: choice
+    concept: virtual-memory
+    prompt: "`free -h` shows 200Mi free and 11Gi buff/cache. Problem?"
+    options:
+      - text: "No — the kernel deliberately fills unused RAM with reclaimable page cache; `available` is the metric that matters"
+        correct: true
+        feedback: >-
+          Unused RAM is wasted RAM, so free near zero is the expected steady state.
+      - text: "Yes — only 200Mi remains before swapping begins"
+        feedback: >-
+          The cache is reclaimed on demand before any swapping is needed.
+      - text: "Yes — 11Gi of cache indicates a leak in the page cache"
+        feedback: >-
+          Page cache has no leak concept; it grows to fill available memory by design.
+    explanation: >-
+      Memory left idle provides no benefit, so the kernel populates it with cached file pages that
+      can be dropped instantly when something needs the space. A near-zero `free` figure therefore
+      indicates the system is using its RAM well, not that it is about to run out. The `available`
+      column is the kernel's own estimate of how much can be obtained without swapping, accounting
+      for which cache is reclaimable, and it is the correct thing to monitor and alert on. Alarms
+      wired to `free` generate perpetual false positives.
+
+  - id: huge-pages
+    kind: choice
+    concept: paging
+    prompt: "Why do huge pages help a database with a 100GB buffer pool?"
+    options:
+      - text: "At 4KB a TLB of ~1500 entries covers about 6MB, so a large working set faults constantly; 2MB pages let each entry cover 500× more memory"
+        correct: true
+        feedback: >-
+          Wasteful for sparse access patterns, and transparent huge pages can cause compaction stalls.
+      - text: Because larger pages reduce the number of major page faults
+        feedback: >-
+          The pages are resident; the cost being avoided is translation, not I/O.
+      - text: Because the kernel can allocate huge pages faster
+        feedback: >-
+          Allocation is typically harder, needing contiguous physical memory.
+    explanation: >-
+      The cost being addressed is address translation rather than data movement. A TLB has a small
+      fixed capacity, so the amount of memory it can map is the entry count multiplied by the page
+      size — a few megabytes with ordinary pages. A workload touching a hundred gigabytes therefore
+      misses constantly, and each miss costs a multi-level page table walk. Larger pages multiply
+      coverage directly. The trade-offs are internal fragmentation when access is sparse, difficulty
+      allocating contiguous physical memory under pressure, and in the transparent variant,
+      latency spikes while the kernel compacts memory to form them.
+
+  - id: overcommit-malloc
+    kind: choice
+    concept: virtual-memory
+    prompt: "Why does `malloc` returning non-null not mean the memory is available?"
+    options:
+      - text: "Default overcommit permits mappings exceeding RAM plus swap, so the shortfall is discovered when a page is touched — and resolved by the OOM killer, not by a failed allocation"
+        correct: true
+        feedback: >-
+          Which is why checking malloc's return value rarely saves you in practice.
+      - text: Because malloc only reserves heap space and the kernel is uninvolved
+        feedback: >-
+          The kernel creates the mapping; it simply does not reserve frames.
+      - text: Because another process may consume the memory first
+        feedback: >-
+          True in general, and the specific reason is that no reservation was ever made.
+    explanation: >-
+      Under the default policy the kernel grants mappings on the optimistic assumption that most
+      will not be fully used — which is correct the overwhelming majority of the time and is what
+      makes fork, large sparse allocations and binary loading efficient. The consequence is that
+      failure moves from allocation time, where a program could respond gracefully, to first-touch
+      time, where the only remedy available to the kernel is to kill something. Strict overcommit
+      mode restores failing allocations and is appropriate for a single dedicated service, at the
+      cost of refusing the sparse mappings that normal operation relies on.
+
+  - id: explain-container-cache
+    kind: recall
+    concept: virtual-memory
+    prompt: >-
+      A container doing heavy file I/O approaches its memory limit. Is it about to be killed?
+    key_points:
+      - A memory cgroup charges page cache as well as anonymous memory
+      - Page cache is reclaimable, so the kernel drops it rather than killing
+      - The symptom is degraded I/O, not termination
+      - Anonymous memory has nothing to reclaim, so that path leads to the OOM killer
+      - Check memory.stat to see what is charged — cache versus anon
+      - Also note /proc/meminfo inside a container reports the host's memory
+    model: >-
+      Probably not, and distinguishing the two cases is exactly what the cgroup statistics are for.
+      A memory cgroup charges file-backed pages read through it as well as the process's anonymous
+      memory, so a workload streaming large files will see its usage climb towards the limit purely
+      from cache. That cache is clean and reclaimable, so when the limit is reached the kernel simply
+      evicts it — the process keeps running and the observable effect is that subsequent reads miss
+      and hit storage, so throughput drops and major fault counts rise. Anonymous memory is the
+      dangerous case: heap pages cannot be dropped, so if those alone exceed the limit the kernel has
+      no option but to kill a process in the cgroup, which appears as exit code 137 with nothing in
+      the application log. The way to tell them apart is `memory.stat`, comparing the cache and anon
+      figures against the limit. Worth adding that `/proc/meminfo` inside a container usually reports
+      the host's memory rather than the limit, so any runtime that sizes a heap from it will
+      overcommit badly — the same class of mistake as reading the host's CPU count.

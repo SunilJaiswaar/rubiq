@@ -1,0 +1,196 @@
+passScore: 0.7
+questions:
+  - id: one-difference
+    kind: choice
+    concept: address-space
+    prompt: "Which single difference between a process and a thread explains most of the consequences?"
+    options:
+      - text: "The address space — threads share one, which makes them cheap, makes communication free, and makes mutual corruption possible"
+        correct: true
+        feedback: >-
+          Every mutex exists to buy back a guarantee separate processes have for free.
+      - text: "The scheduling priority, since threads are scheduled more aggressively"
+        feedback: >-
+          Both are scheduled by the same scheduler on equal terms.
+      - text: The number of registers each is allocated
+        feedback: >-
+          Both own a full register set; the difference is memory.
+    explanation: >-
+      Sharing the address space is simultaneously the feature and the hazard. It makes thread
+      creation and switching cheap because there is no page table to swap, lets two threads
+      cooperate on a data structure at memory speed, and means a use-after-free or a buffer
+      overrun in one corrupts another. It also explains fault isolation: since the memory is shared,
+      a fatal fault cannot be contained to one thread and ends the entire process, whereas a
+      sibling process has its own space and continues unaffected.
+
+  - id: fork-returns
+    kind: choice
+    concept: processes
+    prompt: "What does `fork` return?"
+    options:
+      - text: "The child's pid in the parent and 0 in the child — which is how each discovers which one it is"
+        correct: true
+        feedback: >-
+          -1 in the parent indicates failure, with no child created.
+      - text: 0 in both, with the pid available from getpid
+        feedback: >-
+          Both could call getpid, but then neither could tell which role it has.
+      - text: The child's pid in both processes
+        feedback: >-
+          Then the child could not distinguish itself from the parent.
+    explanation: >-
+      After `fork` returns, two processes are executing the same code at the same point with
+      identical memory, so they need some way to diverge — and the return value is it. The parent
+      receives the child's process id, which it needs in order to wait on it later; the child
+      receives zero, which no valid pid can be. A return of -1 means the fork failed and only one
+      process exists. Every `if (pid == 0)` block in Unix code is this distinction being used.
+
+  - id: cow
+    kind: choice
+    concept: processes
+    prompt: "Why does forking a 500MB process cost almost nothing, and what undoes it?"
+    options:
+      - text: "Pages are marked copy-on-write and shared until written; writes duplicate the page — and GC marking writes to object headers, which un-shares most of the heap"
+        correct: true
+        feedback: >-
+          Which is why `GC.compact` before forking exists.
+      - text: The child shares the parent's page table permanently, so nothing is ever copied
+        feedback: >-
+          Writes must diverge, so copies happen on demand.
+      - text: Only the stack is copied; the heap is always shared
+        feedback: >-
+          The whole address space is lazily copied, not just the stack.
+    explanation: >-
+      `fork` duplicates the page table rather than the pages, marking every entry read-only in both
+      processes. Reads proceed from the shared physical page and cost nothing; the first write to a
+      page triggers a fault and the kernel makes a private copy for the writer. For a preforking
+      server this means several workers can share most of the booted application's memory. A tracing
+      garbage collector defeats it because marking sets a bit in each live object's header — a write
+      — so a full collection in a child can privatise nearly every page of the heap it just
+      inherited.
+
+  - id: fork-threads
+    kind: choice
+    concept: threads
+    prompt: "Why is `fork` in a threaded program dangerous?"
+    options:
+      - text: "Only the calling thread survives in the child, but all the memory does — so a mutex held by another thread at the moment of fork is locked forever with nothing able to release it"
+        correct: true
+        feedback: >-
+          The child then deadlocks on its first allocation or query, intermittently.
+      - text: The child inherits all threads, which then compete for the same descriptors
+        feedback: >-
+          Threads are not inherited; that is the problem.
+      - text: Because thread stacks cannot be copy-on-write mapped
+        feedback: >-
+          They can; the issue is missing threads alongside inherited state.
+    explanation: >-
+      `fork` duplicates the address space but creates only one thread in the child: the one that
+      called it. Any lock another thread happened to hold is still recorded as held in the child's
+      copy of the memory, and the thread that would release it does not exist there. Since the
+      allocator and most runtime libraries use internal locks, the child commonly deadlocks on its
+      first `malloc`, its first logging call, or its first database connection — and whether it does
+      depends on exact timing, which makes it an intermittent production failure. POSIX's rule that
+      only async-signal-safe functions may be called between `fork` and `exec` exists precisely for
+      this.
+
+  - id: zombies
+    kind: choice
+    concept: processes
+    prompt: "What is a zombie process, and what eventually breaks?"
+    options:
+      - text: "An exited child whose parent has not called wait, so its process-table entry persists — accumulate enough and no process on the machine can fork"
+        correct: true
+        feedback: >-
+          It holds no memory, only an entry and an exit status.
+      - text: A process stuck in uninterruptible sleep that cannot be killed
+        feedback: >-
+          That is state D; a zombie has already terminated.
+      - text: A process whose parent died, leaving it orphaned
+        feedback: >-
+          An orphan is reparented to init and reaped normally.
+    explanation: >-
+      When a child exits, the kernel keeps a minimal entry holding its exit status so the parent can
+      retrieve it with `wait`. Until that happens the entry cannot be released, which is what `ps`
+      shows as state Z. Zombies consume no memory or CPU, so a handful is harmless, but the process
+      table is a finite global resource — a long-running parent that forks repeatedly without reaping
+      will exhaust it, at which point every `fork` on the system fails and nothing new can start.
+      Reaping, or arranging for init to do it, is therefore mandatory in any process that spawns
+      children.
+
+  - id: context-switch
+    kind: choice
+    concept: context-switch
+    prompt: "What is the larger hidden cost of a context switch?"
+    options:
+      - text: "Cache and TLB pollution — the direct register save and restore is microseconds, but the incoming task's working set is cold and runs slowly until the caches refill"
+        correct: true
+        feedback: >-
+          Which is why a thread switch beats a process switch and why core pinning helps.
+      - text: The system call overhead of entering the kernel
+        feedback: >-
+          Real, and small relative to the cache effects.
+      - text: Flushing the instruction pipeline
+        feedback: >-
+          A minor component compared with losing the cached working set.
+    explanation: >-
+      Measuring a context switch in isolation gives a few microseconds for saving registers and, for
+      a process switch, loading a new page table. The cost that dominates in practice is invisible to
+      that measurement: the CPU's caches hold the previous task's data, so the incoming task begins
+      with misses on nearly every access and runs well below its steady-state speed until its working
+      set is resident. A process switch is worse than a thread switch because it also invalidates
+      address-translation entries. This is why oversubscribing threads degrades CPU-bound throughput
+      and why pinning latency-sensitive threads to specific cores is worthwhile.
+
+  - id: threads-vs-pool
+    kind: choice
+    concept: threads
+    prompt: "Twenty threads sharing a five-connection pool. What does monitoring show?"
+    options:
+      - text: "Apparent database slowness — fifteen threads are blocked waiting to check out a connection, while the database itself is idle"
+        correct: true
+        feedback: >-
+          A thread only helps if the resource it needs is available.
+      - text: High CPU use, since the blocked threads spin
+        feedback: >-
+          They block rather than spin, so CPU stays low.
+      - text: Connection errors, since the pool rejects the surplus threads
+        feedback: >-
+          Pools queue rather than reject by default, which is what hides the cause.
+    explanation: >-
+      A thread blocked inside connection checkout is waiting on your own pool, not on the database,
+      but the wait is attributed to the database call that contains it — so request latency rises and
+      every dashboard points at the data layer while the database shows low utilisation and fast
+      queries. CPU remains low because the threads are sleeping, which rules out the other obvious
+      explanation and leaves the real cause invisible. The general principle is that adding threads
+      only increases throughput if the resource they contend for scales with them, which is why
+      thread count and pool size must be configured together.
+
+  - id: explain-nginx-puma
+    kind: recall
+    concept: processes
+    prompt: >-
+      Why does nginx use processes with an event loop while Puma uses processes with threads?
+    key_points:
+      - Both use processes for isolation and to use multiple cores
+      - nginx handles concurrency with an event loop, so it has no shared mutable state
+      - That means no thread safety to reason about at all
+      - Puma runs application code that blocks on I/O, so threads overlap the waiting
+      - Threads let requests share a connection pool and caches within a worker
+      - Cost — the application must be thread-safe
+      - Unicorn is the no-threads variant, trading concurrency for not needing that
+    model: >-
+      Both choose processes for the same two reasons: fault isolation, so one crash loses one
+      worker's in-flight requests rather than the fleet, and using multiple cores, which processes do
+      regardless of any interpreter lock. They differ in how they get concurrency inside a worker.
+      nginx's work is almost entirely moving bytes between sockets, which an event loop handles
+      extremely well, and a single-threaded worker has no shared mutable state — so there is no lock
+      discipline, no race conditions and nothing to get wrong, which matters enormously for software
+      that must never crash. Puma runs arbitrary application code that blocks on database queries and
+      HTTP calls, where an event loop would require the entire application and every gem to be
+      non-blocking. Threads overlap that waiting without rewriting anything, and they let requests
+      within a worker share expensive per-process state such as a connection pool and compiled
+      templates. The price is that the application code must be thread-safe, which is a real
+      constraint — and Unicorn is precisely the trade in the other direction, one thread per worker
+      so no thread safety is required, at the cost of no concurrency within a worker and more memory
+      for the same throughput.

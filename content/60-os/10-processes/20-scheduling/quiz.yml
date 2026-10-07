@@ -1,0 +1,193 @@
+passScore: 0.7
+questions:
+  - id: load-average
+    kind: choice
+    concept: load-average
+    prompt: "What makes Linux load average ambiguous?"
+    options:
+      - text: "It counts tasks in uninterruptible sleep as well as runnable ones, so load 8 on 8 cores could be a saturated CPU, an idle CPU behind a slow disk, or tasks hung on NFS"
+        correct: true
+        feedback: >-
+          vmstat's r and b columns separate them; pressure stall information is better still.
+      - text: It is averaged over too long a window to be useful
+        feedback: >-
+          The 1-minute figure is responsive enough; the composition is the problem.
+      - text: It counts threads rather than processes
+        feedback: >-
+          Counting schedulable entities is correct; mixing in I/O waiters is not.
+    explanation: >-
+      Linux deliberately includes tasks in state D — blocked in the kernel, almost always on
+      storage or network filesystem I/O — on the grounds that they represent demand. The effect is
+      that a single number conflates two unrelated resources, so it cannot tell you whether to add
+      CPU, fix a disk, or investigate a hung mount. Since those require entirely different
+      responses, load average is a poor starting point for diagnosis despite being the most
+      commonly quoted metric.
+
+  - id: throttle-timeline
+    kind: choice
+    concept: cpu-limits
+    prompt: "Eight threads, a 1-CPU quota, 100ms period. What happens?"
+    options:
+      - text: "All eight run and consume the 100ms quota in about 12ms, then the whole process is stopped for the remaining ~88ms — so worst-case added latency is nearly a full period"
+        correct: true
+        feedback: >-
+          Average CPU is exactly at the limit, so dashboards look fine.
+      - text: Each thread is slowed to one eighth speed, so progress is smooth
+        feedback: >-
+          The quota is not divided per thread; it is consumed collectively and then enforced by stopping.
+      - text: Only one thread runs at a time, round-robin, with no stalls
+        feedback: >-
+          Threads run in parallel until the quota is exhausted.
+    explanation: >-
+      A CPU limit is a bandwidth quota, not a speed governor: the cgroup accumulates runtime across
+      all its threads and when the budget for the period is gone, every thread is descheduled until
+      the next period begins. Parallelism therefore makes throttling worse, because the quota is
+      consumed sooner and the stall that follows is longer. Any request unlucky enough to be in
+      flight during a throttled window pays that stall, which is why the effect is confined almost
+      entirely to the tail of the latency distribution.
+
+  - id: average-looks-fine
+    kind: choice
+    concept: cpu-limits
+    prompt: "Why does average CPU look healthy while throttling ruins p99?"
+    options:
+      - text: "The average over a second equals the limit by definition — the alternation between full speed and full stop is invisible unless you measure the stalls themselves"
+        correct: true
+        feedback: >-
+          Which is why `nr_throttled` is the metric rather than utilisation.
+      - text: Because throttled time is reported as idle
+        feedback: >-
+          It is reported as neither used nor idle by the process; the average of actual usage is simply at the cap.
+      - text: Because p99 is measured on a different clock
+        feedback: >-
+          Both measure the same wall time; the distribution is what differs.
+    explanation: >-
+      Utilisation is an average, and averaging a square wave that alternates between 100% and 0%
+      produces exactly the mean the quota permits. Nothing about that figure reveals that the
+      workload experienced repeated multi-tens-of-milliseconds freezes. Latency percentiles do
+      reveal it, because each freeze lands on whichever requests were in flight — so the signature
+      is a healthy mean with a badly degraded tail. The direct measurement is the throttle counter
+      and accumulated throttled time in the cgroup's statistics.
+
+  - id: vruntime
+    kind: choice
+    concept: scheduling
+    prompt: "What is `vruntime`, and why does it prevent starvation?"
+    options:
+      - text: "Virtual runtime, advancing in proportion to real time divided by the task's weight; the scheduler always runs the smallest, so a task that has not run becomes the most eligible"
+        correct: true
+        feedback: >-
+          Which also makes `nice` a proportion rather than a priority.
+      - text: The remaining time slice, decremented until the task is preempted
+        feedback: >-
+          Time slices are derived from it, but vruntime accumulates rather than counting down.
+      - text: A deadline by which the task must be scheduled
+        feedback: >-
+          EEVDF adds deadline semantics; vruntime itself is accumulated weighted runtime.
+    explanation: >-
+      Each task's vruntime increases only while it is running, scaled inversely by its weight, and
+      the scheduler picks whichever runnable task has the smallest value. A task that is starved
+      accumulates no vruntime while others do, so it inevitably becomes the minimum and gets
+      scheduled — starvation is excluded by the structure rather than by a heuristic. Weight
+      changes how fast the clock runs for a task, which is why a low-priority task receives a
+      smaller share rather than being indefinitely postponed.
+
+  - id: nice-weight
+    kind: choice
+    concept: scheduling
+    prompt: "Is `nice` a priority or a weight, and what follows?"
+    options:
+      - text: "A weight — so a nice-19 task still runs, just with a small share, and nice offers no protection against a cgroup quota"
+        correct: true
+        feedback: >-
+          It also only has any effect under contention.
+      - text: A priority — a nice-19 task runs only when nothing else is runnable
+        feedback: >-
+          That would be starvation, which fair scheduling specifically avoids.
+      - text: A weight for I/O scheduling and a priority for CPU scheduling
+        feedback: >-
+          I/O priority is a separate control (ionice).
+    explanation: >-
+      Nice values map onto weights that scale vruntime accumulation, so they determine proportional
+      share rather than absolute precedence. A heavily deprioritised task continues to make
+      progress, which is usually desirable — background work should be slow, not frozen. Two
+      consequences follow: nice has no observable effect when the CPU is not contended, and it
+      cannot help with throttling, because a quota applies to the cgroup as a whole regardless of
+      how its tasks are weighted relative to each other.
+
+  - id: exit-137
+    kind: choice
+    concept: cpu-limits
+    prompt: "A container restarts with exit code 137 and nothing in the application log. What happened?"
+    options:
+      - text: "The OOM killer terminated it for exceeding a memory limit — 137 is 128 + SIGKILL, and the process was never asked to stop, so it logged nothing"
+        correct: true
+        feedback: >-
+          `dmesg | grep -i oom` shows what was killed and why.
+      - text: It was throttled past the liveness probe timeout
+        feedback: >-
+          Possible in principle, and would show as a probe failure rather than 137.
+      - text: The application called exit(137) after a fatal error
+        feedback: >-
+          137 conventionally encodes a signal rather than a chosen exit status.
+    explanation: >-
+      Exit codes above 128 encode termination by signal, and 137 is SIGKILL — which cannot be
+      caught, so the process has no opportunity to flush logs or run shutdown handlers. The usual
+      cause in a container is exceeding the memory cgroup limit, where the kernel selects a victim
+      by oom_score and kills it outright. This is the key asymmetry with CPU: a CPU limit degrades
+      performance because CPU is compressible, whereas a memory limit is enforced by killing,
+      because memory is not.
+
+  - id: memory-vs-cpu-limit
+    kind: choice
+    concept: cpu-limits
+    prompt: "Why is setting a memory limit more important than setting a CPU limit?"
+    options:
+      - text: "Memory is not compressible, so exceeding the limit means a kill rather than degradation — whereas an unlimited CPU burst merely slows neighbours"
+        correct: true
+        feedback: >-
+          Which is why requests-without-CPU-limits is a defensible choice for latency-sensitive services.
+      - text: Because CPU limits are enforced by the scheduler and memory limits by the kernel
+        feedback: >-
+          Both are cgroup mechanisms in the kernel.
+      - text: Because memory usage is more predictable than CPU usage
+        feedback: >-
+          It is typically less predictable, which is part of why a bound matters.
+    explanation: >-
+      A process asked to use less CPU can simply proceed more slowly, so the failure mode is
+      graceful and reversible — this is what makes CPU a compressible resource. Memory cannot be
+      taken back from a process that is using it, so the only enforcement available is termination.
+      An unbounded memory consumer therefore threatens the whole node, including unrelated
+      workloads, whereas an unbounded CPU consumer merely competes for cycles. Hence the common
+      production pattern of always setting memory limits while deliberately omitting CPU limits for
+      latency-sensitive services.
+
+  - id: explain-diagnosis-order
+    kind: recall
+    concept: scheduling
+    prompt: >-
+      A containerised service has bad p99 and the code looks fine. Give your first checks and why
+      that order.
+    key_points:
+      - cgroup cpu.stat for nr_throttled — seconds to check, explains it completely
+      - vmstat r and b columns to separate CPU demand from I/O blocking
+      - pressure stall information per resource
+      - top -H for a single hot thread hidden in process metrics
+      - Check what core count the runtime detected
+      - Only then profile the application
+      - Cheap eliminations before expensive investigation
+    model: >-
+      I would start with the cheapest checks that can explain the whole symptom, because each takes
+      seconds and eliminates an entire category. First, cgroup throttling: `cpu.stat`'s
+      `nr_throttled` and `throttled_usec`. A non-zero throttle count with a bad tail and healthy
+      average CPU is a complete explanation and no amount of application profiling will improve it —
+      the fix is configuration. Second, whether the workload is CPU-bound or I/O-bound at all, from
+      `vmstat`'s runnable and blocked columns, since load average cannot distinguish them; and
+      pressure stall information if available, because it reports stalls per resource directly.
+      Third, per-thread CPU with `top -H`, since one spinning thread in an otherwise idle process is
+      invisible at process granularity and looks like mild overall load. Fourth, what core count the
+      runtime believes it has — a Go binary with GOMAXPROCS set from host cores, or an older JVM
+      sizing its pools the same way, will create dozens of threads for a one-CPU quota and throttle
+      continuously, which is a misconfiguration rather than a shortage. Only after all of that would
+      I profile with perf or a flame graph. The ordering matters because starting at the profiler is
+      the common mistake: it is the most expensive step and it cannot see any of the causes above.

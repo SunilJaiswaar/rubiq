@@ -1,0 +1,196 @@
+passScore: 0.7
+questions:
+  - id: write-durability
+    kind: choice
+    concept: fsync
+    prompt: "`write` returns successfully, then the process is SIGKILLed. Is the data lost?"
+    options:
+      - text: "No — the page cache belongs to the kernel and outlives the process; a power loss or kernel panic is what loses unflushed data"
+        correct: true
+        feedback: >-
+          A lot of code calls fsync for crash safety it already had.
+      - text: "Yes — unflushed data is held in the process's buffers and dies with it"
+        feedback: >-
+          Userspace buffering in stdio is a separate layer; the kernel's page cache survives.
+      - text: Only if the file was opened without O_SYNC
+        feedback: >-
+          O_SYNC changes when flushing happens, not who owns the cache.
+    explanation: >-
+      `write` transfers the data into kernel-owned memory, so once the syscall returns, the process
+      is no longer the custodian — killing it, segfaulting it, or any other process-level failure
+      leaves the data intact and the kernel will flush it in due course. What is still at risk is
+      the machine failing as a whole: a panic or power cut discards anything not yet written to the
+      device. The practical consequence is that the question "do I need fsync" is really "am I
+      protecting against process failure or machine failure", and the two have very different
+      costs.
+
+  - id: directory-fsync
+    kind: choice
+    concept: fsync
+    prompt: "You fsync a newly created file's data and the power fails. What can still go wrong?"
+    options:
+      - text: "The directory entry naming the file may not be durable, so the file can appear not to exist despite its data having been flushed"
+        correct: true
+        feedback: >-
+          Hence fsync on the containing directory as a separate step.
+      - text: The file's data can be reordered, producing a corrupt prefix
+        feedback: >-
+          A successful fsync orders the data; the metadata is the gap.
+      - text: Nothing — fsync covers the file and its metadata
+        feedback: >-
+          It covers that file's own metadata, not the parent directory's.
+    explanation: >-
+      A filename is not stored in the file; it is an entry in the parent directory, which is itself
+      a separate object with its own blocks and its own dirty pages. Flushing the file guarantees
+      its contents are on the device but says nothing about whether the directory block recording
+      its existence has been written. After a crash you can therefore have perfectly durable data
+      that nothing references. Opening the directory and fsyncing that descriptor closes the gap,
+      which is why careful writers treat it as a mandatory fourth step rather than an optimisation.
+
+  - id: atomic-replace
+    kind: choice
+    concept: fsync
+    prompt: "Give the atomic file replace sequence."
+    options:
+      - text: "Write to a temporary file, fsync it, rename over the target, then fsync the directory"
+        correct: true
+        feedback: >-
+          rename within a filesystem is atomic, so readers see old or new and never partial.
+      - text: Truncate the target, write the new contents, then fsync
+        feedback: >-
+          A crash mid-write leaves a truncated file, which is the failure being avoided.
+      - text: Write to the target with O_APPEND, then fsync and truncate the old portion
+        feedback: >-
+          Readers would observe both versions concatenated.
+    explanation: >-
+      Each step addresses a distinct failure. Writing to a temporary name means the target keeps its
+      previous valid contents throughout. Fsyncing the temporary file ensures its data is on the
+      device before it becomes visible under the real name. The rename is atomic within a
+      filesystem, so no reader can ever observe a half-written file — they get the old inode or the
+      new one. And fsyncing the directory makes the rename itself durable, without which a crash can
+      leave the old contents in place despite everything else having succeeded. This is what editors,
+      package managers and configuration writers all do.
+
+  - id: epoll-complexity
+    kind: choice
+    concept: io-multiplexing
+    prompt: "Why is `epoll` O(ready) while `poll` is O(watched)?"
+    options:
+      - text: "`poll` passes the entire descriptor set on every call and the kernel scans it; `epoll` registers interest once and returns only descriptors that became ready"
+        correct: true
+        feedback: >-
+          Ten thousand connections with ten active costs ten units of work, which is the answer to C10k.
+      - text: "`epoll` uses a hash table while `poll` uses a linear array"
+        feedback: >-
+          The data structure matters less than not re-passing and re-scanning the whole set.
+      - text: Because epoll runs the readiness check in userspace
+        feedback: >-
+          Readiness tracking is in the kernel in both cases.
+    explanation: >-
+      The cost of `poll` is structural: the caller hands over every descriptor it cares about on
+      each invocation, so the kernel must examine all of them and the caller must then scan the
+      results. With mostly-idle connections almost all of that work is wasted. `epoll` splits
+      registration from waiting — interest is recorded once in a kernel structure, and the wait call
+      returns a list containing only descriptors whose state changed. The work therefore scales with
+      activity rather than with the number of connections, which is exactly the property needed to
+      hold ten thousand idle sockets on one thread.
+
+  - id: edge-triggered
+    kind: choice
+    concept: io-multiplexing
+    prompt: "What breaks with edge-triggered `epoll` if you read once?"
+    options:
+      - text: "You are only notified when readiness changes, so leftover data produces no further notification and the connection hangs silently"
+        correct: true
+        feedback: >-
+          Read until EAGAIN; level-triggered re-reports while data remains.
+      - text: The descriptor is automatically removed from the epoll set
+        feedback: >-
+          It stays registered unless EPOLLONESHOT was set.
+      - text: Subsequent reads return stale data
+        feedback: >-
+          The data is correct; the problem is never being told to come back for it.
+    explanation: >-
+      Edge-triggered mode reports a transition — from not-ready to ready — rather than a condition.
+      If a peer sends 8KB and you read 4KB, no new transition occurs, so the next `epoll_wait`
+      reports nothing for that descriptor even though half the message is waiting. The connection
+      appears to stall for no reason, and only under load or with large messages, which makes it
+      an unpleasant bug to reproduce. The contract is to drain until `read` returns `EAGAIN`.
+      Level-triggered mode continues reporting while data remains, costing a few more syscalls in
+      exchange for being far harder to get wrong.
+
+  - id: fsync-error
+    kind: choice
+    concept: fsync
+    prompt: "`fsync` returns an error. What is the correct response?"
+    options:
+      - text: "Treat the data as lost and the file as unreliable — historically Linux reported the error once and then marked the pages clean, so a retry returned success while the data was gone"
+        correct: true
+        feedback: >-
+          This caused real data loss in PostgreSQL and prompted the \"fsyncgate\" discussion.
+      - text: Retry until it succeeds, since the error is usually transient
+        feedback: >-
+          A retry may succeed without the data ever having been written.
+      - text: Log it and continue, since the kernel will flush eventually
+        feedback: >-
+          A failed flush means the kernel has already given up on those pages.
+    explanation: >-
+      A failing flush means the device rejected or could not complete the write, so the data is not
+      durable and in general cannot be made durable by asking again. Worse, the historical Linux
+      behaviour was to report the error to exactly one caller and then drop the dirty state — so a
+      program that retried received success for data that had been discarded, which is the most
+      dangerous possible outcome. Databases responded by treating a failed fsync as unrecoverable for
+      the affected file and refusing to continue, because silently proceeding would produce
+      undetectable corruption.
+
+  - id: ssd-util
+    kind: choice
+    concept: buffered-io
+    prompt: "Why is `%util` at 100% not proof that an SSD is saturated?"
+    options:
+      - text: "It measures the fraction of time at least one request was in flight, and a device serving 32 requests in parallel reaches 100% while handling one at a time — `await` and queue depth are the meaningful figures"
+        correct: true
+        feedback: >-
+          High queue depth with low await indicates healthy parallelism rather than saturation.
+      - text: Because the counter wraps and overstates on fast devices
+        feedback: >-
+          No wrapping is involved.
+      - text: Because SSDs report utilisation from their own firmware
+        feedback: >-
+          The figure is computed by the kernel from request timings.
+    explanation: >-
+      The metric was designed for spinning disks, where a single head meant one request at a time and
+      "busy all the time" genuinely implied saturation. A modern device accepts many concurrent
+      requests, so continuous occupancy says only that it was never completely idle — it could be
+      operating at a tiny fraction of capacity. The useful signals are the average service time, which
+      rises sharply once the device really is saturated, and the queue depth: deep queues with short
+      waits mean the device is absorbing parallelism well, while deep queues with long waits mean it
+      is not.
+
+  - id: explain-fd-leak
+    kind: recall
+    concept: file-descriptors
+    prompt: >-
+      You hit "too many open files" in production. Describe your investigation.
+    key_points:
+      - List /proc/PID/fd and count
+      - Group the targets to see which kind is leaking
+      - Thousands of one type points at a specific error path
+      - Check the soft and hard limits in /proc/PID/limits
+      - Raising the limit buys time but does not fix a leak
+      - Fix with a construct that cannot skip closing — ensure, defer, with, RAII
+      - Note that epoll instances, timers and pipes consume descriptors too
+    model: >-
+      First establish whether it is a leak or genuine demand, which the contents of `/proc/PID/fd`
+      answer immediately: count the entries, then group them by what they point at. A few thousand
+      entries all reading `socket:[...]` or all naming the same file is a leak, and the uniformity
+      usually identifies the code path — some error branch returning before its close. Genuine demand
+      looks different: a spread across many distinct files or sockets roughly matching the
+      concurrency you expect. I would also read `/proc/PID/limits` to see the soft and hard limits,
+      since the default soft limit is often 1024 and far below what a connection-heavy service needs,
+      so part of the answer may legitimately be raising it. But raising it on its own only delays the
+      next occurrence, so the fix is structural: close in a construct that cannot be bypassed —
+      `ensure` in Ruby, `defer` in Go, a `with` block in Python, RAII in C++ — rather than as a
+      statement on the happy path. Worth remembering that it is not only files and sockets: epoll
+      instances, timerfds, eventfds, pipes and inotify watches all consume descriptors, so a leak can
+      come from somewhere that does not look like I/O at all.
