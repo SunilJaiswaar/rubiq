@@ -1,0 +1,197 @@
+passScore: 0.7
+questions:
+  - id: cap-precise
+    kind: choice
+    concept: cap-theorem
+    prompt: "What is wrong with \"CAP means pick two of three\"?"
+    options:
+      - text: "Partitions are not a choice — networks drop packets, so P is given and the choice is between C and A while partitioned; with a healthy network you can have both"
+        correct: true
+        feedback: >-
+          CAP is also silent about the healthy case, which is most of the time.
+      - text: Nothing is wrong; it is the standard formulation
+        feedback: >-
+          It is the standard misstatement, not the theorem.
+      - text: It omits durability, which is the fourth property
+        feedback: >-
+          Durability is unrelated to CAP.
+    explanation: >-
+      The theorem is a statement about behaviour during a partition: if communication between nodes
+      fails, a system can either refuse requests it cannot serve consistently, or answer them
+      possibly-stale. Framing it as a three-way selection implies you could build a system that is
+      immune to partitions, which no amount of engineering achieves. It also obscures the more
+      practically relevant fact that when the network is working, both properties are available
+      simultaneously — so the theorem constrains failure behaviour rather than normal operation.
+
+  - id: pacelc
+    kind: choice
+    concept: cap-theorem
+    prompt: "What does PACELC add, and why does the second half matter more day to day?"
+    options:
+      - text: "Else: with no partition, choose latency or consistency — coordination costs a round trip on every operation even when nothing has failed"
+        correct: true
+        feedback: >-
+          A permanent cost for a guarantee you may not need, invisible in a CAP framing.
+      - text: It adds partition tolerance as an explicit choice
+        feedback: >-
+          That is the part CAP already covers and that is not optional.
+      - text: It replaces consistency with eventual consistency
+        feedback: >-
+          It characterises the trade rather than fixing a consistency level.
+    explanation: >-
+      CAP addresses only the partitioned case, which for a well-run system is rare. PACELC adds the
+      branch that applies the rest of the time: coordinating a write across replicas requires
+      waiting for acknowledgements, and if those replicas are in different availability zones that
+      is a cross-zone round trip on every commit regardless of health. So strong consistency has a
+      steady-state latency price that nothing in CAP mentions. Since that cost is paid continuously
+      rather than during incidents, it usually matters more to a system's design than the partition
+      behaviour does.
+
+  - id: session-guarantees
+    kind: choice
+    concept: eventual-consistency
+    prompt: "Which anomaly does monotonic reads remove?"
+    options:
+      - text: "Seeing time move backwards — a value that was 7 appearing as 6 on a subsequent read, typically from hitting a less caught-up replica"
+        correct: true
+        feedback: >-
+          Read-your-writes covers your own writes; consistent prefix covers causality.
+      - text: A user not seeing their own write after saving
+        feedback: >-
+          That is read-your-writes.
+      - text: A reply appearing before the comment it replies to
+        feedback: >-
+          That is consistent prefix.
+    explanation: >-
+      Monotonic reads guarantee that successive reads within a session never observe an earlier
+      state than one already seen. Without it, two reads routed to replicas with different
+      replication positions can show a counter decreasing or an item reappearing after deletion,
+      which users perceive as the application being broken rather than merely stale. The usual
+      implementation is to pin a session to one replica or to carry the highest version observed and
+      require any serving replica to have reached it. Together with read-your-writes and consistent
+      prefix it forms session consistency, which removes nearly every anomaly users actually notice.
+
+  - id: quorum
+    kind: choice
+    concept: eventual-consistency
+    prompt: "`N=3, W=2, R=2` — what does `W + R > N` buy, and how many failures are tolerated?"
+    options:
+      - text: "Read and write sets must overlap, so a read sees the latest acknowledged write; it tolerates one replica failure"
+        correct: true
+        feedback: >-
+          N=3, W=3, R=1 gives fast reads and fails writes if any replica is down.
+      - text: Every replica is guaranteed identical at all times, tolerating two failures
+        feedback: >-
+          Replicas can diverge; the overlap is what makes a read correct.
+      - text: It bounds replication lag to the round-trip time, tolerating no failures
+        feedback: >-
+          Lag is not bounded by the quorum setting.
+    explanation: >-
+      With three replicas and two required acknowledgements on both paths, any set of two readers
+      and any set of two writers must share at least one member — so a read is guaranteed to contact
+      a replica holding the most recently acknowledged write, and conflict resolution can pick it.
+      Two acknowledgements out of three means one replica can be unavailable without blocking either
+      operation. The configuration is a dial rather than a binary: pushing W to 3 makes reads cheap
+      and writes fragile, and dropping both to 1 maximises speed and availability while giving up
+      the overlap guarantee entirely.
+
+  - id: timeout-ambiguity
+    kind: choice
+    concept: idempotency
+    prompt: "Why can a timeout not tell you whether an operation happened?"
+    options:
+      - text: "It is consistent with the request never arriving, the request being processed and the response lost, or processing still being in progress — the client cannot distinguish them"
+        correct: true
+        feedback: >-
+          Hence at-least-once delivery plus idempotent handling rather than exactly-once.
+      - text: Because timeouts are only triggered by network failures, never by slow processing
+        feedback: >-
+          Slow processing is one of the possibilities, which is part of the ambiguity.
+      - text: Because TCP does not acknowledge delivery
+        feedback: >-
+          TCP acknowledges segments; the application-level outcome is still unknown.
+    explanation: >-
+      A timeout is the absence of information, and absence is compatible with several very different
+      states of the world. The request may have been dropped before arriving, in which case nothing
+      happened. It may have been fully processed with the reply lost on the way back, in which case
+      everything happened. Or it may still be executing, in which case it is about to happen. Since
+      the client has no way to tell, it must either retry — accepting possible duplication — or
+      abandon the operation — accepting possible loss. This is why idempotency is not an optimisation
+      but a requirement for any operation with a side effect.
+
+  - id: idempotency-constraint
+    kind: choice
+    concept: idempotency
+    prompt: "Why is check-then-insert insufficient for idempotency?"
+    options:
+      - text: "Two concurrent retries both find no existing record and both proceed — a unique constraint on the key is what actually decides"
+        correct: true
+        feedback: >-
+          Then catch the uniqueness violation and return the winner's stored response.
+      - text: Because the check may read from a stale replica
+        feedback: >-
+          A real additional hazard, and the race exists even against the primary.
+      - text: Because idempotency keys expire before the check completes
+        feedback: >-
+          Expiry is a retention policy, not the source of the race.
+    explanation: >-
+      The two statements leave a window, and retries of the same request frequently arrive
+      concurrently — a client timing out and retrying while the original is still in flight is the
+      normal case rather than an edge case. Both executions see no stored record and both perform the
+      side effect. Only an enforcement point evaluated atomically at write time closes the gap, which
+      is what a unique index provides: one insert succeeds, the other raises, and the loser reads the
+      winner's recorded response. This is the same reasoning that makes a database constraint the
+      only reliable uniqueness check in an application.
+
+  - id: gc-partition
+    kind: choice
+    concept: cap-theorem
+    prompt: "Why is a long GC pause a partition?"
+    options:
+      - text: "A node that stops responding for seconds is indistinguishable from an unreachable one, so heartbeats fail and the cluster reacts as if the network had split"
+        correct: true
+        feedback: >-
+          Which is why partitions are routine rather than exotic.
+      - text: It is not — a partition requires actual network failure
+        feedback: >-
+          Partition detection is based on observed unresponsiveness, whatever the cause.
+      - text: Because GC releases network buffers, dropping in-flight packets
+        feedback: >-
+          Collection does not discard sockets; the problem is unresponsiveness.
+    explanation: >-
+      Distributed systems detect failure by absence of response within a timeout, and they cannot
+      determine why a response is missing. A process frozen by a stop-the-world collection, a
+      machine swapping heavily, or an overloaded scheduler all produce exactly the signature of an
+      unreachable node — so the cluster may remove it from the quorum, elect a new leader, or
+      redirect traffic, and then the paused node resumes believing it is still the leader. That
+      scenario is the origin of fencing tokens and lease expiry. It also reframes partitions as an
+      ordinary operational event rather than a rare network catastrophe.
+
+  - id: explain-per-feature
+    kind: recall
+    concept: eventual-consistency
+    prompt: >-
+      Give three features in one application needing three different consistency guarantees, with
+      reasons.
+    key_points:
+      - Payment balance or inventory decrement — linearisable, since a stale read is a financial error
+      - A user's own profile or comment — read-your-writes, or it generates support tickets
+      - Follower count or product-page stock — eventual and cached, since brief staleness is invisible
+      - A feed — consistent prefix, so a reply never precedes its parent
+      - The read volume often differs by orders of magnitude between them
+      - So one consistency level for the whole system is either too expensive or incorrect
+    model: >-
+      A payment balance or an inventory decrement at checkout needs linearisability: a stale read
+      means authorising a payment against money that is gone or selling stock that does not exist, and
+      both have direct financial consequences, so the coordination latency is worth paying. A user's
+      own profile or a comment they just posted needs read-your-writes: nothing worse happens than
+      confusion, but it is the single most reported replication complaint and it is cheap to fix by
+      routing that session's reads to a caught-up replica for a short window. A follower count, or the
+      stock figure displayed on a product page, can be eventually consistent and heavily cached —
+      being wrong for a second is invisible, and this read typically carries a thousand times the
+      volume of the checkout decrement, so paying for consistency here would be the most expensive
+      possible place to do it. A feed wants consistent prefix specifically, so a reply is never
+      rendered above the comment it answers, which is a causality property rather than a freshness
+      one. The pattern is that these all coexist and the read volumes differ by orders of magnitude,
+      so choosing a single level for the system either overpays enormously or is wrong where it
+      matters.

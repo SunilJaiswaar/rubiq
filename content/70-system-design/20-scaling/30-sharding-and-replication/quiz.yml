@@ -1,0 +1,198 @@
+passScore: 0.7
+questions:
+  - id: replication-scope
+    kind: choice
+    concept: replication
+    prompt: "Which problem does replication NOT solve?"
+    options:
+      - text: "Write capacity and data volume — every replica applies every write and holds the full dataset"
+        correct: true
+        feedback: >-
+          Ten replicas do ten times the total write work for the same write throughput as one.
+      - text: Availability, since a failover still causes downtime
+        feedback: >-
+          Surviving a node failure is one of replication's primary benefits.
+      - text: Read capacity, since replicas lag behind
+        feedback: >-
+          Lag affects freshness, not throughput; reads scale well across replicas.
+    explanation: >-
+      Replication multiplies copies, so it multiplies the places a read can be served from and the
+      number of failures the system survives. Writes work in the opposite direction: a write must be
+      applied everywhere, so each additional replica adds work without adding write throughput — and
+      since each holds a complete copy, nothing about the dataset's size changes. This is the reason
+      the distinction matters practically: replication is cheap and tempting, so a team facing a
+      write bottleneck can adopt it and make the situation marginally worse.
+
+  - id: shard-key-requirements
+    kind: choice
+    concept: partition-keys
+    prompt: "Why do the three shard-key requirements conflict?"
+    options:
+      - text: "Being present in every query, distributing evenly, and keeping related data together pull apart — sharding orders by order id distributes perfectly and scatters each user's history"
+        correct: true
+        feedback: >-
+          Tenant id often satisfies all three, until one tenant is far larger than the median.
+      - text: They do not conflict; a hash of the primary key satisfies all three
+        feedback: >-
+          A hashed primary key distributes well and scatters related rows.
+      - text: Because even distribution requires a directory, which adds a query dependency
+        feedback: >-
+          Hashing distributes without a directory; the tension is between the three goals themselves.
+    explanation: >-
+      Each requirement favours a different key. Even distribution favours something
+      high-cardinality and unrelated to access patterns, such as a hash of a row's own identifier.
+      Locality favours the entity that operations group around, such as a user or a tenant.
+      Query coverage favours whatever appears in the WHERE clause, which may be neither. A key that
+      spreads load superbly can scatter every entity's related rows across all shards, turning
+      ordinary reads into scatter-gather and ordinary writes into distributed transactions. Choosing
+      means deciding which queries are allowed to be expensive.
+
+  - id: time-sharding
+    kind: choice
+    concept: hot-spots
+    prompt: "Why is sharding by timestamp usually wrong?"
+    options:
+      - text: "Every write lands on the current shard by construction, so you get sharding's operational cost with one node's write capacity and read-only archives"
+        correct: true
+        feedback: >-
+          The hot spot is structural rather than accidental.
+      - text: Because timestamps are not unique, so keys collide
+        feedback: >-
+          Collisions are handled easily; the write concentration is the problem.
+      - text: Because range queries on time stop working
+        feedback: >-
+          Those are precisely the queries it makes efficient.
+    explanation: >-
+      Time increases monotonically, so a time-based partition assignment routes all new data to
+      whichever shard owns the present. Every other shard holds history and receives no writes at
+      all, which means the write throughput of the whole cluster equals the write throughput of one
+      node — the exact capacity you were trying to escape. This is the clearest example of a
+      structural hot spot: no amount of rebalancing helps, because the imbalance is a property of
+      the key rather than of the current data distribution. Time-based partitioning does make sense
+      for archival and retention, where writes are not the constraint.
+
+  - id: resharding
+    kind: choice
+    concept: sharding
+    prompt: "Going from 4 shards to 5 with modulo hashing — what moves, and what fixes it?"
+    options:
+      - text: "About 80% of keys rehash, while serving traffic — consistent hashing reduces it to roughly 1/N, and over-provisioned logical shards avoid rehashing entirely"
+        correct: true
+        feedback: >-
+          Shard count is one of the few things genuinely worth deciding before you start.
+      - text: "About 20% move, since only one shard is added"
+        feedback: >-
+          Changing the modulus changes most keys' assignments, not just one shard's.
+      - text: Nothing moves if the new shard starts empty and absorbs only new writes
+        feedback: >-
+          Then lookups for existing keys compute the wrong shard.
+    explanation: >-
+      Modulo assignment makes a key's location depend on the total shard count, so altering that
+      count recomputes nearly every assignment — only keys whose value happens to map identically
+      under both moduli stay put. Migrating eighty percent of a dataset while continuing to serve
+      reads and writes against it is a substantial project. Consistent hashing bounds the movement to
+      the arc a new node claims, around one over N of the keys. Pre-creating many logical shards and
+      mapping groups of them onto physical nodes avoids rehashing altogether, since growth relocates
+      whole logical shards whose identity never changes.
+
+  - id: logical-shards
+    kind: choice
+    concept: sharding
+    prompt: "What is the point of 1024 logical shards on 4 machines?"
+    options:
+      - text: "Growth becomes moving whole logical shards between machines rather than rehashing keys — and it costs nothing to over-provision them at the start"
+        correct: true
+        feedback: >-
+          The alternative, four shards on four machines, makes the next step a rehash.
+      - text: It spreads load more evenly across the four machines
+        feedback: >-
+          Distribution depends on the hash, not on the number of logical units.
+      - text: It allows each shard to be smaller and therefore faster to query
+        feedback: >-
+          Query cost depends on indexes and data size per machine, not on logical partitioning.
+    explanation: >-
+      Separating the logical partition from the physical node means a key's logical shard is fixed
+      forever while the mapping from logical shard to machine is just configuration. Adding a fifth
+      machine becomes a matter of relocating roughly a fifth of the logical shards, each of which can
+      be copied and cut over independently with no key reassignment and no ambiguity about where a
+      key lives. Because logical shards are cheap — a column value, a schema, or a directory entry —
+      creating far more than you need is almost free, and it converts the hardest future migration
+      into routine data movement.
+
+  - id: lost-capabilities
+    kind: choice
+    concept: sharding
+    prompt: "Which capability survives sharding unchanged?"
+    options:
+      - text: "None of cross-shard joins, cross-shard transactions, global unique constraints or global ORDER BY with LIMIT — each becomes something you implement"
+        correct: true
+        feedback: >-
+          A unique index is per shard, so global uniqueness needs an allocator or a key scheme.
+      - text: Unique constraints, since the database enforces them cluster-wide
+        feedback: >-
+          Indexes are local to a shard.
+      - text: "ORDER BY with LIMIT, since each shard can apply the limit locally"
+        feedback: >-
+          You must fetch N from every shard and merge, which costs N × shards rows.
+    explanation: >-
+      Everything the database provided by virtue of having all the data in one place stops being
+      free. A join across shards must be performed by the application or avoided by denormalising.
+      A transaction spanning shards requires a saga with compensating actions or two-phase commit
+      with its blocking failure mode. A unique index constrains only its own shard, so global
+      uniqueness needs either a central allocator or a key scheme that makes collisions impossible.
+      A global top-N requires fetching N from each shard and merging. Sharding is best understood as
+      trading away database features for write capacity.
+
+  - id: replicas-not-backups
+    kind: choice
+    concept: replication
+    prompt: "Why are replicas not backups?"
+    options:
+      - text: "They apply every change faithfully and immediately, including a mistaken DELETE or DROP — backups protect against human error and corruption, replicas against hardware failure"
+        correct: true
+        feedback: >-
+          Point-in-time recovery is the property a replica cannot offer.
+      - text: Because replicas lag, so they hold incomplete data
+        feedback: >-
+          Lag is measured in seconds; the problem is that they faithfully reproduce mistakes.
+      - text: Because replicas are read-only and cannot be promoted
+        feedback: >-
+          Promotion is a standard operation.
+    explanation: >-
+      Replication exists to keep copies identical, which is exactly the wrong behaviour when the
+      change being copied is a mistake: a destructive statement reaches every replica within
+      milliseconds, so there is no copy from before the error. Backups are valuable precisely because
+      they are stale — they represent a point in time you can return to — and because they can be
+      retained across a window long enough to notice a problem. The two defend against different
+      failures, and a system with three replicas and no backups is well protected against a dead disk
+      and entirely unprotected against a wrong WHERE clause.
+
+  - id: explain-sequence
+    kind: recall
+    concept: sharding
+    prompt: >-
+      Give the scaling sequence in order and say why sharding is last.
+    key_points:
+      - Bigger machine first — no code change, no distributed cost, and a high ceiling
+      - Indexes and query fixes — often 100x for a day's work
+      - Caching — removes read load rather than serving it faster
+      - Read replicas — scales reads to the limit of write throughput
+      - Functional separation — move a high-write table to its own database
+      - Shard last, with a key derived from real query patterns
+      - Because sharding's costs are permanent and the shard key is hard to change
+    model: >-
+      Vertical scaling first, because it requires no code change and no distributed-systems cost, and
+      the ceiling is much higher than most estimates assume — a modern server holds several terabytes
+      and serves tens of thousands of writes per second, so doubling hardware is hours of work where
+      sharding is quarters. Then indexes and query fixes, which routinely yield a hundredfold
+      improvement for a day's effort and are strictly cheaper than any architectural change. Then
+      caching, which removes read work entirely rather than performing it faster. Then read replicas,
+      which scale reads up to the point where write throughput becomes the constraint. Then
+      functional separation — moving the one high-write table into its own database — which captures
+      much of sharding's benefit while keeping every query local inside each database and requiring no
+      shard key at all. Sharding goes last because its costs are permanent and structural: you give up
+      joins, transactions and unique constraints across shards, you acquire a routing layer and a
+      rebalancing problem, and the shard key is the one decision that cannot be cheaply revisited. The
+      practical observation is that most systems never need step six, and some that reached it got
+      there a year early and spent that year paying for distributed operations a larger machine would
+      have absorbed.

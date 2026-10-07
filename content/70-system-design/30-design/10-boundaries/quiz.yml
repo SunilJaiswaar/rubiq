@@ -1,0 +1,197 @@
+passScore: 0.7
+questions:
+  - id: the-test
+    kind: choice
+    concept: boundaries
+    prompt: "What is the test for a well-placed boundary, and how do you measure it?"
+    options:
+      - text: "A single business change touches one side of it — measured by counting how many modules each of the last twenty pull requests touched"
+        correct: true
+        feedback: >-
+          Version control records what actually changed together, which beats reasoning about it.
+      - text: Each module has a single responsibility, assessed by reading the class names
+        feedback: >-
+          \"One thing\" is unfalsifiable at any given level of abstraction.
+      - text: No module imports more than three others, measured by a dependency graph
+        feedback: >-
+          Import count says nothing about whether changes cross the boundary.
+    explanation: >-
+      The cost of software is dominated by change, and the cost of a change is roughly how many
+      places must be touched and understood — so the useful property of a boundary is whether
+      changes stop at it. That is directly observable: commits record which files changed together,
+      so a pull request touching five modules is evidence that the boundaries do not follow the work.
+      A median of one or two modules per change is healthy. This replaces an aesthetic judgement with
+      a measurement, which is why it survives contact with real code where "single responsibility"
+      does not.
+
+  - id: coupling-kinds
+    kind: choice
+    concept: coupling
+    prompt: "Which kind of coupling does not appear in a code review?"
+    options:
+      - text: "Temporal or shared-state coupling — two modules writing the same table, or an implicit required call order, which is invisible in every signature"
+        correct: true
+        feedback: >-
+          Which is why it survives in long-lived systems.
+      - text: Implementation coupling, since vendor calls are scattered too widely to spot
+        feedback: >-
+          Those are greppable by the vendor's name.
+      - text: Interface coupling, since interfaces hide what is really depended upon
+        feedback: >-
+          An interface dependency is explicit and is the cheap kind.
+    explanation: >-
+      Data and interface coupling are visible in a signature. Implementation coupling is visible by
+      searching for the concrete name — unpleasant to fix, but findable. Coupling through shared
+      mutable state or required ordering appears nowhere: two modules can have perfectly clean
+      interfaces and still be joined through a table they both write, or through an assumption that
+      setup runs before process. Nothing in a diff reveals it, the tests may pass because they
+      happen to run in the right order, and the failure appears at runtime in production. That
+      invisibility is precisely why it accumulates.
+
+  - id: dependency-direction
+    kind: choice
+    concept: dependency-direction
+    prompt: "Which way should a dependency point, and why?"
+    options:
+      - text: "From volatile to stable — business rules should not import a payment SDK, because the SDK changes quarterly and the rules do not"
+        correct: true
+        feedback: >-
+          This is the actual content of dependency inversion.
+      - text: From stable to volatile, so stable code controls the interface
+        feedback: >-
+          Then every change to the volatile side reaches into stable code.
+      - text: Direction does not matter as long as the dependency is on an interface
+        feedback: >-
+          An interface on the wrong side still propagates changes the wrong way.
+    explanation: >-
+      A dependency is a channel along which change propagates: if A depends on B, changes to B can
+      force changes to A. Pointing from the thing that changes often to the thing that rarely changes
+      means the channel is almost never used. Pointing the other way means every vendor upgrade,
+      every API revision and every library change reaches into your domain logic. The remedy is to
+      define the abstraction in terms of what the stable side needs and have the volatile side
+      implement it, which reverses the arrow without removing the capability.
+
+  - id: interface-placement
+    kind: choice
+    concept: dependency-direction
+    prompt: "Where does the interface belong?"
+    options:
+      - text: "With the consumer — if `PaymentGateway` lives in the payments module, orders still depends on payments and nothing has been inverted"
+        correct: true
+        feedback: >-
+          The adapter then points inward at the interface its consumer defined.
+      - text: With the implementation, so related code stays together
+        feedback: >-
+          That keeps the original dependency direction intact.
+      - text: In a shared package both sides depend on
+        feedback: >-
+          Workable, and it adds a package to version for no gain over defining it with the consumer.
+    explanation: >-
+      The point of introducing an abstraction is to reverse which module names which, and that only
+      happens if the abstraction is owned by the side that was previously doing the depending. Orders
+      declares what it needs — something that can charge an amount — and the Stripe adapter
+      implements that declaration, so the import arrow now runs from the vendor-specific code toward
+      the business rule. Defining the interface alongside the implementation leaves the consumer
+      importing from the implementation's module, which is the same coupling with an extra file.
+
+  - id: layer-directories
+    kind: choice
+    concept: boundaries
+    prompt: "Why do top-level directories named by technical layer work against you?"
+    options:
+      - text: "Layers are a taxonomy of technical kind rather than reason-to-change, so every business change crosses all of them — layering belongs inside a domain, not above it"
+        correct: true
+        feedback: >-
+          \"Add a discount code\" touching four directories is the symptom.
+      - text: Because they encourage large files in each layer
+        feedback: >-
+          File size is unrelated to the organising axis.
+      - text: Because frameworks cannot autoload nested domain directories
+        feedback: >-
+          Autoloading handles either arrangement.
+    explanation: >-
+      Organising by controllers, models, services and serialisers groups code by what kind of thing
+      it is, and work does not arrive in those units. A feature request concerns a domain concept, so
+      implementing it requires a controller change, a model change, a service change and a serialiser
+      change — four directories for one idea, every time. Making the domain the outer axis means that
+      change is local, and layering within each domain remains useful. The organising question is
+      which axis changes follow, and it is almost never the technical one.
+
+  - id: single-impl-interface
+    kind: choice
+    concept: coupling
+    prompt: "When is an interface with one implementation a mistake?"
+    options:
+      - text: "When no second implementation is plausible — a CSV writer over the standard library gains indirection without decoupling, so you read two files to understand one behaviour"
+        correct: true
+        feedback: >-
+          Add it when the second implementation arrives, or when a test genuinely cannot substitute otherwise.
+      - text: Always — an interface requires at least two implementations to be justified
+        feedback: >-
+          Substituting in tests, or isolating a volatile vendor, can justify one.
+      - text: Never — an interface is always cheaper than a future refactor
+        feedback: >-
+          Interfaces that are never exercised cost readability permanently.
+    explanation: >-
+      An abstraction earns its place by hiding something likely to change or by enabling
+      substitution you actually perform. Wrapping something stable and ubiquitous — the standard
+      library's CSV support, say — hides nothing volatile and enables no substitution anyone will
+      use, so the only effect is that understanding one behaviour now requires following an extra
+      hop. The legitimate single-implementation cases are isolating a genuinely volatile dependency
+      such as a payment provider, and making a collaborator substitutable in a test where no other
+      seam exists.
+
+  - id: distributed-monolith
+    kind: choice
+    concept: boundaries
+    prompt: "What is a distributed monolith, and what is the test?"
+    options:
+      - text: "Services that must be deployed together — every cost of distribution with none of the independence; the test is whether you can deploy one without the other"
+        correct: true
+        feedback: >-
+          Strictly worse than the monolith it replaced.
+      - text: A monolith deployed to several machines behind a load balancer
+        feedback: >-
+          That is ordinary horizontal scaling of a monolith.
+      - text: Services that share a database but deploy independently
+        feedback: >-
+          A shared database is a serious coupling and independent deploy means it is not this failure.
+    explanation: >-
+      The benefits of a service boundary are independent deployment, independent scaling and fault
+      isolation. If a feature routinely requires coordinated changes across two services, none of
+      those is available: deploys must be sequenced, a failure in one breaks the other, and the
+      coupling that made the change span both is still present — now with a network hop,
+      serialisation, and distributed debugging added. Since the monolith had the coupling without
+      those costs, the result is a regression. Asking whether either side can be released alone
+      identifies it immediately.
+
+  - id: explain-service-reasons
+    kind: recall
+    concept: boundaries
+    prompt: >-
+      Give reasons that justify a service boundary, and one that does not.
+    key_points:
+      - Different scaling profiles — CPU-bound work beside connection-bound work
+      - Different deployment cadence — payments versus a marketing page
+      - Different availability requirements — checkout surviving recommendations being down
+      - Team ownership, since Conway's law is descriptive rather than aspirational
+      - A different runtime, such as a Python model beside a Rails app
+      - Not justified by "the code is messy"
+      - Because a messy monolith becomes a messy distributed system with worse tooling
+    model: >-
+      The reasons that justify the cost are all about properties the two sides need to have
+      independently. Different scaling profiles: image processing needs CPU while an API needs
+      connections, and one process cannot be sized for both — a CPU-bound endpoint in a shared
+      process degrades every other endpoint's latency. Different deployment cadence: a payments
+      change needs careful review and a marketing page does not, and coupling them means the slower
+      process governs both. Different availability requirements: checkout must keep working when the
+      recommendation engine is down, which means that dependency has to be removable at runtime.
+      Team ownership, because Conway's law is a description of what happens rather than advice —
+      the architecture will drift toward the communication structure, so opposing it is continuous
+      effort. And a different runtime, such as an ML model in Python next to a Rails application. The
+      reason that does not justify it is that the code is disorganised. A network call between two
+      modules that know too much about each other does not reduce what they know; it adds latency, a
+      wire format, two deployments and distributed debugging to exactly the same coupling. The
+      disorganisation should be fixed as a module boundary first — which is nearly free and
+      reversible in an afternoon — and the service boundary treated as a deployment decision made
+      under real pressure.

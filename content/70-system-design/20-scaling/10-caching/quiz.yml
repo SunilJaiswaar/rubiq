@@ -1,0 +1,196 @@
+passScore: 0.7
+questions:
+  - id: placement-order
+    kind: choice
+    concept: cache-strategies
+    prompt: "Why does cache position matter disproportionately?"
+    options:
+      - text: "Each layer that answers a request removes load from everything behind it — a 90% CDN hit rate removes 90% of all downstream load, while a 90% Redis hit rate removes 90% of database load only"
+        correct: true
+        feedback: >-
+          Which is why an in-process cache often beats reaching for Redis first.
+      - text: Because caches closer to the user have higher hit rates
+        feedback: >-
+          Hit rate depends on the data, not the position.
+      - text: Because network latency dominates, so only the browser cache matters
+        feedback: >-
+          Every layer removes real work; the shielding effect is the reason position matters.
+    explanation: >-
+      A cache intercepts requests before they reach anything further along the path, so its benefit
+      compounds across every component it sits in front of. A hit at the CDN means no application
+      server, no shared cache, no database and no network between them is involved at all; a hit in
+      Redis still consumed a load balancer, an application process and a network hop. That is why
+      an in-process cache — a hash lookup at nanoseconds with no serialisation and no network — is
+      frequently the better choice for small, shared, slow-changing data, despite being the less
+      fashionable answer.
+
+  - id: delete-not-set
+    kind: choice
+    concept: cache-invalidation
+    prompt: "Why delete the key on write rather than setting the new value?"
+    options:
+      - text: "Two concurrent writes can interleave their cache updates so the older value is stored permanently; and a failed set leaves a wrong value until the TTL, while a failed delete leaves a self-correcting miss"
+        correct: true
+        feedback: >-
+          You also often lack the full new value at the write site.
+      - text: Because setting requires a round trip and deleting does not
+        feedback: >-
+          Both are single operations of similar cost.
+      - text: Because deletion triggers the cache's eviction metrics, aiding observability
+        feedback: >-
+          A side effect at best, not the reason.
+    explanation: >-
+      The ordering hazard is the decisive argument. If one request writes A to the database and
+      another writes B, the database ends with B, but nothing forces the cache updates into the same
+      order — so the cache can end up holding A and will keep serving it until expiry. Deletion is
+      immune, because whichever delete happens last simply leaves the key absent and the next read
+      repopulates from the authoritative source. The failure asymmetry reinforces it: a wrong cached
+      value persists silently whereas a missing one costs one extra query.
+
+  - id: stampede-defences
+    kind: choice
+    concept: stampede
+    prompt: "Which stampede defence is cheapest and most often missing?"
+    options:
+      - text: "Jittered TTLs — a deploy that warms a thousand keys otherwise gives them all the same expiry, so they expire within the same second"
+        correct: true
+        feedback: >-
+          Single-flight and stale-while-revalidate are the other two, each with a real cost.
+      - text: Single-flight locking, since it requires only one extra key
+        feedback: >-
+          It also needs a lock expiry, a waiting strategy and a fallback path.
+      - text: Stale-while-revalidate, since it needs no coordination
+        feedback: >-
+          It accepts a window of stale data, which is not always permissible.
+    explanation: >-
+      Adding a random component to each TTL costs one expression and no coordination, yet it removes
+      the most common cause of a synchronised miss: keys populated at the same moment expiring at the
+      same moment. Any cache warmed by a deploy, a backfill or a traffic spike has this property, so
+      the stampede arrives as a single sharp spike rather than as spread-out misses. Single-flight is
+      stronger but requires a lock with an expiry and a sensible fallback, and stale-while-revalidate
+      requires that serving an expired value is acceptable — which it is not for prices, stock levels
+      or permissions.
+
+  - id: penetration
+    kind: choice
+    concept: cache-strategies
+    prompt: "What is cache penetration, and what is the fix?"
+    options:
+      - text: "Requests for keys that do not exist are never cached, so every one reaches the database — cache the negative result with a short TTL"
+        correct: true
+        feedback: >-
+          An attacker requesting random ids bypasses the cache entirely otherwise.
+      - text: An attacker guessing cache keys and reading other users' data
+        feedback: >-
+          That is an authorisation problem, not penetration.
+      - text: The cache filling with rarely-read keys and evicting hot ones
+        feedback: >-
+          That is pollution, addressed by eviction policy.
+    explanation: >-
+      A straightforward cache-aside implementation stores only values it found, so a lookup for a
+      non-existent identifier misses, queries the database, finds nothing, and caches nothing —
+      leaving the next identical request to repeat the whole sequence. Since the cache never absorbs
+      these, they pass straight through, and a client holding stale ids or an attacker iterating
+      random ones can drive the database at full rate regardless of hit rate. Storing a sentinel for
+      the negative result fixes it, with a short expiry so a newly created record does not appear
+      absent for long.
+
+  - id: cold-cache
+    kind: choice
+    concept: cache-strategies
+    prompt: "A service runs at 20% database utilisation behind a 95% hit rate. The cache empties. What happens?"
+    options:
+      - text: "Database load rises roughly twentyfold — to about 400% of capacity — so the cache is load-bearing and losing it is an outage rather than a slowdown"
+        correct: true
+        feedback: >-
+          Knowing your cold-cache capacity is knowing the capacity you have during an incident.
+      - text: Utilisation rises to about 40%, since the cache was only handling the easy requests
+        feedback: >-
+          A 95% hit rate means twenty times as many requests reach the database.
+      - text: Nothing immediately; the cache repopulates faster than the load arrives
+        feedback: >-
+          Repopulating requires the queries that the database cannot serve.
+    explanation: >-
+      With only five percent of requests reaching the database, the observed utilisation reflects a
+      twentieth of the total read volume. Removing the cache multiplies that by twenty, which takes a
+      comfortable twenty percent to four hundred percent — far beyond capacity, so queries queue,
+      latency climbs, connections exhaust, and the repopulation that would restore the hit rate
+      cannot complete. The important consequence is conceptual: once a hit rate is necessary rather
+      than beneficial, the cache has become a critical dependency and needs the same treatment as any
+      other, including a known cold-start capacity and a concurrency limit on the fallback path.
+
+  - id: hit-rate-arithmetic
+    kind: choice
+    concept: cache-strategies
+    prompt: "Why is improving a hit rate from 95% to 99% a bigger win than it sounds?"
+    options:
+      - text: "It removes 80% of the remaining misses — from five per hundred requests to one — which is a fivefold reduction in database load"
+        correct: true
+        feedback: >-
+          Which is why miss rate is the better metric to track than hit rate.
+      - text: Because high hit rates reduce latency superlinearly
+        feedback: >-
+          Per-request latency is unchanged; the volume reaching the database is what falls.
+      - text: Because it allows the cache to be sized smaller
+        feedback: >-
+          A higher hit rate generally needs more cache, not less.
+    explanation: >-
+      The figure that the database experiences is the miss rate, and four percentage points of hit
+      rate at the top of the range is a large multiplicative change to it: five misses per hundred
+      becoming one is a reduction by a factor of five. Expressed as hit rate the improvement looks
+      marginal, which systematically understates the value of work at high hit rates — and
+      conversely, a drop from 99% to 95% quintuples backend load while barely moving the headline
+      number. Tracking and alerting on miss rate rather than hit rate makes those changes visible.
+
+  - id: noeviction
+    kind: choice
+    concept: cache-strategies
+    prompt: "What does Redis's default `maxmemory-policy noeviction` do to a cache?"
+    options:
+      - text: "Writes fail when memory is full instead of evicting, so the cache starts returning errors rather than making room — correct for Redis-as-a-database and wrong for Redis-as-a-cache"
+        correct: true
+        feedback: >-
+          One of the most common Redis misconfigurations.
+      - text: It evicts the oldest keys regardless of access pattern
+        feedback: >-
+          That would be a TTL-based or FIFO policy; noeviction evicts nothing.
+      - text: It disables TTLs, so keys persist indefinitely
+        feedback: >-
+          TTL expiry still applies; only eviction under pressure is disabled.
+    explanation: >-
+      The default assumes the data is authoritative, in which case silently discarding it would be
+      worse than refusing writes — a reasonable choice for Redis used as a primary store. For a cache
+      the priority is inverted: losing a cached value is harmless and refusing writes breaks the
+      application. Left at the default, a cache that fills up stops accepting new entries and begins
+      raising errors on every set, which typically surfaces as a confusing partial outage rather
+      than as a memory alert. Setting `allkeys-lru` or `allkeys-lfu` is part of configuring Redis as
+      a cache.
+
+  - id: explain-coherence
+    kind: recall
+    concept: cache-coherence
+    prompt: >-
+      Eight app servers with in-process caches. Describe what a user sees after a write, and your
+      options.
+    key_points:
+      - Each server holds its own copy, so they disagree after a write
+      - A user refreshing hits different servers and sees alternating answers
+      - Looks like the application is broken rather than merely stale
+      - Option — short TTL, bounding the disagreement window
+      - Option — a shared cache for anything a user can observe changing
+      - Option — pub/sub invalidation messages to all instances
+      - In-process caching suits data that changes rarely and is not user-specific
+    model: >-
+      Each server populated its cache independently, so after a write the server that handled it may
+      have invalidated its own copy while the other seven still hold the old value. A user refreshing
+      is load-balanced across them and sees the new value, then the old one, then the new one — which
+      reads as the application being broken rather than as data being slightly stale, and it generates
+      support tickets that are almost impossible to reproduce. Three options. The cheapest is a short
+      TTL, which bounds the disagreement to a few seconds and is adequate when the data is not
+      something a user is actively watching. The most correct is to move anything user-observable to a
+      shared cache, so there is one copy and invalidation happens in one place. In between is
+      broadcasting invalidation messages over pub/sub so every instance drops the key, which keeps the
+      in-process speed and adds a dependency plus the possibility of a missed message. The underlying
+      guidance is that in-process caching suits data that changes rarely and is not user-specific —
+      feature flags, configuration, a routing table — and is a poor fit for anything a user can watch
+      change.

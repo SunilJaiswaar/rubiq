@@ -1,0 +1,193 @@
+passScore: 0.7
+questions:
+  - id: ratios
+    kind: choice
+    concept: latency-numbers
+    prompt: "Approximate ratio of memory to SSD random read, and local round trip to cross-region?"
+    options:
+      - text: "Memory to SSD about 1:150; a datacentre round trip to a cross-continent one about 1:300"
+        correct: true
+        feedback: >-
+          Ratios stay true as absolute numbers improve, which is why they are worth memorising.
+      - text: "Memory to SSD about 1:10; local to cross-region about 1:20"
+        feedback: >-
+          Both understate the gap by an order of magnitude.
+      - text: "Memory to SSD about 1:1000; local to cross-region about 1:3"
+        feedback: >-
+          The first overstates and the second drastically understates.
+    explanation: >-
+      Main memory is around 100 nanoseconds and an SSD random read around 16 microseconds, which is
+      roughly 150 to 1. A round trip inside a datacentre is about 500 microseconds while
+      California to the Netherlands is about 150 milliseconds, roughly 300 to 1. These ratios are
+      what make design questions decidable: a memory cache is dramatically better than an SSD one,
+      and a cross-region call consumes the latency budget of three hundred local hops, so it
+      cannot sit casually in a request path.
+
+  - id: write-rate
+    kind: choice
+    concept: back-of-envelope
+    prompt: "100M daily users posting twice a day. Writes per second, average and at 3× peak?"
+    options:
+      - text: "About 2,300/s average and about 7,000/s at peak — a modest cluster"
+        correct: true
+        feedback: >-
+          Dividing a daily figure by roughly 100,000 gives QPS.
+      - text: "About 23,000/s average and 70,000/s at peak"
+        feedback: >-
+          That is off by a factor of ten; 200M ÷ 86,400 is about 2,300.
+      - text: "About 200/s average, since most users post less than claimed"
+        feedback: >-
+          The estimate should follow from the stated behaviour rather than adjusting it.
+    explanation: >-
+      Two hundred million operations spread over 86,400 seconds is about 2,300 per second, and the
+      useful shortcut is that dividing a daily count by 100,000 approximates average QPS closely
+      enough for a design discussion. Applying a peak multiplier matters because consumer traffic
+      is far from uniform — three times average is conservative and ten times is plausible for
+      something with a strong daily rhythm. The conclusion is as important as the number: a few
+      thousand writes per second is comfortably within reach of ordinary infrastructure, so writes
+      are not where the design difficulty lies.
+
+  - id: read-ratio
+    kind: choice
+    concept: back-of-envelope
+    prompt: "The same users loading a 50-post feed five times a day. What does the ratio tell you?"
+    options:
+      - text: "About 290,000 post-reads/s, a read:write ratio near 125:1 — so precompute and cache, and storage is not the problem"
+        correct: true
+        feedback: >-
+          Fan out on write is justified by exactly this ratio.
+      - text: "About 29,000 reads/s, comparable to writes, so compute on read"
+        feedback: >-
+          Five loads of fifty posts is 250 post-reads per user per day, not 25.
+      - text: The ratio is irrelevant; storage growth determines the design
+        feedback: >-
+          22TB a year is unremarkable; the read rate is what constrains the design.
+    explanation: >-
+      A hundred million users each reading 250 posts a day is 25 billion post-reads, around 290,000
+      per second before any peak multiplier — two orders of magnitude above the write rate. That
+      asymmetry is the architecture: reads must be served from precomputed, cached structures
+      because recomputing a feed per request at that rate is not viable, while the write path can
+      afford substantial extra work per post. It also tells you storage is a non-issue, which
+      redirects the conversation away from the thing people usually discuss first.
+
+  - id: tail-compounding
+    kind: choice
+    concept: percentiles
+    prompt: "A page makes 100 service calls, each p99 = 100ms. What fraction of pages contain a p99 response?"
+    options:
+      - text: "About 63% — 1 minus 0.99 to the hundredth — so most pages are slow while every service is within its SLO"
+        correct: true
+        feedback: >-
+          Only reducing the number of calls changes the exponent.
+      - text: About 1%, since each call independently has a 1% chance
+        feedback: >-
+          That is the per-call probability; the page needs all hundred to be fast.
+      - text: About 10%, since the slow calls overlap
+        feedback: >-
+          Parallelism affects duration, not the probability that at least one is slow.
+    explanation: >-
+      The page is fast only if every call is fast, which has probability 0.99 raised to the power of
+      the number of calls — about 37% at a hundred calls, so roughly 63% of page loads include at
+      least one p99 response. The uncomfortable consequence is that no individual service appears
+      unhealthy: each is meeting its stated objective exactly, and only measurement at the edge
+      reveals the problem. Because the call count is the exponent, batching and precomputing are
+      qualitatively more effective than making any single service faster; hedged requests and
+      timeouts limit the damage without changing the arithmetic.
+
+  - id: availability-serial
+    kind: choice
+    concept: availability
+    prompt: "Four serial dependencies at 99.9% each. Resulting availability?"
+    options:
+      - text: "About 99.6%, which is roughly three hours of downtime a month"
+        correct: true
+        feedback: >-
+          Each dependency lowers the ceiling you can reach at all.
+      - text: "99.9%, since the components fail independently and rarely overlap"
+        feedback: >-
+          Independent failures still accumulate when all four are required.
+      - text: "About 99.975%, averaging the four figures"
+        feedback: >-
+          Availability multiplies for required components rather than averaging.
+    explanation: >-
+      If every component must be working, the probability that all four are up is the product of
+      their individual availabilities — 0.999 to the fourth, about 0.996. Expressed as downtime
+      that is roughly three hours a month rather than forty-three minutes, so adding dependencies
+      actively lowers the best figure you can promise. The only way to depend on something without
+      inheriting its downtime is to continue functioning in a degraded form when it is unavailable,
+      which converts a multiplication into a feature decision.
+
+  - id: availability-parallel
+    kind: choice
+    concept: availability
+    prompt: "Two redundant components at 99% each, either sufficient. Combined availability?"
+    options:
+      - text: "99.99% — the failures multiply: 1 − (0.01 × 0.01)"
+        correct: true
+        feedback: >-
+          Dependencies multiply availability down; redundancy multiplies failure down.
+      - text: "99%, since one of them is still only 99% reliable"
+        feedback: >-
+          Both must fail simultaneously for the pair to be unavailable.
+      - text: "198%, which caps at 100%"
+        feedback: >-
+          Availabilities do not add.
+    explanation: >-
+      With genuine redundancy the pair is unavailable only when both members are down at once, so
+      you multiply the failure probabilities rather than the availabilities: one percent times one
+      percent is one in ten thousand. Two mediocre components therefore yield four nines, which is
+      the entire basis of redundant design. The caveat is independence — shared power, a shared
+      rack, a shared configuration error or a shared dependency makes the failures correlated, and
+      correlated failures do not multiply, which is why real systems distribute across availability
+      zones rather than merely across machines.
+
+  - id: one-machine
+    kind: choice
+    concept: back-of-envelope
+    prompt: "1 billion rows at 200 bytes each — one machine or a cluster? And a trillion?"
+    options:
+      - text: "200GB fits on one disk comfortably; a trillion rows is 200TB and needs a cluster"
+        correct: true
+        feedback: >-
+          A million rows at that size fits in memory, which is the third useful line.
+      - text: Both need a cluster; a billion rows is beyond any single machine
+        feedback: >-
+          A billion rows of that size is a few hundred gigabytes, which is ordinary.
+      - text: Both fit on one machine with modern NVMe capacity
+        feedback: >-
+          200TB exceeds practical single-machine storage and working-set limits.
+    explanation: >-
+      Three reference points answer most "does this need to be distributed" questions immediately:
+      a million such rows is 200MB and fits in memory, a billion is 200GB and fits on one disk, and
+      a trillion is 200TB and does not. Reaching for a distributed system before performing this
+      multiplication is among the most common sources of unnecessary complexity, because the
+      answer is frequently that a single well-provisioned machine is sufficient — and a single
+      machine is dramatically simpler to operate, reason about and back up.
+
+  - id: explain-premature-tech
+    kind: recall
+    concept: back-of-envelope
+    prompt: >-
+      Why is "we need Kafka" premature before an estimate, and what would you compute first?
+    key_points:
+      - The event rate may be trivially small — 12 QPS from a million events a day
+      - A database table works as a queue at low rates and is far simpler to operate
+      - Compute events per second, average and peak
+      - Compute retention volume and whether it fits on one machine
+      - Establish whether you need durability, replay, ordering or fan-out
+      - Those requirements, not the volume alone, justify a log
+      - Each added component lowers the availability ceiling
+    model: >-
+      Because the number may make the question moot. A million events a day sounds substantial and
+      is about twelve per second, which a Postgres table with an index handles without noticing —
+      and a table is something the team already knows how to back up, monitor, query and restore,
+      whereas a log is a new distributed system with its own failure modes, its own operational
+      knowledge and its own effect on the availability ceiling. So I would compute the event rate
+      average and at peak, the retention volume and whether it fits on one machine, and then
+      separately establish which properties are actually required: durable retention with replay,
+      strict per-key ordering, multiple independent consumer groups, or consumption decoupled from
+      production. Those requirements are what justify a log, not the raw volume — a system at
+      fifty thousand events per second with a single consumer and no replay requirement may still
+      be better served by something simpler, and a system at twelve events per second that genuinely
+      needs replay across five consumer groups may be a reasonable case for one. Leading with the
+      technology skips the step where you discover which of those you have.

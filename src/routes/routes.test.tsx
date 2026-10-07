@@ -121,11 +121,14 @@ describe('Catalog', () => {
   it('links to every lesson in the catalogue', async () => {
     mount('/learn')
     await screen.findByRole('heading', { level: 1, name: /tracks/i })
+    // Collect the hrefs once. Querying by role inside the loop recomputes the
+    // whole accessibility tree per lesson, which is quadratic and times out
+    // once the catalogue has a few dozen lessons in it.
+    const hrefs = new Set(
+      screen.getAllByRole('link').map((a) => a.getAttribute('href')),
+    )
     for (const lesson of allLessons) {
-      const link = screen.getAllByRole('link').find(
-        (a) => a.getAttribute('href') === lesson.route,
-      )
-      expect(link, `no catalogue link for ${lesson.id}`).toBeDefined()
+      expect(hrefs.has(lesson.route), `no catalogue link for ${lesson.id}`).toBe(true)
     }
   })
 })

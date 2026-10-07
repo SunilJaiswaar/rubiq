@@ -1,0 +1,194 @@
+passScore: 0.7
+questions:
+  - id: five-obligations
+    kind: choice
+    concept: message-queues
+    prompt: "What do you take on when work moves out of the request path?"
+    options:
+      - text: "Idempotency, classified retries, a dead-letter path, backpressure, and some way to observe whether the work happened"
+        correct: true
+        feedback: >-
+          A queue without these is a way of losing work quietly.
+      - text: Only retries, since the broker handles delivery and ordering
+        feedback: >-
+          Brokers deliver at-least-once; everything about correctness remains yours.
+      - text: Mainly monitoring, since the semantics are the broker's concern
+        feedback: >-
+          Monitoring is one of five, and the broker guarantees less than people assume.
+    explanation: >-
+      Decoupling converts a synchronous failure into a deferred one, and a deferred failure is
+      invisible unless something is specifically looking for it. The work may run twice, so handlers
+      must be idempotent; it may fail transiently, so retries are needed; it may fail permanently, so
+      there must be somewhere for those messages to go; the queue may grow faster than it drains, so
+      an overflow policy is required; and the user who got a fast response has no idea whether
+      anything happened, so there must be a status mechanism or a reconciliation check. Those are the
+      substance of the topic rather than the choice of broker.
+
+  - id: no-exactly-once
+    kind: choice
+    concept: at-least-once
+    prompt: "Why can a queue not offer exactly-once delivery?"
+    options:
+      - text: "Doing the work and acknowledging are not atomic — crash between them and the message is redelivered; acknowledge first and a crash loses the work entirely"
+        correct: true
+        feedback: >-
+          What exists is at-least-once plus deduplication, which is observationally equivalent.
+      - text: Because networks reorder messages, which breaks deduplication
+        feedback: >-
+          Reordering is a separate problem; the non-atomicity is the obstacle.
+      - text: Because brokers cannot persist acknowledgements durably
+        feedback: >-
+          They can; the gap is between the work and the acknowledgement.
+    explanation: >-
+      A consumer must both perform the effect and inform the broker, and no ordering of those two
+      steps is safe. Acknowledging afterwards means a crash in the interval leaves the broker
+      believing the message was never handled, so it is redelivered and the effect occurs twice.
+      Acknowledging beforehand means a crash after the acknowledgement loses the work with no record
+      that it was outstanding. Since the two operations touch different systems there is no
+      transaction spanning them. Systems advertising exactly-once provide at-least-once delivery
+      combined with deduplication or a transactional write on the consumer side.
+
+  - id: dual-write
+    kind: choice
+    concept: message-queues
+    prompt: "What is the dual-write problem, and how does an outbox fix it?"
+    options:
+      - text: "Saving data and publishing an event are separate operations, so either can fail alone — an outbox writes the event as a row in the same transaction, and a poller publishes from that table"
+        correct: true
+        feedback: >-
+          Publication is then at-least-once, which consumers had to tolerate anyway.
+      - text: Two consumers writing the same record concurrently, fixed by locking the outbox table
+        feedback: >-
+          That is a different concurrency problem.
+      - text: Writing to a primary and a replica, fixed by synchronous replication
+        feedback: >-
+          Replication is unrelated to event publication.
+    explanation: >-
+      There is no transaction spanning a database and a broker, so committing then publishing can
+      leave data with no event, while publishing then committing can emit an event for data that was
+      never saved. Both occur rarely enough to pass testing and often enough to cause real
+      inconsistency. An outbox removes the second write from the critical path by making the event
+      part of the same atomic commit as the data — it is simply another row — and a separate process
+      reads unpublished rows, publishes them, and marks them sent. A crash between publishing and
+      marking republishes, which is acceptable precisely because consumers must already be
+      idempotent.
+
+  - id: age-vs-depth
+    kind: choice
+    concept: message-queues
+    prompt: "Why alert on oldest-message age rather than queue depth?"
+    options:
+      - text: "Depth of 10,000 draining in a minute is healthy while depth of 5 with an hour-old message is broken — age catches a stuck or poison message that depth misses entirely"
+        correct: true
+        feedback: >-
+          Depth also false-alarms during ordinary bursts.
+      - text: Because depth is expensive to compute on most brokers
+        feedback: >-
+          Both are cheap; the signal quality is what differs.
+      - text: Because age includes messages already acknowledged
+        feedback: >-
+          It measures the oldest unprocessed message.
+    explanation: >-
+      Depth conflates two very different situations. A large backlog being consumed rapidly is
+      normal behaviour for a queue absorbing a burst — that is what it is for — so alerting on depth
+      produces noise during healthy operation. Conversely a single message that cannot be processed
+      can block a partition or consume every retry slot while the depth stays tiny, so a
+      depth-based alert never fires on exactly the failure that most needs attention. Oldest-message
+      age describes the user-visible property directly: how long work has been waiting.
+
+  - id: ids-not-objects
+    kind: choice
+    concept: message-queues
+    prompt: "Why pass an id rather than a serialised object in a job payload?"
+    options:
+      - text: "A serialised object is a snapshot that may be stale or refer to a deleted record by the time the job runs, and it cannot survive a schema change across a deploy"
+        correct: true
+        feedback: >-
+          Re-reading in the job also means the job sees current state after a retry.
+      - text: Because payload size affects broker throughput
+        feedback: >-
+          A real secondary concern, not the main reason.
+      - text: Because ids are easier to deduplicate on
+        feedback: >-
+          Useful, and the staleness and deployability problems are the primary argument.
+    explanation: >-
+      Enqueueing captures the record as it was, and jobs may run seconds or hours later — after the
+      record changed, after it was deleted, or after a retry that should have observed the newer
+      state. Worse, a payload serialised by the old code can be dequeued by the new code across a
+      deploy, so a renamed or removed attribute causes deserialisation failures for every in-flight
+      message. Passing an identifier and re-reading inside the job makes the handler operate on
+      current state and makes payloads trivially forward-compatible, at the cost of one lookup.
+
+  - id: retries-ordering
+    kind: choice
+    concept: message-queues
+    prompt: "Why does retrying break ordering even on a broker that preserves it?"
+    options:
+      - text: "A message that fails and is retried later arrives after messages that were originally behind it, so the effective processing order differs from the publication order"
+        correct: true
+        feedback: >-
+          If order matters, partition by the entity whose order matters and accept the throughput limit.
+      - text: Because retries are published to a separate queue
+        feedback: >-
+          They often are, and the reordering happens regardless.
+      - text: Because brokers randomise redelivery order
+        feedback: >-
+          The reordering follows from the delay, not from randomisation.
+    explanation: >-
+      Ordering guarantees describe the sequence in which messages are delivered, not the sequence in
+      which handlers succeed. Once a message is deferred for a backoff interval, every message
+      published after it may be processed first, so an update intended to follow a creation can be
+      applied before it. This is why ordering guarantees are weaker in practice than they appear, and
+      why handlers that depend on sequence must either be commutative, carry a version they can
+      compare against, or be confined to a partition whose throughput you are willing to limit.
+
+  - id: visibility-timeout
+    kind: choice
+    concept: message-queues
+    prompt: "A job runs longer than the broker's visibility timeout. What happens?"
+    options:
+      - text: "The message becomes visible again and a second worker starts processing it concurrently with the first"
+        correct: true
+        feedback: >-
+          Either extend the timeout periodically from the worker, or make the job short.
+      - text: The broker cancels the first worker and reassigns the message
+        feedback: >-
+          Brokers cannot cancel a running consumer.
+      - text: The message moves directly to the dead-letter queue
+        feedback: >-
+          That happens after the retry limit, not on the first timeout expiry.
+    explanation: >-
+      A visibility timeout is the broker's assumption about how long processing should take; when it
+      elapses without an acknowledgement, the broker concludes the consumer has failed and offers the
+      message to another. It has no way to know the first consumer is still working, and no mechanism
+      to stop it. The result is two workers performing the same effect simultaneously, which breaks
+      even idempotent handlers that rely on a check-then-act. Long jobs must heartbeat to extend
+      their claim, or be decomposed into shorter units.
+
+  - id: explain-reconciliation
+    kind: recall
+    concept: message-queues
+    prompt: >-
+      What does a reconciliation job catch that per-job monitoring does not, and how would you build
+      one?
+    key_points:
+      - A queue makes failures invisible — the request succeeded regardless
+      - Per-job monitoring only sees jobs that were enqueued and ran
+      - It cannot see jobs that were never enqueued at all
+      - Compare intent with outcome — users created versus welcome emails sent
+      - Run periodically, alert on a divergence beyond a threshold
+      - Catches dual-write losses, a broken enqueue path, and silent consumer death
+    model: >-
+      Per-job monitoring observes the lifecycle of messages that exist: it reports failures, retries
+      and dead letters for work that was successfully enqueued and picked up. What it cannot see is
+      work that never entered the system — an enqueue call removed in a refactor, a dual-write loss
+      where the commit succeeded and the publish did not, a consumer process that died quietly so
+      nothing is being dequeued at all. In each case the dashboards look healthy precisely because
+      there is nothing to report, while the user's request succeeded and the side effect simply never
+      occurred. A reconciliation job addresses that by comparing intent against outcome from the
+      authoritative data rather than from the queue: count users created yesterday, count welcome
+      emails recorded as sent, and alert if the difference exceeds a small threshold. The same shape
+      applies to orders versus confirmations, uploads versus thumbnails, payments versus receipts. It
+      is cheap to write, runs on a schedule rather than in the critical path, and is the only check
+      that detects an entire class of work having gone missing — which is the characteristic failure
+      of asynchronous systems.
