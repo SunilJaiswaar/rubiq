@@ -50,37 +50,51 @@ resources:
 
 ## Search, and then the problem
 
-```js
-function search(node, target) {
-  while (node) {
-    if (target === node.value) return node;
-    node = target < node.value ? node.left : node.right;   // discard half
-  }
-  return null;
-}
-// O(h). Note that is O(h) and not O(log n) — the distinction is
-// the entire subject of this lesson.
+```ruby
+def search(node, target)
+  while node
+    return node if target == node.value
+    node = target < node.value ? node.left : node.right   # discard half
+  end
+  nil
+end
+# O(h). Note that is O(h) and not O(log n) — the distinction is
+# the entire subject of this lesson.
+#
+# Iterative on purpose: search is the one BST operation with no reason to
+# recurse, since there is nothing to do on the way back up. That also
+# means it is the one operation a degenerate tree makes slow rather than
+# fatal.
 ```
 
-```js
-function insert(node, value) {
-  if (!node) return new Node(value);
-  if (value < node.value) node.left = insert(node.left, value);
-  else if (value > node.value) node.right = insert(node.right, value);
-  return node;      // equal values ignored; decide this deliberately
-}
+```ruby
+def insert(node, value)
+  return Node.new(value) unless node
+  if value < node.value
+    node.left = insert(node.left, value)
+  elsif value > node.value
+    node.right = insert(node.right, value)
+  end
+  node      # equal values ignored; decide this deliberately
+end
 
-// Now insert 1, 2, 3, 4, 5 in order:
-//   1
-//    \
-//     2
-//      \
-//       3
-//        \
-//         4
-//          \
-//           5
-// Height 5, not log(5). This is a linked list wearing a tree's type.
+tree = nil
+[4, 2, 6, 1, 3, 5, 7].each { |v| tree = insert(tree, v) }
+# Reassigning `tree` is not optional. `insert` returns the subtree root,
+# and for an empty tree that is a brand-new node — dropping the return
+# value silently builds nothing.
+
+# Now insert 1, 2, 3, 4, 5 in order:
+#   1
+#    \
+#     2
+#      \
+#       3
+#        \
+#         4
+#          \
+#           5
+# Height 5, not log(5). This is a linked list wearing a tree's type.
 ```
 
 :::what
@@ -166,76 +180,116 @@ guarantee, because you cannot reason about a system built from hopes.
 :::
 
 :::example
-```js
-// 1. Deletion — the operation with three cases, and the one people
-//    get wrong.
-function remove(node, value) {
-  if (!node) return null;
-  if (value < node.value) { node.left = remove(node.left, value); return node; }
-  if (value > node.value) { node.right = remove(node.right, value); return node; }
+```ruby
+# 1. Deletion — the operation with three cases, and the one people
+#    get wrong.
+def remove(node, value)
+  return nil unless node
+  if value < node.value
+    node.left = remove(node.left, value)
+    return node
+  end
+  if value > node.value
+    node.right = remove(node.right, value)
+    return node
+  end
 
-  // Found it.
-  if (!node.left) return node.right;      // 0 or 1 child: splice it out
-  if (!node.right) return node.left;
+  # Found it.
+  return node.right unless node.left     # 0 or 1 child: splice it out
+  return node.left unless node.right
 
-  // Two children: replace with the in-order successor (smallest on
-  // the right), then delete that successor from the right subtree.
-  let succ = node.right;
-  while (succ.left) succ = succ.left;
-  node.value = succ.value;
-  node.right = remove(node.right, succ.value);
-  return node;
-}
-// Why the successor specifically: it is the smallest value greater
-// than this node, so it is the only value that can sit here without
-// violating the invariant on either side. The predecessor (largest
-// on the left) works equally well, and always choosing one of them
-// is itself a source of imbalance over many deletions.
+  # Two children: replace with the in-order successor (smallest on
+  # the right), then delete that successor from the right subtree.
+  succ = node.right
+  succ = succ.left while succ.left
+  node.value = succ.value
+  node.right = remove(node.right, succ.value)
+  node
+end
 
-// 2. Validation — and the version that looks right and is not.
-function isBST_WRONG(n) {
-  if (!n) return true;
-  if (n.left && n.left.value >= n.value) return false;
-  if (n.right && n.right.value <= n.value) return false;
-  return isBST_WRONG(n.left) && isBST_WRONG(n.right);
-}
-//     5
-//    / \
-//   3   7
-//      / \
-//     4   8      ← 4 < 5, so it must not be in the RIGHT subtree
-// Every parent-child pair is locally valid. The tree is not a BST.
+# Why the successor specifically: it is the smallest value greater
+# than this node, so it is the only value that can sit here without
+# violating the invariant on either side. The predecessor (largest
+# on the left) works equally well, and always choosing one of them
+# is itself a source of imbalance over many deletions.
+#
+# `succ = succ.left while succ.left` is the trailing-while form of a
+# walk-to-the-end loop. It reads as the sentence it is, and it is worth
+# recognising because the same shape appears in every "descend to the
+# extreme" routine.
 
-function isBST(n, min = -Infinity, max = Infinity) {
-  if (!n) return true;
-  if (n.value <= min || n.value >= max) return false;
-  return isBST(n.left, min, n.value) && isBST(n.right, n.value, max);
-}
-// The invariant is about ANCESTORS, not parents. Passing the
-// permitted range down is how you express that.
+# 2. Validation — and the version that looks right and is not.
+def bst_locally_valid?(n)
+  return true unless n
+  return false if n.left && n.left.value >= n.value
+  return false if n.right && n.right.value <= n.value
+  bst_locally_valid?(n.left) && bst_locally_valid?(n.right)
+end
 
-// 3. Range query — the operation a hash table cannot do.
-function range(node, lo, hi, out = []) {
-  if (!node) return out;
-  if (node.value > lo) range(node.left, lo, hi, out);     // prune
-  if (node.value >= lo && node.value <= hi) out.push(node.value);
-  if (node.value < hi) range(node.right, lo, hi, out);    // prune
-  return out;
-}
-// The two pruning conditions are what make this O(log n + k) rather
-// than O(n): whole subtrees that cannot contain matches are skipped.
+#     5
+#    / \
+#   3   7
+#      / \
+#     4   8      ← 4 < 5, so it must not be in the RIGHT subtree
+liar = Node.new(5, Node.new(3), Node.new(7, Node.new(4), Node.new(8)))
+bst_locally_valid?(liar)   # => true
+# Every parent-child pair is locally valid. The tree is not a BST.
+
+def bst?(n, min = -Float::INFINITY, max = Float::INFINITY)
+  return true unless n
+  return false if n.value <= min || n.value >= max
+  bst?(n.left, min, n.value) && bst?(n.right, n.value, max)
+end
+
+bst?(liar)   # => false
+
+# The invariant is about ANCESTORS, not parents. Passing the
+# permitted range down is how you express that.
+#
+# `Float::INFINITY` compares correctly against Ruby's arbitrary-precision
+# Integers, so `5 <= -Float::INFINITY` is false as you would want — the
+# comparison is exact even though the sentinel is a Float. If mixing the
+# types bothers you, `nil` works as an "unbounded" sentinel:
+#
+#   return false if (min && n.value <= min) || (max && n.value >= max)
+
+# 3. Range query — the operation a hash table cannot do.
+def range(node, lo, hi, out = [])
+  return out unless node
+  range(node.left, lo, hi, out) if node.value > lo      # prune
+  out << node.value if node.value.between?(lo, hi)
+  range(node.right, lo, hi, out) if node.value < hi     # prune
+  out
+end
+# The two pruning conditions are what make this O(log n + k) rather
+# than O(n): whole subtrees that cannot contain matches are skipped.
+# `between?` is inclusive on both ends, which is the semantics you want
+# here and is worth preferring over two chained comparisons.
 ```
 :::
 
 :::failure
 **Sorted insertion.** The headline failure, and the common one:
 
-```js
-const tree = null;
-for (let i = 1; i <= 100000; i++) insert(tree, i);
-// Height 100,000. Every search is a linear scan. No error, no warning.
-// The code passes every correctness test it has.
+```ruby
+tree = nil
+(1..100_000).each { |i| tree = insert(tree, i) }
+# SystemStackError — measured at about 9,400 values on ruby 3.4.5.
 ```
+
+In a language with a deeper stack this is the classic *silent* failure: height 100,000, every
+search a linear scan, no error, no warning, and the code passes every correctness test it has.
+
+Ruby is less patient, and that is worth knowing precisely. The recursive `insert` descends the
+whole chain on every insertion, so by the time the chain is around nine thousand long the next
+insertion runs out of stack. You do not get a slow tree — you get an exception during
+construction, raised from a line that looks like a loop over a range.
+
+Which inverts the usual lesson in a useful direction. The degenerate BST in Ruby announces
+itself instead of hiding, and it announces itself with `SystemStackError`, which your
+`rescue => e` will not catch. An iterative `insert` removes the crash and gives you back the
+original silent problem — the O(n) searches — so the crash was the more honest of the two
+failures.
 
 **Validating locally instead of against the ancestor range.** Shown above. This is the most
 frequently-failed version of a very common interview question, and the reason it fails is
@@ -243,18 +297,34 @@ conceptual: the invariant constrains all descendants, not immediate children.
 
 **Deleting by copying the wrong replacement.**
 
-```js
-// Replacing with any leaf, or with the left child, breaks the invariant.
-// Only the in-order successor or predecessor is safe, because only
-// they have no values between themselves and the removed node.
+```ruby
+# Replacing with any leaf, or with the left child, breaks the invariant.
+# Only the in-order successor or predecessor is safe, because only
+# they have no values between themselves and the removed node.
 ```
 
 **Duplicates with no policy.** `insert` above silently ignores equal values. The alternatives
 are a count on the node, a consistent side (always left), or rejecting them. Each is fine;
 having no decision is not, because the behaviour then depends on insertion order.
 
-**Floating-point or mixed-type keys.** `0.1 + 0.2 < 0.3` is true, so a tree keyed on computed
-floats can contain a value its own search cannot find. Use integers or a decimal type.
+**Floating-point keys.** `0.1 + 0.2` is `0.30000000000000004`, so it compares *greater* than
+`0.3`, and a tree keyed on computed floats can contain a value its own search cannot find:
+
+```ruby
+tree = insert(nil, 0.1 + 0.2)
+search(tree, 0.3)          # => nil        the key is in there
+search(tree, 0.1 + 0.2)    # => found      but only via the same arithmetic
+```
+
+Ruby gives you two exact alternatives, and for money you want one of them. `Rational` —
+`0.1r + 0.2r == 0.3r` is true — or `BigDecimal`, which is what you should already be using for
+currency: `BigDecimal('0.1') + BigDecimal('0.2') == BigDecimal('0.3')`. Integer cents work too
+and are the cheapest option.
+
+**Mixed-type keys.** `1 <=> 'a'` returns `nil` rather than raising, and any comparison built on
+it then fails loudly — `[1, 'a'].sort` raises `ArgumentError: comparison of Integer with String
+failed`. That is a better outcome than a silently wrong tree, and it is the reason to let `<=>`
+do your comparing rather than hand-rolling `<`.
 
 **Mutating a node's key in place.** The node is now in the wrong position and is unreachable
 by search — the same failure as mutating a hash key. Remove and reinsert.
@@ -277,6 +347,7 @@ plain BST. Only a balancing guarantee turns it into `O(log n)`.
                               (B-trees, which is the name).
   std::map / TreeMap /     — red-black trees. Ordered iteration is
   SortedDict                  the feature; a hash map cannot do it.
+                              Ruby has no equivalent — see below.
   LSM trees                — Cassandra, RocksDB, LevelDB. Writes go
                               to a memtable (often a skip list),
                               flushed to sorted files. A different
@@ -286,6 +357,34 @@ plain BST. Only a balancing guarantee turns it into `O(log n)`.
                               IP routing tables.
   Git                      — tree objects, though keyed by name
                               rather than ordered for search.
+```
+
+```text
+// What Ruby actually gives you, which is less than you might assume.
+
+  Hash          — insertion-ordered, NOT key-ordered. {"b"=>1,"a"=>2}
+                   iterates b then a. Useful, but not an ordered map.
+  SortedSet     — extracted from the `set` library in Ruby 3.0. Calling
+                   it now raises a RuntimeError telling you to install
+                   the `sorted_set` gem.
+  Array#bsearch — O(log n) search over a SORTED array, and the closest
+                   thing in the standard library to a tree lookup:
+
+                     a = [10, 20, 30, 40, 50]
+                     a.bsearch { |x| x >= 25 }        # => 30
+                     a.bsearch_index { |x| x >= 25 }  # => 2
+
+                   Find-minimum mode: the block returns true/false and
+                   bsearch gives the first element where it flips. No
+                   insertion support — that is still O(n).
+
+  So there is no red-black tree to reach for. Which is fine, because in
+  a Rails application the ordered structure you actually want is not in
+  the process at all: it is the B-tree index in PostgreSQL. `ORDER BY`,
+  `WHERE created_at > ?` and `LIMIT` are the range query, executed by
+  the database, on data too large to hold anyway. Reaching for an
+  in-memory ordered tree in Rails is usually a sign you are caching
+  something the database would index better.
 ```
 
 ```text
@@ -311,8 +410,9 @@ plain BST. Only a balancing guarantee turns it into `O(log n)`.
 :::
 
 :::mistakes
-**Using a plain BST on ordered input.** Use a balanced tree, or shuffle, or use the language's
-sorted map.
+**Using a plain BST on ordered input.** Shuffle it, use a balanced tree, or — the usual right
+answer in Ruby — let PostgreSQL's B-tree index do it, since Ruby ships no ordered map to fall
+back on.
 
 **Validating with parent comparisons.** Pass down the permitted range.
 
@@ -327,9 +427,17 @@ sorted map.
 **Reaching for a BST when a hash map will do.** If you never need order, the hash is simpler
 and faster.
 
+**Writing a tree in Ruby when a sorted Array and `bsearch` would do.** If the collection is
+built once and then only read, sort it and binary-search it: no pointers, no allocation per
+element, better locality, and ten lines fewer.
+
+**Assuming `Hash` is ordered by key.** It is ordered by *insertion*. That is a guarantee worth
+having, and it is not the one a sorted map gives you.
+
 **Implementing a red-black tree from memory in production code.** The rebalancing cases are
-genuinely intricate; use the standard library. Understand rotations so you can reason about
-cost, not so you can hand-roll one.
+genuinely intricate. In most languages the answer is "use the standard library"; in Ruby there
+is no standard library answer, which makes the real answer "use the database, or a well-used
+gem". Understand rotations so you can reason about cost, not so you can hand-roll one at 2am.
 :::
 
 :::tradeoffs
@@ -350,6 +458,11 @@ choice when the data is on disk or larger than cache. Higher constant factor in 
 
 **Skip list** — probabilistic O(log n) with much simpler code and no rotations, easy to make
 lock-free. Used by Redis sorted sets and LSM memtables. Expected rather than guaranteed bounds.
+Worth naming because a Rails application already has one available: Redis `ZADD`/`ZRANGEBYSCORE`
+is a skip list, and it is frequently the cheapest ordered structure you can reach for.
+
+**Sorted Array plus `bsearch`** — the pragmatic Ruby answer. O(log n) reads, O(n) insertion, no
+dependencies. Right whenever writes are rare or batched.
 
 **Hash map** — O(1) average and no ordering. Faster for exact lookups; useless for ranges.
 
@@ -361,7 +474,8 @@ habitual.
 
 :::checkpoint
 1. Why is search on a BST O(h) rather than O(log n)? What makes h equal log n?
-2. Insert 1..5 in order into a plain BST. Draw it. What is the height?
+2. Insert 1..5 in order into a plain BST. Draw it. What is the height? What happens in Ruby
+   if you do the same thing with 100,000 values, and why is the answer not "it gets slow"?
 3. The tree `5, left 3, right 7, with 7's left child 4` — every parent-child pair is valid.
    Why is it not a BST, and what does a correct validator pass down?
 4. When deleting a node with two children, why must the replacement be the in-order successor
@@ -369,6 +483,8 @@ habitual.
 5. AVL versus red-black: which for a read-heavy workload, and why?
 6. A billion keys on disk. Why does a B-tree beat a red-black tree, and by roughly how much?
 7. Name two operations an ordered tree supports that a hash map cannot.
+8. Ruby ships no ordered map. Name the three things you would reach for instead, and say when
+   each is right.
 :::
 
 :::interview
@@ -415,3 +531,11 @@ value lookups — if not, the hash is simpler and faster."*
 - B-trees win on disk because the cost is page fetches: 3 reads instead of 30.
 - B+ trees link their leaves, which is what makes an index range scan cheap.
 - Hash maps buy O(1) equality by destroying order; trees keep order and pay log n.
+- In Ruby, a recursive `insert` on sorted data raises `SystemStackError` at around 9,400 values
+  — the degenerate tree crashes during construction rather than merely getting slow.
+- Ruby has no ordered map: `Hash` is insertion-ordered and `SortedSet` moved to a gem in 3.0.
+- `Array#bsearch` is the stdlib's O(log n) lookup, over a sorted array, with no cheap insert.
+- In Rails the ordered structure you want is usually a PostgreSQL B-tree index or a Redis
+  sorted set, not an in-process tree.
+- `0.1 + 0.2` is greater than `0.3`, not less — use `BigDecimal`, `Rational` or integer cents.
+- `1 <=> 'a'` is `nil`, so mixed-type comparison fails loudly instead of corrupting the tree.

@@ -107,14 +107,22 @@ describe('Catalog', () => {
   it('shows every track with its real lesson count', async () => {
     mount('/learn')
     await screen.findByRole('heading', { level: 1, name: /tracks/i })
+    // Collect the link names once. Querying by role *and name* inside the loop
+    // recomputes the accessibility tree per track, which is quadratic and times
+    // out as the catalogue grows — the same trap as the lesson-link test below.
+    // A track title can appear more than once: as its own heading link, and in
+    // another track's "Builds on" list, so a Set is the right shape.
+    const linkNames = new Set(
+      screen
+        .getAllByRole('link')
+        .map((a) => (a.getAttribute('aria-label') ?? a.textContent ?? '').trim()),
+    )
     for (const track of tracks) {
-      // A track title can appear more than once: as its own heading link, and in
-      // another track's "Builds on" list.
+      expect(linkNames.has(track.title), `no link for ${track.slug}`).toBe(true)
       expect(
-        screen.getAllByRole('link', { name: track.title }).length,
-        `no link for ${track.slug}`,
+        screen.getAllByText(`${track.lessonCount} lessons`).length,
+        `no lesson count for ${track.slug}`,
       ).toBeGreaterThan(0)
-      expect(screen.getAllByText(`${track.lessonCount} lessons`).length).toBeGreaterThan(0)
     }
   })
 

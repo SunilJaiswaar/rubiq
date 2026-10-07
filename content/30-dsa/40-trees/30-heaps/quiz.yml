@@ -95,25 +95,30 @@ questions:
   - id: boolean-comparator
     kind: choice
     concept: heaps
-    prompt: "`new MinHeap((a, b) => a < b)` — what goes wrong, and why is it silent?"
+    prompt: "`MinHeap.new { |x, y| x < y }` — what happens in Ruby?"
     options:
-      - text: "A comparator must return a number; `false` coerces to 0, which reads as \"equal\", so the heap stops ordering without raising anything"
+      - text: "It raises `NoMethodError: undefined method '>=' for false` on the first comparison, because Ruby does not coerce `false` to 0"
         correct: true
         feedback: >-
-          The same class of bug as `a - b` on strings, which yields NaN.
-      - text: Nothing — booleans are valid comparator results
+          `Array#sort` with a boolean block raises the same way. The bug costs minutes, not a weekend.
+      - text: "`false` coerces to 0, which reads as \"equal\", so the heap silently stops ordering"
         feedback: >-
-          They are accepted and interpreted as 0 or 1, which loses the \"less than\" case.
-      - text: It throws a TypeError on the first comparison
+          That is what happens in JavaScript. Ruby has no such coercion, so it raises instead.
+      - text: It works correctly, because `true` and `false` are ordered in Ruby
         feedback: >-
-          No type error occurs; coercion hides it.
+          Booleans do not implement `<=>` against each other, and the heap needs a three-way result.
     explanation: >-
-      The protocol is a three-way result: negative, zero, positive. A boolean supplies only two
-      values, and `false` becomes 0, which the heap reads as "these are equivalent" — so roughly
-      half of all comparisons report equality and the invariant is never enforced. Nothing throws,
-      so the heap returns plausible-looking but incorrect extremes. The sibling bug is `(a, b) =>
-      a - b` applied to strings or BigInts, where the subtraction produces NaN and every
-      comparison with NaN is false, disabling ordering entirely.
+      The comparator protocol is a three-way result: negative, zero, positive. A boolean supplies
+      only two values, and in a language where `false` becomes 0 the heap reads half its
+      comparisons as "equivalent" and silently stops ordering. Ruby does not coerce booleans to
+      integers, so the very first `@cmp.call(...) >= 0` raises `NoMethodError` and you find out at
+      once — and `[3, 1, 2].sort { |x, y| x < y }` fails identically, since it is the same
+      protocol. The related case is also loud: `<=>` returns `nil` for operands it cannot order,
+      so `1 <=> 'a'` is `nil`, `[1, 'a'].sort` raises `ArgumentError`, and a `Float::NAN` in the
+      heap raises on `nil.negative?` rather than quietly disabling the ordering. The one failure
+      Ruby cannot catch is an *inconsistent* `<=>` — a comparison that is not a total order
+      returns a wrong answer with no exception, which is why a `<=>` you write yourself deserves a
+      test that sorts a shuffled array.
 
   - id: explain-median
     kind: recall

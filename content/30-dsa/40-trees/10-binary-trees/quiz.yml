@@ -48,7 +48,7 @@ questions:
   - id: level-snapshot
     kind: choice
     concept: traversals
-    prompt: "What does `const size = queue.length` do at the top of the BFS loop?"
+    prompt: "What does `size = queue.size` do at the top of the BFS loop?"
     options:
       - text: "Marks where the current level ends, since the loop appends children to the same queue it is consuming"
         correct: true
@@ -57,12 +57,12 @@ questions:
       - text: Prevents the queue from growing unbounded
         feedback: >-
           It does not limit growth; it records a boundary.
-      - text: Avoids re-reading `length` on every iteration for performance
+      - text: Avoids re-reading `size` on every iteration for performance
         feedback: >-
           A real but trivial effect; correctness is the reason.
     explanation: >-
       The queue is being read from the front and appended to at the back in the same loop, so its
-      length changes continuously and cannot tell you where a level stops. Capturing the length
+      size changes continuously and cannot tell you where a level stops. Capturing the size
       before processing fixes the count of nodes belonging to the current depth; everything pushed
       during those iterations belongs to the next. Without that snapshot you still get correct
       breadth-first ordering, but no way to group by depth — and attempts to recover the grouping
@@ -77,7 +77,7 @@ questions:
         correct: true
         feedback: >-
           Carrying a sentinel such as -1 for \"unbalanced\" avoids both the second pass and an exception.
-      - text: Because `Math.abs` is called n times
+      - text: Because `(l - r).abs` is called n times
         feedback: >-
           That is constant work per node.
       - text: Because recursion itself is quadratic on trees

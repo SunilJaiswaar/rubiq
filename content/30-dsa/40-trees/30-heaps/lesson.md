@@ -60,9 +60,13 @@ resources:
      / \   /                        0  1  2  3  4  5
     4   8 7
 
-  parent(i) = (i - 1) >> 1
+  parent(i) = (i - 1) / 2        # integer division, which floors
   left(i)   = 2i + 1
   right(i)  = 2i + 2
+
+  Ruby's `/` on two Integers already floors, so there is no Math.floor
+  and no `>> 1` needed — though `(i - 1) >> 1` is valid Ruby and
+  identical for every i >= 0.
 
   No nodes, no allocation per element, perfect cache locality — the
   children of i are adjacent to each other, and a sift-down walks a
@@ -150,73 +154,123 @@ O(n log n) to O(n log k) and the space from O(n) to O(k).
 :::
 
 :::example
-```js
-// A complete min-heap, array-backed. Short enough to be worth reading.
-class MinHeap {
-  #a = [];
-  #cmp;
-  constructor(cmp = (x, y) => x - y) { this.#cmp = cmp; }
+```ruby
+# A complete min-heap, array-backed. Short enough to be worth reading,
+# which matters more in Ruby than elsewhere: there is nothing in the
+# standard library to use instead.
+class MinHeap
+  # Passing values in heapifies them bottom-up in O(n). Passing none
+  # builds an empty heap, because the downto loop simply does not run.
+  # One constructor covers both, so there is no separate `heapify`.
+  def initialize(values = [], &cmp)
+    @cmp = cmp || ->(x, y) { x <=> y }
+    @a = values.dup
+    ((@a.size / 2) - 1).downto(0) { |i| sift_down(i) }
+  end
 
-  get size() { return this.#a.length; }
-  peek() { return this.#a[0]; }                 // O(1)
+  def size = @a.size
+  def empty? = @a.empty?
+  def peek = @a.first                        # O(1), and nil when empty
 
-  push(v) {
-    this.#a.push(v);
-    let i = this.#a.length - 1;
-    while (i > 0) {
-      const p = (i - 1) >> 1;
-      if (this.#cmp(this.#a[i], this.#a[p]) >= 0) break;
-      [this.#a[i], this.#a[p]] = [this.#a[p], this.#a[i]];
-      i = p;
-    }
-  }
+  def push(value)
+    @a << value
+    i = @a.size - 1
+    while i.positive?
+      parent = (i - 1) / 2
+      break if @cmp.call(@a[i], @a[parent]) >= 0
+      @a[i], @a[parent] = @a[parent], @a[i]  # parallel assignment: no temp
+      i = parent
+    end
+    self                                     # so pushes can chain
+  end
 
-  pop() {
-    if (this.#a.length === 0) return undefined;
-    const top = this.#a[0];
-    const last = this.#a.pop();
-    if (this.#a.length) {
-      this.#a[0] = last;
-      let i = 0;
-      for (;;) {
-        const l = 2 * i + 1, r = l + 1;
-        let m = i;
-        if (l < this.#a.length && this.#cmp(this.#a[l], this.#a[m]) < 0) m = l;
-        if (r < this.#a.length && this.#cmp(this.#a[r], this.#a[m]) < 0) m = r;
-        if (m === i) break;
-        [this.#a[i], this.#a[m]] = [this.#a[m], this.#a[i]];
-        i = m;
-      }
-    }
-    return top;
-  }
+  def pop
+    return nil if @a.empty?
+    top = @a[0]
+    last = @a.pop                            # the LAST element, to stay complete
+    unless @a.empty?
+      @a[0] = last
+      sift_down(0)
+    end
+    top
+  end
 
-  // O(n), not O(n log n) — see the analysis above.
-  static heapify(values, cmp) {
-    const h = new MinHeap(cmp);
-    h.#a = values.slice();
-    for (let i = (h.#a.length >> 1) - 1; i >= 0; i--) h.#siftDown(i);
-    return h;
-  }
-}
+  # For inspection only. The array is NOT sorted.
+  def to_a = @a.dup
+
+  private
+
+  def sift_down(i)
+    loop do
+      l = (2 * i) + 1
+      r = l + 1
+      m = i
+      m = l if l < @a.size && @cmp.call(@a[l], @a[m]).negative?
+      m = r if r < @a.size && @cmp.call(@a[r], @a[m]).negative?
+      break if m == i
+      @a[i], @a[m] = @a[m], @a[i]
+      i = m
+    end
+  end
+end
+
+heap = MinHeap.new
+[5, 3, 8, 1, 9, 2].each { |v| heap.push(v) }
+heap.peek                             # => 1
+Array.new(heap.size) { heap.pop }     # => [1, 2, 3, 5, 8, 9]
+
+MinHeap.new([5, 1, 3, 2, 4]).peek     # => 1, built in O(n)
+
+# A max-heap is the same class with the comparison reversed — no second
+# implementation, and no negating your values the way Python's heapq
+# forces you to:
+MinHeap.new([1, 5, 3]) { |x, y| y <=> x }.peek   # => 5
 ```
 
-```js
-// Top-k, which is the pattern worth memorising.
-function topK(nums, k) {
-  const heap = new MinHeap();
-  for (const n of nums) {
-    heap.push(n);
-    if (heap.size > k) heap.pop();   // evict the weakest survivor
-  }
-  return [...Array(heap.size)].map(() => heap.pop());
-}
-// A MIN-heap to find the LARGEST. The root is the smallest of the k
-// kept so far, which is exactly the candidate to discard. This
-// inversion is the part people get wrong, and it is worth saying
-// out loud when explaining it.
-//
-// O(n log k) time, O(k) space, works on a stream.
+Three Ruby details are doing real work here.
+
+The comparator defaults to `->(x, y) { x <=> y }` rather than `x - y`. Subtraction only works
+for numbers; `<=>` is the protocol every comparable object in Ruby already implements, so this
+heap orders strings, `Time`s, `Comparable` models and anything with a `<=>` without changing a
+line. The cost is that `<=>` can return `nil`, which is the subject of the failure section.
+
+`@a[i], @a[parent] = @a[parent], @a[i]` is a parallel assignment: the right-hand side is
+evaluated first, so the swap needs no temporary. It is also the one place where this code is
+genuinely shorter than its equivalent elsewhere.
+
+`Array.new(heap.size) { heap.pop }` drains the heap in sorted order — and it works because
+`Array.new` evaluates the size once, before the block runs. That is heapsort, at O(n log n),
+and it is the *only* ordered way to read a heap.
+
+```ruby
+# Top-k, which is the pattern worth memorising.
+def top_k(nums, k)
+  heap = MinHeap.new
+  nums.each do |n|
+    heap.push(n)
+    heap.pop if heap.size > k        # evict the weakest survivor
+  end
+  Array.new(heap.size) { heap.pop }  # ascending
+end
+
+top_k([5, 1, 9, 3, 14, 7, 2], 3)   # => [7, 9, 14]
+top_k([2, 1], 5)                   # => [1, 2]   fewer than k is fine
+top_k([], 3)                       # => []
+
+# A MIN-heap to find the LARGEST. The root is the smallest of the k
+# kept so far, which is exactly the candidate to discard. This
+# inversion is the part people get wrong, and it is worth saying
+# out loud when explaining it.
+#
+# O(n log k) time, O(k) space, works on a stream.
+#
+# The Ruby shortcut, for when n is small enough to hold:
+#   nums.max(3)        # => [14, 9, 7]
+# `Enumerable#max(n)` and `min(n)` do exactly this internally, and they
+# are the right answer in application code. Write the heap when the
+# input is a stream you cannot materialise — a cursor, an IO, a
+# `find_each` over a million rows — because `max(n)` needs the
+# Enumerable and the heap needs only one element at a time.
 ```
 :::
 
@@ -231,27 +285,70 @@ it breaks silently, producing a structure that is still array-shaped and no long
 
 **Expecting any order beyond the root.**
 
-```js
-const h = MinHeap.heapify([5, 1, 3, 2, 4]);
-// The internal array is NOT sorted, and iterating it gives nonsense.
-// The only valid way to read a heap in order is to pop repeatedly,
-// which is O(n log n) — i.e. heapsort.
+```ruby
+MinHeap.new([5, 1, 3, 2, 4]).to_a
+# => [1, 2, 3, 5, 4]
+#
+# The minimum is at the front and the rest is not sorted. Iterating the
+# array gives nonsense, and the bug is subtle precisely because the
+# first element is always right. The only valid way to read a heap in
+# order is to pop repeatedly, which is O(n log n) — i.e. heapsort.
+#
+# This is also why `to_a` above is marked "for inspection only", and why
+# a heap class should not define `each` or include Enumerable: doing so
+# invites `heap.first(3)`, `heap.sort` and `heap.map`, all of which
+# would read the raw array and all of which would be wrong.
 ```
 
 **Mutating a key while the item is in the heap.** The element is now in the wrong position and
 the invariant is broken with no error. Either remove and reinsert, or use a heap with a
 `decrease-key` operation plus an index map — which is what Dijkstra needs.
 
-**Comparator returning a boolean.**
+**Comparator returning a boolean.** This is the classic version of the bug, and Ruby does not
+have it:
 
-```js
-new MinHeap((a, b) => a < b);     // true/false, not -1/0/1
-// `false` coerces to 0 ("equal"), so the heap silently stops ordering.
-new MinHeap((a, b) => a - b);     // correct for numbers
+```ruby
+MinHeap.new { |x, y| x < y }.push(1).push(2)
+# NoMethodError: undefined method '>=' for false
+
+[3, 1, 2].sort { |x, y| x < y }
+# NoMethodError: undefined method '>' for true
 ```
 
-**Using `a - b` on strings or large integers.** `"b" - "a"` is NaN, and NaN comparisons are
-all false, so the heap quietly degenerates. Use an explicit comparison.
+In a language where `false` coerces to `0`, a boolean comparator reads as "always equal" and
+the heap silently stops ordering. Ruby has no such coercion, so the first comparison raises and
+you find out immediately — including inside `Array#sort`, which is the same protocol. Write
+`<=>` and the problem does not arise.
+
+**Comparing things that are not comparable.** This is the Ruby-shaped version of the same
+family, and it is also loud:
+
+```ruby
+1 <=> 'a'                 # => nil        not an exception, just nil
+[1, 'a'].sort             # ArgumentError: comparison of Integer with String failed
+Float::NAN <=> 1.0        # => nil
+MinHeap.new([1.0, Float::NAN, 2.0])
+# NoMethodError: undefined method 'negative?' for nil
+```
+
+`<=>` returns `nil` for operands it cannot order, and every structure built on it then fails on
+that `nil` rather than guessing. So `NaN` in a heap raises instead of quietly disabling the
+ordering. That is Ruby's three-way protocol earning its keep: the design that looks like extra
+ceremony is what converts a silent data corruption into a stack trace.
+
+**The one that *is* silent in Ruby: an inconsistent `<=>`.** If your comparison is not a total
+order, nothing raises and the answer is simply wrong:
+
+```ruby
+[3, 1, 2].sort { |x, y| ((x - y) % 3) - 1 }
+# => [3, 2, 1]        no error, no warning, not sorted
+```
+
+A comparator must be consistent — if `a < b` and `b < c` then `a < c` — and nothing checks
+this for you. The realistic way to write one by accident is a `<=>` that compares a subset of
+fields, or one that mixes a comparison with a tie-break that disagrees with itself. When you
+define `<=>` on a model, it is worth a test that sorts a shuffled array and checks the result,
+because this is the failure mode no exception will catch.
 
 **Unstable ordering for equal priorities.** A heap gives no guarantee about ties, so two jobs
 with the same priority can emerge in any order — and the order can differ between runs. If
@@ -284,36 +381,64 @@ FIFO-within-priority matters, include an insertion sequence number in the compar
   buckets
 ```
 
-```js
-// Merging k sorted streams — the pattern worth internalising,
-// because it generalises to data that does not fit in memory.
-function mergeK(lists) {
-  const h = new MinHeap((a, b) => a.value - b.value);
-  lists.forEach((list, i) => { if (list.length) h.push({ value: list[0], i, j: 0 }); });
+```ruby
+# Merging k sorted streams — the pattern worth internalising,
+# because it generalises to data that does not fit in memory.
+def merge_k(lists)
+  heap = MinHeap.new { |x, y| x[0] <=> y[0] }
+  lists.each_with_index { |list, i| heap.push([list[0], i, 0]) unless list.empty? }
 
-  const out = [];
-  while (h.size) {
-    const { value, i, j } = h.pop();
-    out.push(value);
-    if (j + 1 < lists[i].length) h.push({ value: lists[i][j + 1], i, j: j + 1 });
-  }
-  return out;
-}
-// The heap holds at most k items regardless of total size, so memory
-// is O(k) — which is exactly why external sort can merge 500 sorted
-// files of a gigabyte each on a machine with 8 GB of RAM.
+  out = []
+  until heap.empty?
+    value, i, j = heap.pop               # destructuring the triple
+    out << value
+    heap.push([lists[i][j + 1], i, j + 1]) if j + 1 < lists[i].size
+  end
+  out
+end
+
+merge_k([[1, 4, 7], [2, 5, 8], [3, 6, 9]])   # => [1, 2, 3, 4, 5, 6, 7, 8, 9]
+merge_k([[1], [], [0, 2]])                   # => [0, 1, 2]
+
+# The entry is a plain [value, list_index, position] array, destructured
+# on the way out — cheaper than a Struct and clear enough at three
+# fields. Past three, use a Struct; past that, you are hiding a bug.
+#
+# The heap holds at most k items regardless of total size, so memory
+# is O(k) — which is exactly why external sort can merge 500 sorted
+# files of a gigabyte each on a machine with 8 GB of RAM.
 ```
 
 ```text
-// A note on what the standard libraries give you:
-//   Python  — heapq (functions over a list, min-heap only; negate
-//              values for a max-heap)
-//   Java    — PriorityQueue
-//   C++     — priority_queue (max-heap by default), make_heap
-//   Ruby    — nothing built in; use a gem or write the 40 lines
-//   JS      — nothing built in; same
-// The absence in Ruby and JS is why the implementation above is
-// worth being able to write from memory.
+// What the standard libraries give you, and what Ruby does not.
+
+  Python  — heapq: functions over a plain list, min-heap only, so a
+             max-heap means negating every value on the way in.
+  Java    — PriorityQueue, with a Comparator.
+  C++     — priority_queue (max-heap by default) and make_heap.
+  Go      — container/heap, if you implement the interface.
+  Ruby    — nothing. No Heap, no PriorityQueue, and no sorted map
+             either. `SortedSet` was extracted from the `set` library
+             in Ruby 3.0 and now needs the `sorted_set` gem.
+  JS      — nothing, same.
+
+  So in Ruby the forty lines above are not an exercise, they are the
+  implementation. Which is the honest reason this lesson has you write
+  one: a Rubyist who needs a priority queue either writes it, adds a
+  gem, or — most often, and usually correctly — moves the ordering out
+  of the process entirely:
+
+    ORDER BY priority, created_at LIMIT 1    -- PostgreSQL's B-tree
+    ZADD / ZPOPMIN                           -- Redis, a skip list
+    Sidekiq queues                           -- already a priority
+                                                 queue, consumed in
+                                                 queue order
+
+  `Enumerable#max(n)` and `min(n)` also cover a surprising share of
+  real top-k needs, and they are implemented with a heap internally.
+  Reach for your own heap when the data is a stream, when you need
+  incremental pushes and pops interleaved, or when the priority changes
+  while items are waiting.
 ```
 :::
 
@@ -326,9 +451,14 @@ function mergeK(lists) {
 
 **Mutating a key in place.** Remove and reinsert, or maintain an index for decrease-key.
 
-**Boolean comparator.** Must return a number.
+**Boolean comparator.** Must return -1, 0 or 1. Ruby raises on the first comparison rather
+than misordering, so this one costs you minutes, not a weekend.
 
-**`a - b` on non-numbers.** NaN silently disables ordering.
+**An inconsistent `<=>`.** The failure Ruby *cannot* catch for you. Test it by sorting a
+shuffled array.
+
+**Reaching for a heap before `max(n)`.** `Enumerable#max(n)` is already a heap, and it is one
+line. Write your own when the input is a stream.
 
 **Assuming ties are FIFO.** Add a sequence number if it matters.
 
@@ -373,7 +503,8 @@ and the heap is its clearest illustration.
    against sorting?
 4. On extract-min, why move the last element to the root rather than promoting the smaller
    child?
-5. `new MinHeap((a, b) => a < b)` — what goes wrong and why is it silent?
+5. `MinHeap.new { |x, y| x < y }` — what goes wrong, and why does Ruby make it loud when
+   most languages make it silent?
 6. Two jobs are pushed with equal priority. Which comes out first?
 7. You need a running median of a stream. What structure, and why can one heap not do it?
 :::
@@ -417,7 +548,13 @@ movement."*
 - Heapify is O(n) because work is proportional to height and most nodes are shallow.
 - Building by insertion is O(n log n) — the movement goes the expensive direction.
 - Top-k largest uses a *min*-heap of size k: O(n log k), O(k) space, stream-friendly.
-- Comparators must return numbers; `a - b` on non-numbers gives NaN and silently breaks it.
+- Comparators return `<=>`'s three-way result, which works for any Comparable — not just
+  numbers.
+- A boolean comparator raises in Ruby instead of silently misordering; `<=>` returning `nil`
+  raises too. An inconsistent `<=>` is the one silent failure left, so test it.
+- Ruby ships no heap, no priority queue and no sorted map, so these forty lines are the
+  implementation — but `Enumerable#max(n)`, a PostgreSQL `ORDER BY ... LIMIT` or a Redis sorted
+  set is usually the better answer in a Rails application.
 - Ties have no guaranteed order; add a sequence number if FIFO matters.
 - Mutating a key in place breaks the invariant with no error.
 - Two heaps give a running median; one cannot.
