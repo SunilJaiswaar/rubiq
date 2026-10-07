@@ -22,3 +22,6 @@ outcomes:
   - Explain what CSRF exploits and why SameSite mostly fixes it
   - Store a password correctly, and say why a fast hash is the wrong tool
   - Reason about authorisation as a property of the system, not a per-endpoint check
+  - Recognise any injection by the boundary it crosses rather than by its name
+  - Defend against SSRF with an allow list, and say why a denylist cannot work
+  - Choose between hashing, MAC and encryption, and keep the keys somewhere defensible

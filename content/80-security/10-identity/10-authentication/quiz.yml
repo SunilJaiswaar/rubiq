@@ -1,0 +1,196 @@
+passScore: 0.7
+questions:
+  - id: why-argon2
+    kind: choice
+    concept: password-hashing
+    prompt: "What does memory-hardness specifically defeat?"
+    options:
+      - text: "A GPU's parallelism — thousands of cores with little memory each, so requiring 64MB per hash removes the advantage in a way that slowness alone does not"
+        correct: true
+        feedback: >-
+          SHA-256 at tens of billions per second means every wordlist password falls immediately.
+      - text: Rainbow tables, which precompute hashes for common passwords
+        feedback: >-
+          A unique salt defeats those; memory-hardness addresses raw cracking rate.
+      - text: Timing attacks during verification
+        feedback: >-
+          Those are handled by constant-time comparison, which the library does.
+    explanation: >-
+      Attackers crack offline on hardware optimised for massive parallelism, and a GPU's advantage
+      comes from running thousands of identical computations simultaneously — which works when each
+      computation needs almost no memory. Demanding tens of megabytes per hash means only a handful
+      fit in the device's memory at once, collapsing the parallelism that makes GPU cracking
+      effective. Pure iteration count slows a CPU and a GPU equally, so the attacker's relative
+      advantage persists; memory-hardness changes the shape of the contest rather than just its
+      speed.
+
+  - id: salt-pepper
+    kind: choice
+    concept: password-hashing
+    prompt: "What does a salt defeat, and what does a pepper add?"
+    options:
+      - text: "A salt defeats rainbow tables and stops identical passwords producing identical hashes; a pepper is a secret stored outside the database, so a database-only leak yields uncrackable hashes"
+        correct: true
+        feedback: >-
+          Rotating a pepper needs rehashing on next login, and losing it locks out everyone.
+      - text: A salt keeps the hash secret; a pepper makes it slower to compute
+        feedback: >-
+          Neither is about secrecy or speed; salts are stored openly alongside the hash.
+      - text: Both are secrets, stored in different places for defence in depth
+        feedback: >-
+          A salt is not secret — it is embedded in the hash string.
+    explanation: >-
+      A salt is a unique random value per password, stored openly with the hash, and its job is to
+      make precomputation useless: a table built for one salt is worthless for another, and two
+      users with the same password get different hashes so a leak does not reveal the coincidence.
+      A pepper is a single secret kept outside the database entirely — in a KMS or an HSM — so an
+      attacker who exfiltrates the user table still cannot test guesses. The awkwardness is
+      operational: rotation requires rehashing each password as its owner logs in, and losing the
+      pepper makes every stored hash unverifiable.
+
+  - id: revocation
+    kind: choice
+    concept: sessions
+    prompt: "Why does revocation decide the session-versus-JWT question?"
+    options:
+      - text: "A session is server-side state, so logout, a password change or an account lock is a delete; a JWT is valid until it expires, and a denylist to fix that reintroduces the lookup the JWT was avoiding"
+        correct: true
+        feedback: >-
+          So a JWT trades revocation for avoiding a one-millisecond lookup.
+      - text: Because JWTs cannot carry an expiry claim
+        feedback: >-
+          They carry `exp`; the issue is that it cannot be shortened after issue.
+      - text: Because sessions can be stored in a cookie and JWTs cannot
+        feedback: >-
+          Both can live in a cookie; storage is a separate question.
+    explanation: >-
+      The appeal of a self-contained token is that no server-side lookup is required to validate
+      it — and that is exactly why it cannot be withdrawn. Once issued, it remains acceptable to
+      every verifier until its expiry passes, so there is no mechanism for logging someone out
+      immediately, invalidating other sessions after a password change, or locking a compromised
+      account. Adding a denylist restores that capability by consulting shared state on every
+      request, which is what a session already is. The trade is therefore revocation in exchange
+      for a sub-millisecond lookup, which is rarely worthwhile for user login.
+
+  - id: cookie-flags
+    kind: choice
+    concept: sessions
+    prompt: "Which cookie flag makes an XSS flaw a defacement rather than credential theft?"
+    options:
+      - text: "`HttpOnly` — the cookie is unreadable by JavaScript, so an injected script cannot exfiltrate it"
+        correct: true
+        feedback: >-
+          `Secure` restricts it to HTTPS and `SameSite` addresses CSRF.
+      - text: "`Secure`, which prevents the cookie being read over an insecure channel"
+        feedback: >-
+          That protects against network interception, not against script on the page.
+      - text: "`SameSite=Lax`, which stops other origins reading the cookie"
+        feedback: >-
+          Other origins never could; SameSite governs when it is sent.
+    explanation: >-
+      Each flag addresses a distinct attack. `Secure` ensures the cookie never traverses plain
+      HTTP, defending against network observers. `SameSite` controls whether the browser attaches
+      the cookie to cross-site requests, which is the structural defence against CSRF. `HttpOnly`
+      removes the cookie from the DOM API entirely, so script running on the page — injected,
+      or shipped by a compromised dependency — cannot read it. That is the difference between an
+      XSS that alters what a page displays and one that harvests every logged-in user's session.
+
+  - id: reset-token-hash
+    kind: choice
+    concept: tokens
+    prompt: "Why store a hash of a password-reset token rather than the token?"
+    options:
+      - text: "Otherwise a read-only database leak lets the attacker reset every account — including users with strong, unique passwords"
+        correct: true
+        feedback: >-
+          The reset table becomes a master key.
+      - text: Because tokens are too long to index efficiently
+        feedback: >-
+          Length is not the concern.
+      - text: To allow the same token to be reused across accounts
+        feedback: >-
+          Tokens must be single-use and account-specific.
+    explanation: >-
+      A reset token is a bearer credential: possessing it is sufficient to take over the account it
+      belongs to. Stored in plaintext, the reset table defeats every other precaution — strong
+      password hashing becomes irrelevant, since the attacker does not need the password, and
+      users who reused nothing are just as exposed as those who did. Storing only a hash means a
+      leaked table yields nothing usable, exactly as with passwords. The accompanying requirements
+      are a short expiry, single use, and invalidating existing sessions once the reset completes.
+
+  - id: session-fixation
+    kind: choice
+    concept: sessions
+    prompt: "Why is `reset_session` necessary at login?"
+    options:
+      - text: "Without it an attacker who set the victim's session cookie before authentication still holds a valid session afterwards — session fixation"
+        correct: true
+        feedback: >-
+          Issuing a fresh identifier on privilege change severs the attacker's copy.
+      - text: To clear stale flash messages and cached data
+        feedback: >-
+          Housekeeping at best, not the security reason.
+      - text: Because the session store would otherwise leak memory
+        feedback: >-
+          Expiry handles that.
+    explanation: >-
+      If the session identifier does not change when the user authenticates, then any identifier
+      that was valid before login is valid after it — including one an attacker planted via a link,
+      a subdomain, or a previously shared machine. The attacker simply waits for the victim to log
+      in and then uses the identifier they already know. Generating a new identifier at the moment
+      privilege increases makes any previously-known value useless. The same reasoning applies to
+      any privilege escalation within a session, such as entering an admin area.
+
+  - id: credential-stuffing
+    kind: choice
+    concept: mfa
+    prompt: "Why do complexity rules not help against credential stuffing?"
+    options:
+      - text: "The attacker is using correct passwords harvested from other breaches, so hash strength and composition are irrelevant — rate limiting, MFA and a breached-password check are what work"
+        correct: true
+        feedback: >-
+          Rate limit per account and per IP; per-IP alone is defeated by a botnet.
+      - text: Because complexity rules are not enforced on login, only at signup
+        feedback: >-
+          They are properties of the stored password either way.
+      - text: Because stuffing targets the reset flow rather than login
+        feedback: >-
+          It targets login directly with known-valid credentials.
+    explanation: >-
+      Credential stuffing exploits reuse: the attacker already has a working password for the user,
+      obtained from some other service's breach, so nothing about how it was chosen or stored
+      matters. The defences that apply are the ones that limit attempts and add a second
+      requirement — rate limiting scoped both per account and per source address, multi-factor
+      authentication, and rejecting passwords known to appear in breach corpora at signup and
+      change. This is also why current guidance drops composition rules and forced rotation, both of
+      which push users toward predictable patterns and reuse.
+
+  - id: explain-jwt-footguns
+    kind: recall
+    concept: tokens
+    prompt: >-
+      Name ways JWT implementations fail that an opaque session id cannot, and say what that implies.
+    key_points:
+      - alg none accepted as a valid signature
+      - Algorithm confusion — an RSA public key used as an HMAC secret
+      - exp present as a claim but never enforced
+      - No audience check, so a token for one service works on another
+      - A weak or committed HMAC secret, brute-forceable offline
+      - Claims trusted as authorisation because the signature verified
+      - None applies to a random string, since there is nothing to parse or verify
+    model: >-
+      The failures come from the token being a structured document that the verifier parses and
+      trusts. Several libraries historically accepted `alg: none`, treating an unsigned token as
+      valid, because the algorithm was read from the token itself rather than pinned by the
+      verifier. Algorithm confusion is the same mistake in a subtler form: a verifier configured for
+      RSA can be tricked into treating the public key as an HMAC secret, which the attacker also
+      has. `exp` is only a claim, so a library that does not check it issues permanent tokens.
+      Omitting the audience check means a token minted for one service is accepted by another that
+      shares the key. A weak HMAC secret can be brute-forced offline at leisure, since the attacker
+      holds both the signed message and the signature. And there is a conceptual failure on top: a
+      valid signature proves who issued the token, not that its claims should be honoured, so
+      treating `admin: true` as authorisation trusts whatever the issuer was willing to assert. An
+      opaque random identifier has none of these, because it carries no claims, specifies no
+      algorithm and requires no verification — only a lookup. The implication is that the two
+      options differ not just in revocation but in attack surface, and the simpler one has
+      essentially none.

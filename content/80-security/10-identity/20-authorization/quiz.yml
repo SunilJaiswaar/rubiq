@@ -1,0 +1,199 @@
+passScore: 0.7
+questions:
+  - id: no-default
+    kind: choice
+    concept: authorization
+    prompt: "Why does authorisation lack a framework default when injection, XSS and CSRF all have one?"
+    options:
+      - text: "The framework cannot guess your rules, so there is no safe default to apply — meaning the vulnerability is missing code rather than wrong code"
+        correct: true
+        feedback: >-
+          The other three have safe defaults you must actively defeat.
+      - text: Because authorisation is slower to check, so frameworks leave it opt-in
+        feedback: >-
+          Cost is not the reason; the absence of a sensible default is.
+      - text: Because authorisation belongs in the database rather than the framework
+        feedback: >-
+          Row-level security is one option among several, not the reason for the gap.
+    explanation: >-
+      A framework can escape output without knowing anything about your domain, and it can
+      parameterise a query or verify a token the same way. It cannot decide whether this user may
+      see that order, because the answer depends entirely on rules it has no access to — so the
+      only thing `find` can reasonably do is return the record. That makes the vulnerability an
+      omission rather than an error, and omissions are far harder to notice: there is nothing
+      wrong on the screen, nothing to flag in a diff, and no linter that can tell a deliberate
+      public lookup from a forgotten check.
+
+  - id: invisible-to-tests
+    kind: choice
+    concept: idor
+    prompt: "Why is an unscoped `Order.find(params[:id])` invisible to tests?"
+    options:
+      - text: "Tests create a user, create their order, and fetch it — every signal uses the owner's data, so the bug only appears for a request nobody in the loop makes"
+        correct: true
+        feedback: >-
+          The same applies to manual testing: you are logged in as yourself.
+      - text: Because test environments disable authorisation checks
+        feedback: >-
+          There is no check to disable; that is the problem.
+      - text: Because fixtures share ids, masking ownership differences
+        feedback: >-
+          Even with distinct ids, nothing exercises the cross-user case unless written deliberately.
+    explanation: >-
+      Both automated and manual verification naturally follow the happy path, and the happy path is
+      precisely the case where ownership happens to match. A developer clicking through the feature
+      is logged in as themselves; a test sets up a user and that user's records. Catching the flaw
+      requires deliberately writing a test that authenticates as one user and requests another's
+      resource, which only happens if someone already has the failure mode in mind. That is why
+      structural prevention beats detection here.
+
+  - id: four-failures
+    kind: choice
+    concept: authorization
+    prompt: "Which authorisation failure does scoping fix?"
+    options:
+      - text: "Horizontal only — the right object for the wrong user; vertical, contextual and field-level failures still need a policy layer"
+        correct: true
+        feedback: >-
+          Owning an order does not mean you may refund it, or refund it twice.
+      - text: All four, since every failure reduces to an ownership question
+        feedback: >-
+          Privilege level, object state and field visibility are not ownership.
+      - text: Vertical only, since scoping encodes the user's role
+        feedback: >-
+          A scope encodes the relationship, not the privilege level.
+    explanation: >-
+      Scoping a query through the current user answers exactly one question: does this object belong
+      to the requester. That covers the most common failure and leaves three. Vertical failures are
+      actions above the user's privilege level, which no ownership relation describes. Contextual
+      failures involve the correct object in the wrong state or relationship — refunding an
+      already-refunded order, or an action permitted to a viewer but not an editor. Field-level
+      failures return too much of a legitimately accessible object. Each needs an explicit policy,
+      which is why scoping and a policy layer are complementary rather than alternatives.
+
+  - id: fail-closed
+    kind: choice
+    concept: fail-closed
+    prompt: "What does a fail-closed `verify_authorized` change about an endpoint written next year?"
+    options:
+      - text: "It is denied until someone decides the policy — a missing check raises during development instead of granting access in production"
+        correct: true
+        feedback: >-
+          The highest-leverage single change available in this area.
+      - text: It automatically infers the correct policy from the controller name
+        feedback: >-
+          Nothing is inferred; the absence of a decision is simply refused.
+      - text: It logs unauthorised attempts for later review
+        feedback: >-
+          Logging is useful and does not prevent the access.
+    explanation: >-
+      The default behaviour of every framework is fail-open: no authorisation call means no
+      restriction, so an omission grants access silently. An after-action verification inverts
+      that by asserting a check occurred during the request, so a controller action that never
+      consulted a policy fails loudly the first time it runs. The failure appears in development or
+      CI rather than as a disclosure in production, and crucially it applies to code written by
+      people who never read the original security discussion. The discipline it requires is
+      watching the `except:` list, which is effectively an inventory of deliberately unprotected
+      actions.
+
+  - id: 404-vs-403
+    kind: choice
+    concept: authorization
+    prompt: "When should you return 404 rather than 403?"
+    options:
+      - text: "When the object's existence is itself sensitive — 403 on another tenant's order confirms it exists, which with sequential ids enables enumeration of customers and activity"
+        correct: true
+        feedback: >-
+          403 is appropriate where the resource is public knowledge but the action is not.
+      - text: Always, since 403 reveals that authorisation is in use
+        feedback: >-
+          Knowing that authorisation exists is not a meaningful disclosure.
+      - text: Never — 404 for an existing resource is a specification violation
+        feedback: >-
+          Withholding existence is an accepted and recommended practice.
+    explanation: >-
+      The two codes disclose different amounts. 403 says the resource exists and the requester may
+      not have it, which is correct and harmless when the resource is publicly known — a documented
+      admin endpoint, say. For a record belonging to another customer, that confirmation is itself
+      the leak: iterating identifiers and distinguishing 403 from 404 reveals how many records exist
+      and how fast they are created, which is commercially sensitive even without the contents. Where
+      existence is sensitive, returning the same 404 as for a genuinely absent record declines to
+      answer.
+
+  - id: uuid-not-authz
+    kind: choice
+    concept: idor
+    prompt: "Why is an unguessable id not access control?"
+    options:
+      - text: "Ids leak through shared URLs, Referer headers, logs and error trackers, and unlike a check, obscurity cannot be revoked"
+        correct: true
+        feedback: >-
+          Worth having in addition, never instead.
+      - text: Because UUIDs are predictable if generated from a timestamp
+        feedback: >-
+          UUIDv4 is random; the problem is leakage rather than predictability.
+      - text: Because attackers can enumerate the UUID space with enough requests
+        feedback: >-
+          That space is infeasible to enumerate; leakage is the realistic path.
+    explanation: >-
+      An unguessable identifier defeats blind enumeration, which is genuinely useful, but it makes
+      possession of the identifier equivalent to permission — and identifiers escape constantly: a
+      user pastes a URL into a chat, a `Referer` header carries it to a third-party script, it lands
+      in access logs and error-tracker payloads, or a collaborator who legitimately had access
+      retains the link after being removed. The decisive weakness is that there is no way to
+      withdraw knowledge of a value, whereas an authorisation check consults current state and
+      therefore reflects revocation immediately.
+
+  - id: serialiser-default
+    kind: choice
+    concept: authorization
+    prompt: "What is wrong with a serialiser returning all fields minus an exclusion list?"
+    options:
+      - text: "Every new column is exposed by default, so adding one leaks it until someone remembers to exclude it — the same fail-open mistake one layer down"
+        correct: true
+        feedback: >-
+          Default to the minimum and add fields deliberately.
+      - text: Exclusion lists are slower than inclusion lists to evaluate
+        feedback: >-
+          Performance is irrelevant at this scale.
+      - text: Nothing, provided the exclusion list is reviewed each release
+        feedback: >-
+          Relying on review for every future column is precisely what fails.
+    explanation: >-
+      An exclusion list makes disclosure the default and restriction the exception, so the
+      correctness of the output depends on someone updating it every time the schema grows. Columns
+      added for internal purposes — a risk score, an internal note, a provider reference — are
+      published the moment they exist. An inclusion list inverts the default: a new column is
+      invisible until deliberately added, so forgetting is safe. This is exactly the fail-closed
+      principle applied to the response body rather than to the endpoint.
+
+  - id: explain-multitenancy
+    kind: recall
+    concept: authorization
+    prompt: >-
+      For multi-tenancy, why is a remembered `WHERE tenant_id = ?` the wrong approach, and what
+      would you do?
+    key_points:
+      - One missing clause in one query is a cross-tenant leak
+      - It relies on every developer, present and future, remembering
+      - The blast radius is a customer boundary, not a user one
+      - Enforce below the application — an unremovable default scope
+      - Or Postgres row-level security, which also covers raw SQL
+      - Or separate schemas or databases, strongest and most expensive
+      - Same principle as making the scope the only way to query
+    model: >-
+      Because it makes correctness depend on a hundred separate acts of remembering, and the cost of
+      one failure is categorically worse than an ordinary authorisation bug — the boundary crossed is
+      between paying customers rather than between users of the same account, which is the kind of
+      incident that ends contracts and triggers disclosure obligations. A single query written in a
+      hurry, a reporting script, a raw SQL optimisation, or a migration that backfills across tables
+      is enough. So the enforcement needs to sit somewhere a developer cannot omit. The cheapest
+      version is a default scope on every tenant-owned model that cannot be removed accidentally,
+      combined with a lint rule banning unscoped finders. Stronger is Postgres row-level security:
+      the application sets the tenant once per request and the database filters every subsequent
+      query, including raw SQL written by someone who never knew the system was multi-tenant.
+      Strongest is a schema or database per tenant, which makes cross-tenant access structurally
+      impossible and multiplies the operational cost of migrations, connections, backups and
+      monitoring. Which to choose depends on tenant count and contractual requirements, but the
+      principle is the same one as making the scope the only way to query — remove the possibility
+      rather than documenting the rule.

@@ -1,0 +1,195 @@
+passScore: 0.7
+questions:
+  - id: categories
+    kind: choice
+    concept: hashing
+    prompt: "Which question decides between hashing and encryption?"
+    options:
+      - text: "Do you ever need the original value back — never means hash, yes means encrypt and then manage keys"
+        correct: true
+        feedback: >-
+          Encoding answers neither question; it has no security property at all.
+      - text: How sensitive the data is — more sensitive data should be encrypted
+        feedback: >-
+          Passwords are highly sensitive and must be hashed, not encrypted.
+      - text: Whether the value needs to be searchable
+        feedback: >-
+          A relevant secondary question, resolved by deterministic encryption or a blind index.
+    explanation: >-
+      The distinction is functional rather than a matter of degree. A hash cannot be reversed, so
+      it suits anything you only ever need to compare — a password, a file fingerprint, a
+      deduplication key. Encryption is reversible by design, so it suits anything you must display
+      or transmit later, such as a card number or an access token. Choosing encryption for
+      passwords is a category error precisely because the reversibility is a liability there: it
+      means a compromised key exposes every password in plaintext.
+
+  - id: roll-your-own
+    kind: choice
+    concept: symmetric-encryption
+    prompt: "What does \"do not roll your own crypto\" mean precisely?"
+    options:
+      - text: "Do not invent the construction — composing CBC with your own padding and MAC ordering is where systems break, while calling AES-256-GCM from a library is expected"
+        correct: true
+        feedback: >-
+          The failures are compositional and invisible to a round-trip test.
+      - text: Do not use cryptography unless you have studied it formally
+        feedback: >-
+          Application engineers use it routinely and correctly through libraries.
+      - text: Do not implement any algorithm yourself, but any composition of library calls is safe
+        feedback: >-
+          Composition is exactly where the named attacks live.
+    explanation: >-
+      The primitives are not what fail — AES and SHA-256 remain unbroken. What fails is how they
+      are put together: authenticating the plaintext instead of the ciphertext, reusing a nonce,
+      reporting a padding failure distinguishably from an authentication failure, comparing tags
+      with early return. Each of those is a decision made while assembling library calls, each has
+      a documented attack, and each leaves a system that encrypts and decrypts correctly in every
+      test. Using a mode that bundles the composition — an AEAD — removes the opportunity.
+
+  - id: nonce-reuse
+    kind: choice
+    concept: symmetric-encryption
+    prompt: "Why is nonce reuse in GCM worse than merely leaking plaintext?"
+    options:
+      - text: "It also reveals the authentication subkey, so an attacker can forge valid tags — confidentiality and integrity are lost together"
+        correct: true
+        feedback: >-
+          The plaintext leak alone follows from two ciphertexts sharing a keystream.
+      - text: It causes decryption to fail, making the data unrecoverable
+        feedback: >-
+          Decryption continues to work; that is part of the problem.
+      - text: It allows the key itself to be recovered directly
+        feedback: >-
+          The encryption key is not recovered; the authentication subkey is.
+    explanation: >-
+      Counter-mode encryption derives a keystream from the key and nonce, so two messages sharing
+      both share the keystream — and XORing the two ciphertexts cancels it, exposing the XOR of the
+      plaintexts, which ordinary analysis can separate. GCM compounds this because its
+      authentication component is a polynomial evaluation whose secret is exposed once two messages
+      reuse a nonce, allowing the attacker to compute valid tags for messages of their choosing.
+      Having lost both properties, the ciphertext offers no protection at all, which is why nonce
+      generation is never left to application logic.
+
+  - id: padding-oracle
+    kind: choice
+    concept: symmetric-encryption
+    prompt: "What makes a padding oracle possible?"
+    options:
+      - text: "A padding failure being distinguishable from an authentication failure — by message, status code or timing — which lets an attacker decrypt without the key by submitting modified ciphertexts"
+        correct: true
+        feedback: >-
+          It broke ASP.NET, TLS's CBC suites and XML Encryption.
+      - text: Using a block size smaller than the message
+        feedback: >-
+          Block size is unrelated; the distinguishable error is the oracle.
+      - text: Encrypting without a nonce
+        feedback: >-
+          CBC uses an IV; the vulnerability is in the error reporting.
+    explanation: >-
+      The attack works by submitting altered ciphertexts and observing which ones produce a
+      padding error versus some other error, which reveals one byte of plaintext at a time. Any
+      observable difference serves as the oracle — distinct exception types, different HTTP status
+      codes, different response bodies, or simply different response times because one path does
+      more work than the other. Authenticated modes remove the oracle structurally: verification
+      happens before any decryption result is produced, so there is a single failure outcome and no
+      information to distinguish.
+
+  - id: constant-time
+    kind: choice
+    concept: hmac
+    prompt: "Why must a MAC comparison be constant time?"
+    options:
+      - text: "`==` returns as soon as bytes differ, so response timing reveals how many leading bytes matched — reducing the attack from 2^256 to roughly a few thousand requests"
+        correct: true
+        feedback: >-
+          Use the library's secure_compare rather than string equality.
+      - text: Because string comparison can throw on differing lengths
+        feedback: >-
+          Length mismatch is handled; timing is the vulnerability.
+      - text: Because constant-time comparison also validates the encoding
+        feedback: >-
+          It does not; it only avoids early return.
+    explanation: >-
+      A naive comparison stops at the first mismatching byte, so a candidate sharing more leading
+      bytes with the real value takes measurably longer to reject. An attacker can therefore
+      determine the first byte with around 256 attempts, then the second, and so on — turning an
+      astronomically large search space into a linear one, a few hundred attempts per byte. The
+      timing differences are small but measurable in aggregate, and over a network with enough
+      samples. Constant-time comparison examines every byte regardless, so the duration carries no
+      information.
+
+  - id: verify-before-parse
+    kind: choice
+    concept: hmac
+    prompt: "Why verify a signature before parsing the payload?"
+    options:
+      - text: "Parsing first means you have already deserialised unauthenticated attacker input — and if the format instantiates objects, you executed code before deciding whether to trust the message"
+        correct: true
+        feedback: >-
+          The MAC should also cover the serialised bytes rather than the parsed object.
+      - text: Because parsing changes the bytes, so the signature would no longer match
+        feedback: >-
+          Reserialisation issues are a reason to sign the bytes, and the ordering argument is about exposure.
+      - text: Because verification is cheaper than parsing, so it fails faster
+        feedback: >-
+          A minor efficiency point rather than the security reason.
+    explanation: >-
+      Verification is a trust boundary, and everything performed before it operates on data of
+      unknown origin. A JSON parser facing hostile input risks resource exhaustion through deep
+      nesting; a format that reconstructs objects — YAML with an unsafe loader, a language's native
+      deserialiser — invokes methods during reconstruction and is therefore code execution. Doing
+      the cheap, bounded operation of checking a MAC first means the expensive and dangerous
+      operation only ever runs on data you issued. Signing the serialised bytes rather than the
+      parsed structure also avoids any ambiguity about canonical representation.
+
+  - id: deterministic-lowcard
+    kind: choice
+    concept: symmetric-encryption
+    prompt: "Why is deterministic encryption wrong for a country code?"
+    options:
+      - text: "Equal plaintexts give equal ciphertexts, and with a couple of hundred possible values the attacker simply encrypts each one and builds a lookup table"
+        correct: true
+        feedback: >-
+          Deterministic mode is for when an equality lookup is genuinely required.
+      - text: Because country codes are too short to encrypt securely
+        feedback: >-
+          Length is not the issue; cardinality is.
+      - text: Because deterministic encryption cannot be rotated
+        feedback: >-
+          Rotation is possible; the structural leak is the problem.
+    explanation: >-
+      Determinism is adopted deliberately so that an encrypted column can be searched by equality,
+      and the unavoidable consequence is that identical values are visibly identical. With
+      high-cardinality data such as an email address that leaks only which rows share a value. With
+      a small domain the leak is total: the attacker encrypts every candidate under the same key
+      they can observe being used, matches the ciphertexts, and recovers the plaintext for every
+      row. The same reasoning applies to booleans, postcodes and status fields, where a handful of
+      possibilities makes the ciphertext a thin disguise.
+
+  - id: explain-envelope
+    kind: recall
+    concept: key-management
+    prompt: >-
+      Give the properties envelope encryption buys that a local key does not.
+    key_points:
+      - The master key never leaves the KMS, so it cannot be read from the database or process memory
+      - Rotation re-encrypts small wrapped data keys rather than the data itself
+      - Every decryption is a KMS call, so access is logged
+      - And revocable — removing permission stops decryption immediately
+      - A per-record data key limits the damage from any single key compromise
+      - Costs a network call per decryption and a dependency in the critical path
+    model: >-
+      With a local key the application holds the only secret, so anything that can read the
+      environment, dump the process memory or obtain a backup of the configuration has everything —
+      and nothing records that it happened. Envelope encryption splits the problem: each record is
+      encrypted with its own randomly generated data key, and that data key is itself encrypted by
+      a master key that lives inside a key management service and never leaves it. Four properties
+      follow. The master key cannot be exfiltrated by reading the database or the application,
+      because it is never present in either. Rotating it means re-encrypting the small wrapped keys
+      rather than terabytes of data, which makes rotation something you can actually do rather than
+      something you plan to. Every decryption is an authenticated call to the service, so there is
+      an audit trail that turns "did anyone read this table" from unknowable into a query — and the
+      same mechanism makes access revocable immediately by removing a permission, without touching
+      the data. And a per-record key means compromising one key compromises one record. The costs
+      are a network round trip per decryption, a per-operation charge, and a dependency in the
+      critical path, which is usually mitigated by caching data keys briefly for hot records.

@@ -1,0 +1,194 @@
+passScore: 0.7
+questions:
+  - id: unifying-shape
+    kind: choice
+    concept: injection
+    prompt: "What do SQL injection, XSS, command injection and CSV injection have in common?"
+    options:
+      - text: "Data reaching a position where an interpreter parses it as instructions — the names describe the interpreter, not the bug"
+        correct: true
+        feedback: >-
+          Which is why the shape covers variants nobody has written a cheat sheet for.
+      - text: All four involve unvalidated string input from a web form
+        feedback: >-
+          The source varies; the destination is what unifies them.
+      - text: All four are prevented by escaping special characters
+        feedback: >-
+          Escaping is context-specific and insufficient for several of them.
+    explanation: >-
+      In each case a value supplied by someone else ends up in the input of a parser — the
+      database's SQL parser, the browser's HTML and JavaScript parsers, a shell, a spreadsheet's
+      formula evaluator. Recognising that single pattern is more durable than memorising a list,
+      because the list grows: template engines, LDAP filters, YAML loaders and log viewers are all
+      interpreters, and none of them appears on a standard top-ten. The question to ask at every
+      boundary is whether the data can reach the grammar.
+
+  - id: context-escaping
+    kind: choice
+    concept: context-escaping
+    prompt: "Why does HTML escaping fail inside an `href`?"
+    options:
+      - text: "Nothing being escaped is special there — `javascript:alert(1)` is a valid URL containing no HTML metacharacters, so the scheme must be validated against an allow list"
+        correct: true
+        feedback: >-
+          Inside a script block a quote closes the string literal; inside an unquoted attribute a space suffices.
+      - text: Because browsers decode entities in attributes before parsing the URL
+        feedback: >-
+          Decoding happens, and the payload needs no entities in the first place.
+      - text: Because escaping only applies to element text nodes
+        feedback: >-
+          It applies to attributes too; it simply does not address schemes.
+    explanation: >-
+      HTML escaping neutralises characters that are significant to the HTML parser — angle
+      brackets, ampersands, quotes. A `javascript:` URL contains none of them, so it passes
+      through unchanged and is then interpreted by the browser's URL handling, where the scheme is
+      meaningful. Each context has a different grammar and therefore a different set of dangerous
+      constructs: a script block is vulnerable to a quote, an unquoted attribute to whitespace, and
+      a URL to a scheme. That is why "escape user input" is incomplete without specifying for what.
+
+  - id: blocklist
+    kind: choice
+    concept: injection
+    prompt: "Why is a blocklist a losing strategy?"
+    options:
+      - text: "There is always another encoding — HTML entities, URL encoding, double encoding, SVG event handlers, `<img onerror>` — and the attacker needs only one you did not consider"
+        correct: true
+        feedback: >-
+          Several decades of bypasses support this.
+      - text: Because blocklists are too slow to evaluate on every request
+        feedback: >-
+          Performance is not the objection.
+      - text: Because they reject legitimate input, harming usability
+        feedback: >-
+          A real cost, and not the security argument.
+    explanation: >-
+      A blocklist attempts to enumerate dangerous inputs, which requires knowing every
+      representation a parser will accept — and parsers are permissive by design, accepting
+      multiple encodings, mixed cases, overlong forms and constructs that did not exist when the
+      list was written. Defence therefore depends on completeness while attack depends on finding a
+      single omission, which is an asymmetry that cannot be won. The alternative is to characterise
+      what is safe rather than what is dangerous: parameterise so the data never reaches the
+      parser, or encode for a known context so whatever the data contains is inert.
+
+  - id: dom-xss
+    kind: choice
+    concept: xss
+    prompt: "What makes DOM-based XSS invisible to a WAF?"
+    options:
+      - text: "The payload may never reach the server — in the URL fragment after `#`, which browsers do not send — and the vulnerable sink is client-side code writing to innerHTML"
+        correct: true
+        feedback: >-
+          Server-side filtering and output escaping are both bypassed because the server is not involved.
+      - text: Because WAFs only inspect POST bodies
+        feedback: >-
+          They inspect query strings and headers too; the fragment is the gap.
+      - text: Because the payload is encrypted in transit
+        feedback: >-
+          TLS terminates before the WAF in normal deployments.
+    explanation: >-
+      In the DOM-based variant the untrusted value travels from a client-side source — the URL, a
+      postMessage, localStorage — to a client-side sink such as `innerHTML` or `document.write`,
+      with no server round trip in between. When the source is the fragment identifier, the value
+      is never transmitted at all, so nothing server-side can inspect or escape it. Defences must
+      therefore live in the client code: prefer `textContent`, and sanitise with a maintained
+      library if markup is genuinely required.
+
+  - id: unsafe-inline
+    kind: choice
+    concept: xss
+    prompt: "What does `unsafe-inline` do to a CSP?"
+    options:
+      - text: "It permits inline scripts, which is exactly what an injected `<script>` is — so the policy no longer blocks the attack it was adopted for"
+        correct: true
+        feedback: >-
+          It is common because adopting nonces requires changing every inline script.
+      - text: It allows scripts from any origin, widening the source list
+        feedback: >-
+          That is a wildcard host; `unsafe-inline` is about inline execution.
+      - text: It disables the policy entirely, including non-script directives
+        feedback: >-
+          Other directives still apply; the script protection is what is lost.
+    explanation: >-
+      The protective value of a CSP against cross-site scripting comes almost entirely from
+      refusing to execute script that the server did not mark as its own — via a nonce or a hash.
+      Allowing inline script removes the distinction, since injected markup is inline by nature, so
+      a policy containing it in `script-src` offers no XSS mitigation at all. It remains extremely
+      common because migrating an existing application means attaching a nonce to every inline
+      script and event handler, which is real work — with the result that many policies exist as
+      compliance artefacts rather than defences.
+
+  - id: ssrf-denylist
+    kind: choice
+    concept: ssrf
+    prompt: "Why can an SSRF denylist not work? Name bypasses."
+    options:
+      - text: "DNS can point a permitted hostname at an internal address, redirects can lead to one, alternative notations such as decimal or IPv4-mapped IPv6 evade parsing, and DNS rebinding resolves differently between check and fetch"
+        correct: true
+        feedback: >-
+          Allow list destinations, resolve and validate the address, pin the connection, refuse redirects.
+      - text: Because internal addresses change too frequently to enumerate
+        feedback: >-
+          Private ranges are stable; the evasions are the problem.
+      - text: Because the denylist cannot be applied to HTTPS URLs
+        feedback: >-
+          Scheme makes no difference to address validation.
+    explanation: >-
+      Blocking addresses assumes you can see the address you will connect to, and every step of URL
+      handling offers a way to change it. The hostname is resolved by DNS, which the attacker may
+      control, so a perfectly innocuous name can resolve to a link-local address. Following
+      redirects hands destination choice to the remote server. Addresses have several textual forms
+      that naive string matching misses. And rebinding exploits the gap between validation and
+      connection by returning different answers to two lookups. The workable approach inverts the
+      logic: permit specific destinations, resolve once, validate the resulting address, and connect
+      to that address rather than re-resolving.
+
+  - id: metadata-endpoint
+    kind: choice
+    concept: ssrf
+    prompt: "What is at 169.254.169.254?"
+    options:
+      - text: "The cloud instance metadata endpoint — on IMDSv1 a plain GET returns temporary IAM credentials, which is how the 2019 Capital One breach escalated from SSRF to account compromise"
+        correct: true
+        feedback: >-
+          It is in the link-local range, which is why that range must be blocked.
+      - text: The default Kubernetes API server address
+        feedback: >-
+          That is a cluster-internal service address, not link-local.
+      - text: A reserved loopback alias used for container networking
+        feedback: >-
+          Loopback is 127.0.0.0/8; this is link-local.
+    explanation: >-
+      Cloud providers expose instance configuration over an unauthenticated HTTP endpoint on a
+      link-local address, on the assumption that only code running on the instance can reach it.
+      Version 1 of that interface responds to a simple GET, so any vulnerability that makes the
+      server fetch an attacker-chosen URL can retrieve the instance's role credentials and use them
+      from anywhere. IMDSv2 requires a PUT to obtain a token first and limits the hop count, which
+      defeats the simple case. The incident that made this widely known involved exactly this chain:
+      a request-forgery flaw, metadata credentials, and then access to storage buckets.
+
+  - id: explain-output-encoding
+    kind: recall
+    concept: context-escaping
+    prompt: >-
+      Why encode on output rather than sanitise on input?
+    key_points:
+      - The destination context is unknown at input time
+      - The same value may be rendered as HTML, in JSON, in a URL and in a CSV
+      - Sanitising on input corrupts the stored data irreversibly
+      - And it still gets the context wrong wherever it is rendered differently
+      - Store what the user typed; encode at each render for that context
+      - Validation on input is still worthwhile for error messages and obvious nonsense
+    model: >-
+      At the moment data arrives you do not know where it will end up. The same name might be
+      rendered inside an element, inside an attribute, interpolated into a script block, embedded in
+      a URL, written to a CSV, included in a log line and sent in a JSON API response — each of
+      which needs different treatment, and several of which need none. Sanitising at the entry point
+      forces you to guess one context and apply it to all of them, so it is simultaneously wrong
+      everywhere the context differs and destructive to the stored value: an apostrophe in
+      O'Sullivan becomes an entity in the database and then double-encodes when rendered, and the
+      original input is unrecoverable. Encoding at the render boundary instead means the data stays
+      exactly what the user typed and each output site applies the transformation appropriate to its
+      own grammar. Input validation is still worth doing — rejecting a malformed email address or an
+      implausible length gives better errors and catches obvious abuse — but it is a correctness
+      measure rather than the injection defence, and treating it as the latter is how
+      double-encoding bugs and missed contexts both arise.
