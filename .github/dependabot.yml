@@ -15,7 +15,7 @@ updates:
       # One PR for the rest of the dev toolchain rather than eight — these move
       # together and none of them ship to visitors.
       dev-tooling:
-        patterns: ["eslint*", "@eslint/*", "typescript-eslint", "@testing-library/*", "jsdom", "typescript"]
+        patterns: ["eslint*", "@eslint/*", "typescript-eslint", "globals", "@testing-library/*", "jsdom", "typescript"]
         update-types: [minor, patch]
       build:
         patterns: ["vite", "@vitejs/*", "tailwindcss", "@tailwindcss/*"]
