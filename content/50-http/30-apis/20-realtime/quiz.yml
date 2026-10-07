@@ -1,0 +1,196 @@
+passScore: 0.7
+questions:
+  - id: cost-comparison
+    kind: choice
+    concept: server-push
+    prompt: "Ten thousand clients, an update every five minutes each. Polling at 10s versus SSE?"
+    options:
+      - text: "Polling is 1,000 req/s with roughly 99.7% returning nothing; SSE is about zero requests per second with 10,000 open connections"
+        correct: true
+        feedback: >-
+          And polling's latency is bounded below by the interval.
+      - text: "Both are similar, since SSE holds a connection per client anyway"
+        feedback: >-
+          A held connection costs memory, not a request per interval.
+      - text: Polling is cheaper because connections are released between requests
+        feedback: >-
+          Releasing a connection does not offset a thousand requests a second.
+    explanation: >-
+      Ten thousand clients polling every ten seconds generate a thousand requests per second
+      continuously, and with updates arriving only every five minutes per client, almost every one
+      of those requests exists purely to learn that nothing happened. Shortening the interval to
+      improve latency multiplies that waste linearly. SSE inverts the arrangement: the connection
+      already exists, so steady-state request volume is zero and the cost becomes memory and file
+      descriptors for the open connections. The trade is request volume for server state, which is
+      favourable at this ratio and unfavourable when updates are rare and clients are few.
+
+  - id: sse-free
+    kind: choice
+    concept: server-sent-events
+    prompt: "What does SSE provide that you would implement yourself over WebSockets?"
+    options:
+      - text: "Automatic reconnection, `Last-Event-ID` so the server can replay missed events, and a defined text framing — all built into EventSource"
+        correct: true
+        feedback: >-
+          Which is most of the argument for preferring it when you do not send upward.
+      - text: Bidirectional messaging and binary frames
+        feedback: >-
+          Those are what WebSockets add and SSE lacks.
+      - text: Authentication, since EventSource can set an Authorization header
+        feedback: >-
+          EventSource cannot set custom headers either; it relies on cookies.
+    explanation: >-
+      The browser's EventSource implementation handles disconnection by retrying on an interval the
+      server can set with a `retry:` field, and it transmits the last `id:` it received as the
+      `Last-Event-ID` header so the server can resume rather than restart. It also defines the
+      event framing, so there is no message format to invent. With WebSockets each of those is your
+      responsibility: a reconnect loop with jittered backoff, a scheme for identifying and replaying
+      missed messages, and a message envelope. For a one-directional feature that is a substantial
+      amount of infrastructure to take on voluntarily.
+
+  - id: dead-connection
+    kind: choice
+    concept: connection-state
+    prompt: "Why is a dead connection indistinguishable from an idle one?"
+    options:
+      - text: "TCP provides no notification when a peer vanishes — a closed laptop or an expired NAT mapping simply stops sending, so you only discover it on the next write; heartbeats surface it"
+        correct: true
+        feedback: >-
+          Pings also stop intermediaries from closing a quiet connection.
+      - text: Because WebSocket close frames are optional and often omitted
+        feedback: >-
+          A graceful close does send a frame; the problem is ungraceful disappearance.
+      - text: Because load balancers suppress TCP resets
+        feedback: >-
+          A reset would be informative; the issue is that none is sent.
+    explanation: >-
+      A TCP connection is an agreement between two endpoints with no continuous liveness signal. If
+      the remote host loses power, changes network, or has its NAT translation expire, nothing
+      informs the other side — the socket remains open and silent, which is exactly what a healthy
+      idle connection looks like. The failure surfaces only when you attempt to write and the
+      retransmissions eventually time out, potentially many minutes later, during which you believe
+      you have a live client. Periodic application-level pings convert that silence into a detectable
+      absence, and simultaneously prevent intermediaries from reaping the connection as idle.
+
+  - id: proxy-buffering
+    kind: choice
+    concept: server-sent-events
+    prompt: "Your SSE endpoint works locally and hangs behind nginx. Why?"
+    options:
+      - text: "nginx buffers responses by default, so nothing is forwarded until the buffer fills — set `X-Accel-Buffering: no` or disable proxy buffering"
+        correct: true
+        feedback: >-
+          The code is correct, which is why this costs people hours.
+      - text: "nginx does not support `text/event-stream` and strips the content type"
+        feedback: >-
+          The content type passes through fine.
+      - text: Because keep-alive must be explicitly negotiated with the proxy
+        feedback: >-
+          Keep-alive is handled automatically; buffering is the obstacle.
+    explanation: >-
+      Reverse proxies buffer upstream responses to free the application server quickly and to serve
+      slow clients efficiently, which is correct for ordinary responses and fatal for a stream whose
+      value is incremental delivery. With buffering on, events accumulate invisibly until the buffer
+      fills or the response ends, so the feature appears completely broken while every line of
+      application code is right. Emitting `X-Accel-Buffering: no` tells nginx to stream this response
+      through, and `proxy_buffering off` does it at configuration level. Other proxies and some CDNs
+      have equivalent settings worth checking before concluding the bug is yours.
+
+  - id: token-in-url
+    kind: choice
+    concept: websockets
+    prompt: "Why is a bearer token in a WebSocket URL a problem, and what is the alternative?"
+    options:
+      - text: "URLs are recorded in access logs, proxy logs, browser history and Referer headers, so a long-lived credential ends up in plaintext across several systems — use a short-lived single-use ticket instead"
+        correct: true
+        feedback: >-
+          The browser WebSocket API cannot set custom headers, which is why the query string is tempting.
+      - text: Query strings are length-limited, so the token may be truncated
+        feedback: >-
+          Length limits are generous and truncation would fail loudly.
+      - text: Because WebSocket URLs are not encrypted even under wss
+        feedback: >-
+          `wss` encrypts the whole request including the URL in transit.
+    explanation: >-
+      The transport is encrypted, but the URL is still visible to every endpoint that logs requests —
+      your own access logs, any intermediate proxy, monitoring systems that record request paths, and
+      browser history. A durable token sitting in all of those is effectively a credential stored in
+      plaintext in multiple places with different retention policies. The standard remedy is to
+      obtain a ticket over an ordinary authenticated request, scoped to one connection, single-use and
+      valid for perhaps thirty seconds, then present that in the connect URL. It appears in exactly
+      the same logs and is worthless by the time anyone reads them.
+
+  - id: revoked-permission
+    kind: choice
+    concept: connection-state
+    prompt: "A user's permissions are revoked while they hold an open connection. What happens?"
+    options:
+      - text: "Nothing, unless you designed for it — the handshake check already passed and no further authorisation occurs, so the revocation must be pushed to the connection or re-validated periodically"
+        correct: true
+        feedback: >-
+          A connection can live for hours, so a single check at connect time is a long-lived grant.
+      - text: The connection is closed automatically when the session is invalidated
+        feedback: >-
+          Nothing links session state to an established socket by default.
+      - text: The next message fails authorisation, since each frame is checked
+        feedback: >-
+          Per-frame authorisation is something you would have to implement.
+    explanation: >-
+      Authorising at the handshake treats the connection as a single long-running request, so the
+      decision made at second zero stands for the connection's entire life — which for a dashboard or
+      chat client may be hours. Revoking a role, suspending an account or ending a session has no
+      effect on an already-established socket unless something deliberately acts on it. Workable
+      approaches are to publish revocation events through the same pub/sub layer that carries
+      messages and close affected connections, or to re-validate on a timer and on any
+      privilege-sensitive message. Either way it is a design requirement rather than a default.
+
+  - id: shared-pubsub
+    kind: choice
+    concept: server-push
+    prompt: "Why do you need shared pub/sub as soon as there are two app servers?"
+    options:
+      - text: "The server holding a user's connection is probably not the one that generated their event, and it has no way to reach that connection otherwise"
+        correct: true
+        feedback: >-
+          Every app server subscribes and forwards to its own connections.
+      - text: Because load balancers cannot keep a client on the same server
+        feedback: >-
+          Sticky routing is achievable; the problem is where events originate.
+      - text: To deduplicate messages delivered by both servers
+        feedback: >-
+          Without a shared bus, one of them cannot deliver at all.
+    explanation: >-
+      An open connection is a resource belonging to one process. When an event for that user is
+      produced by a different process — a background job, an API request handled elsewhere, another
+      user's action — that process holds no reference to the socket and cannot write to it. A shared
+      publish/subscribe layer solves it by decoupling production from delivery: every app server
+      subscribes, and each forwards relevant events to whichever connections it happens to hold. That
+      makes the bus a hard dependency with its own availability and latency characteristics, which is
+      why treating it as optional and adding it later tends to be a painful retrofit.
+
+  - id: explain-fetch-subscribe
+    kind: recall
+    concept: server-push
+    prompt: >-
+      Describe fetch-then-subscribe and explain what it protects against.
+    key_points:
+      - Fetch current state over ordinary HTTP first
+      - Then subscribe for incremental updates
+      - On reconnect, fetch again — or replay from the last event id
+      - The connection is a latency optimisation, not the source of truth
+      - Protects against messages lost across a disconnect
+      - Means a dropped connection costs latency rather than correctness
+      - Makes deploys safe, since every client can rebuild its state
+    model: >-
+      The client first retrieves the complete current state through a normal request, then opens a
+      stream and applies incremental updates to it; on any reconnection it either replays from the
+      last event id it saw or simply fetches the full state again. What this protects against is the
+      gap: a connection can drop at any moment, and anything published during the gap is gone unless
+      it was durably queued. A client that only ever accumulates deltas has no way to know it missed
+      one, so its state silently diverges and stays wrong until a page reload — which is a
+      particularly unpleasant bug because it is invisible to the client and unreproducible for
+      whoever investigates. Designing it the other way round makes the connection a latency
+      optimisation over polling rather than the source of truth, so the worst consequence of a
+      disconnect is a brief delay. It also makes deployments straightforward: disconnecting every
+      client is acceptable because each one can rebuild correct state on reconnect, which is exactly
+      the property you want when a rolling restart is going to sever every connection at once anyway.

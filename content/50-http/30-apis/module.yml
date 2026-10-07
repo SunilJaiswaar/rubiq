@@ -1,0 +1,3 @@
+title: Designing over HTTP
+summary: Using the protocol you already have rather than tunnelling through it, and what to reach for when request/response is the wrong shape.
+level: intermediate

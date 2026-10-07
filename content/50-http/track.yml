@@ -21,3 +21,5 @@ outcomes:
   - Read and set cache headers deliberately
   - Choose the right status code, and know which ones clients treat specially
   - Diagnose a slow request by working out which layer is responsible
+  - Design an API whose errors, pagination and conventions are contracts you can keep
+  - Choose between polling, SSE and WebSockets from what the feature actually needs

@@ -1,0 +1,189 @@
+passScore: 0.7
+questions:
+  - id: safe-idempotent
+    kind: choice
+    concept: idempotency
+    prompt: "Why does the safe/idempotent distinction matter operationally?"
+    options:
+      - text: "It determines what a proxy may cache, what a browser may prefetch, and what a client library may retry on a timeout"
+        correct: true
+        feedback: >-
+          Which is why a retried POST can charge a card twice.
+      - text: It controls which methods a load balancer will route
+        feedback: >-
+          Routing does not depend on method semantics.
+      - text: It is a REST convention with no effect outside documentation
+        feedback: >-
+          Real infrastructure acts on it without asking.
+    explanation: >-
+      These properties are permissions granted to every layer between client and server. Safe
+      means an intermediary may issue the request speculatively, so prefetchers and crawlers will.
+      Idempotent means a client may repeat it after a timeout without risk, so HTTP libraries and
+      load balancers retry those methods automatically. POST is neither, which is precisely why a
+      timed-out POST is ambiguous — the request may have been processed before the response was
+      lost — and why `Idempotency-Key` exists to let the server deduplicate.
+
+  - id: 401-403
+    kind: choice
+    concept: status-codes
+    prompt: "401 versus 403, and when would 404 be better?"
+    options:
+      - text: "401 means authentication is missing or invalid and should carry `WWW-Authenticate`; 403 means authenticated but not permitted; 404 avoids revealing that a resource exists at all"
+        correct: true
+        feedback: >-
+          The names are backwards — 401 \"Unauthorized\" is about authentication.
+      - text: "401 means the account is suspended; 403 means the token expired"
+        feedback: >-
+          Neither maps to an account state; they distinguish authentication from authorisation.
+      - text: They are interchangeable, and 404 is only for missing routes
+        feedback: >-
+          Retrying with the same credentials is futile for 403 and sensible for 401, so clients treat them differently.
+    explanation: >-
+      The distinction is whether identity was established. 401 says the request lacked usable
+      credentials, so a client should obtain some and retry — hence the `WWW-Authenticate` header
+      describing how. 403 says the credentials were understood and the operation is still refused,
+      so retrying unchanged is pointless. Returning 404 for an existing but forbidden resource is a
+      deliberate third choice: it withholds the information that the resource exists, which matters
+      when the identifier itself is sensitive, such as another tenant's order.
+
+  - id: get-prefetch
+    kind: choice
+    concept: http-methods
+    prompt: "Why does `GET /subscriptions/42/cancel` get triggered without anyone clicking?"
+    options:
+      - text: "GET is safe by specification, so prefetchers, crawlers, link checkers and cache-warming proxies issue it freely — and there is no CSRF check on GET, so an `<img>` tag triggers it too"
+        correct: true
+        feedback: >-
+          This is a property of the protocol, not of any one framework.
+      - text: Because browsers retry GET requests automatically on failure
+        feedback: >-
+          Retries are a smaller part of it than speculative fetching.
+      - text: Only if the route is listed in a sitemap
+        feedback: >-
+          Any discovered link is a candidate, and `<img src>` needs no discovery at all.
+    explanation: >-
+      Declaring a method safe is a promise to the entire ecosystem that issuing it has no
+      consequences, and a great deal of software relies on that promise: browser prefetching, search
+      crawlers, corporate proxies warming caches, email clients scanning links for previews. A
+      state-changing GET breaks the promise and all of those become triggers. Separately, CSRF
+      protection is applied to state-changing verbs and skips GET, so an attacker can fire it from
+      any page with an image tag carrying the victim's cookies.
+
+  - id: two-hundred-error
+    kind: choice
+    concept: status-codes
+    prompt: "What breaks when you return `200 OK {\"success\": false}`?"
+    options:
+      - text: "Intermediaries may cache it, monitoring records zero errors, and client error handling that checks the status never fires"
+        correct: true
+        feedback: >-
+          The status line is the part the rest of the infrastructure reads.
+      - text: Nothing, provided the client inspects the body
+        feedback: >-
+          The client is only one of several readers of that response.
+      - text: The response body is ignored by browsers when the status is 200
+        feedback: >-
+          The body is delivered normally; the problem is everything that only reads the status.
+    explanation: >-
+      A response is interpreted by proxies, CDNs, load balancers, monitoring agents and client
+      libraries, and most of them read only the status line. Reporting success means a failure may
+      be stored in a cache and served to other users, dashboards show a healthy error rate while
+      users see failures, retry logic never engages because nothing looked wrong, and generic client
+      error handling is bypassed. Using an accurate status does not prevent you from also returning a
+      machine-readable error code in the body — that combination is what lets both the
+      infrastructure and the application respond correctly.
+
+  - id: five-hundred-validation
+    kind: choice
+    concept: status-codes
+    prompt: "Beyond being inaccurate, what second problem does returning 500 for a validation error cause?"
+    options:
+      - text: "5xx signals \"this might work later\", so client retry logic keeps resending input that can never become valid — while also firing error-rate alerts"
+        correct: true
+        feedback: >-
+          4xx tells the client not to retry as-is, which is the actionable information.
+      - text: It prevents the response body from being read
+        feedback: >-
+          The body is still available.
+      - text: It causes the load balancer to remove the server from rotation
+        feedback: >-
+          Health checks are separate from request status codes.
+    explanation: >-
+      The 4xx/5xx boundary is a contract about retryability. 4xx places the fault with the request,
+      so a client should change something before trying again; 5xx places it with the server, so the
+      same request may succeed shortly. Misclassifying bad input as 5xx therefore invites a retry
+      loop that cannot converge, since the input is unchanged, and simultaneously pollutes the error
+      budget and pages whoever is on call for what is actually a user's typo.
+
+  - id: cors-protects
+    kind: choice
+    concept: headers
+    prompt: "Who does CORS protect, and from what?"
+    options:
+      - text: "The browser's user — it stops a page on one origin reading responses from another; it does not stop anyone sending your server requests"
+        correct: true
+        feedback: >-
+          curl and any script ignore it entirely, so server-side authorisation is still required.
+      - text: The server, by rejecting requests from unapproved origins
+        feedback: >-
+          The server receives and processes the request; only the browser withholds the response.
+      - text: Both equally, since the preflight happens before the real request
+        feedback: >-
+          A preflight is also browser-initiated and skippable by a non-browser client.
+    explanation: >-
+      CORS is a relaxation of the same-origin policy, enforced by the browser on behalf of the user
+      whose credentials are in play. It governs whether JavaScript on origin A may read a response
+      from origin B — the request itself is typically sent and executed regardless. Anything that is
+      not a browser simply does not participate: curl, a server-side HTTP client or a script has no
+      same-origin policy to relax. So a permissive CORS policy risks exposing your users' data to
+      other sites they visit; it is never what keeps an unauthenticated caller out of your API.
+
+  - id: redirect-method
+    kind: choice
+    concept: status-codes
+    prompt: "Why is 302 risky after a POST?"
+    options:
+      - text: "Some clients historically convert the redirected POST into a GET and drop the body — 307 and 308 preserve the method"
+        correct: true
+        feedback: >-
+          The resulting bugs are intermittent and client-dependent, which makes them hard to reproduce.
+      - text: Because 302 responses cannot carry a Location header
+        feedback: >-
+          Location is required for all 3xx redirects.
+      - text: Because 302 is permanently cached by browsers
+        feedback: >-
+          302 is explicitly temporary; 301 is the permanent one.
+    explanation: >-
+      The original specification was ambiguous and widespread client behaviour diverged from it, so
+      a 302 after a POST may be followed with GET and no body by some clients and with POST by
+      others. That makes the outcome depend on the user agent, which is the worst kind of
+      intermittent bug. 307 Temporary Redirect and 308 Permanent Redirect were introduced precisely
+      to remove the ambiguity: they require the method and body to be preserved. Use 303 when you
+      deliberately want the POST-then-GET behaviour, which is the standard pattern for form
+      submission.
+
+  - id: explain-untrusted-headers
+    kind: recall
+    concept: headers
+    prompt: >-
+      Name client-supplied headers you must not trust and what goes wrong with each.
+    key_points:
+      - Host — unvalidated, it ends up in generated links such as password-reset URLs
+      - X-Forwarded-For — spoofable, so IP rate limiting and allow lists can be bypassed
+      - Referer — absent or forged, so it cannot be a CSRF defence on its own
+      - User-Agent — pure self-description, useless for authorisation
+      - Validate Host against an allow list
+      - Trust only the rightmost X-Forwarded-For entries your own proxies added
+    model: >-
+      `Host` is the most dangerous, because frameworks use it to build absolute URLs — so an
+      attacker who supplies their own domain can cause a password-reset link pointing at their
+      server to be emailed to a real user, and the user clicking it hands over the token. The defence
+      is an explicit allow list of permitted hostnames, rejecting anything else before routing.
+      `X-Forwarded-For` is appended to by each proxy but entirely forgeable by the original client,
+      so treating the leftmost value as the client IP lets anyone fake their address and defeat
+      per-IP rate limiting or IP allow lists; only the entries your own trusted proxies added, counted
+      from the right, mean anything. `Referer` is frequently stripped by privacy settings and trivial
+      to omit, so it can supplement a CSRF defence but never constitute one. `User-Agent` is pure
+      self-description and should never gate access to anything. The general rule is that every
+      header except those your own infrastructure adds is attacker-controlled input, and deserves the
+      same validation as a query parameter.

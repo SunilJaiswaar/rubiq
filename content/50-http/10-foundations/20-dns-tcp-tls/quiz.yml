@@ -1,0 +1,191 @@
+passScore: 0.7
+questions:
+  - id: phases
+    kind: choice
+    concept: latency-budget
+    prompt: "On a 100ms RTT link, roughly how long before the first byte of HTML, and how much is your server?"
+    options:
+      - text: "About 300-400ms, of which roughly 300ms is DNS, TCP and TLS setup — the server is typically the smallest component"
+        correct: true
+        feedback: >-
+          Which is why decomposing TTFB comes before optimising queries.
+      - text: About 100ms, since all the setup happens in parallel
+        feedback: >-
+          The handshakes are strictly sequential; each needs the previous one's result.
+      - text: "About 100ms plus server time, since DNS and TLS are negligible"
+        feedback: >-
+          Each is a full round trip, so each costs the RTT.
+    explanation: >-
+      The phases cannot overlap: DNS must resolve before TCP can connect, TCP must complete before
+      TLS can negotiate, and TLS must finish before the request is sent. At one RTT each that is
+      roughly three hundred milliseconds of setup, plus the request/response round trip and the
+      server's own processing. A server responding in twenty milliseconds therefore accounts for
+      well under ten percent of the total, which is exactly why the first diagnostic step is
+      decomposition rather than profiling the application.
+
+  - id: tcp-three-way
+    kind: choice
+    concept: tcp-handshake
+    prompt: "Why does TCP need three messages rather than two?"
+    options:
+      - text: "Both ends must learn the other's starting sequence number, and the third message proves the client received the server's — which also makes blind spoofing hard"
+        correct: true
+        feedback: >-
+          Sequence numbers are what make ordering and retransmission possible.
+      - text: Because the third message carries the first data packet
+        feedback: >-
+          Data may be appended, and the ACK is required regardless.
+      - text: To negotiate the window size, which needs a round trip
+        feedback: >-
+          Window size is advertised in the first two messages.
+    explanation: >-
+      TCP's guarantees — ordered delivery, retransmission of losses, duplicate detection — all rest
+      on sequence numbers, and each direction has its own. The SYN announces the client's, the
+      SYN-ACK acknowledges it and announces the server's, and the final ACK acknowledges that. Two
+      messages would leave the server unsure whether its own sequence number arrived. The exchange
+      also means an attacker spoofing a source address never sees the server's sequence number and
+      so cannot complete the handshake, which is why off-path connection spoofing is impractical.
+
+  - id: tls13-rtt
+    kind: choice
+    concept: tls
+    prompt: "Why is TLS 1.3 one round trip where 1.2 needed two?"
+    options:
+      - text: "1.3 sends a guessed key share in the ClientHello, so the server can reply with its own share and the certificate immediately; 1.2 had to negotiate the cipher first"
+        correct: true
+        feedback: >-
+          The guess is almost always right, and there is a fallback when it is not.
+      - text: Because 1.3 removed certificate verification
+        feedback: >-
+          Certificates are still sent and verified.
+      - text: Because 1.3 runs over UDP
+        feedback: >-
+          TLS 1.3 runs over TCP; QUIC is the UDP-based protocol.
+    explanation: >-
+      In TLS 1.2 the client proposed cipher suites, the server chose one, and only then could the
+      key exchange for that suite begin — two round trips before application data. TLS 1.3
+      shortened the list of supported suites enough that the client can speculatively include a key
+      share for the one it expects to be chosen, letting the server complete the exchange in its
+      first response. If the guess is wrong there is a HelloRetryRequest that costs the extra round
+      trip, but in practice it almost never happens. Session resumption goes further still, allowing
+      application data in the very first packet.
+
+  - id: missing-intermediate
+    kind: choice
+    concept: tls
+    prompt: "A site works in Chrome and fails in curl with a certificate error. Likely cause?"
+    options:
+      - text: "A missing intermediate certificate — some clients fetch it via the AIA extension and others do not, so the chain is incomplete for the strict ones"
+        correct: true
+        feedback: >-
+          \"Works in my browser\" is not a test of a certificate chain.
+      - text: curl does not support TLS 1.3
+        feedback: >-
+          Modern curl does, and the error would differ.
+      - text: The certificate has expired, and Chrome caches validity
+        feedback: >-
+          Chrome does not ignore expiry.
+    explanation: >-
+      A server is expected to send the leaf certificate plus every intermediate up to a root the
+      client already trusts. If an intermediate is omitted, clients that implement AIA fetching will
+      silently download it and succeed, while those that do not — curl, many Java and Go clients,
+      most monitoring agents — cannot build a chain and report an untrusted issuer. Because browsers
+      are usually the forgiving ones, the failure appears only in API clients and automated checks.
+      `openssl s_client -showcerts` reveals exactly what the server sent.
+
+  - id: dns-ttl
+    kind: choice
+    concept: dns
+    prompt: "You lower a DNS TTL from 24h to 60s and migrate an hour later. What happens?"
+    options:
+      - text: "Resolvers that cached the record before the change keep the old IP for up to the original 24 hours, so traffic keeps arriving at the old server"
+        correct: true
+        feedback: >-
+          Lower the TTL at least one old-TTL period in advance.
+      - text: Nothing — the new TTL applies immediately everywhere
+        feedback: >-
+          Caches hold the record with the TTL they received it with.
+      - text: The migration works, but clients re-resolve every 60 seconds afterwards and add load
+        feedback: >-
+          That is a real effect, and not the problem with the timing.
+    explanation: >-
+      A cached DNS record carries the TTL that was in force when it was fetched, and caches honour
+      that value — they do not revisit the authoritative server to learn it has been reduced. So
+      lowering a TTL only affects resolvers that look the record up afterwards. To migrate safely you
+      must lower the TTL and then wait out the *old* TTL, which for a 24-hour record means waiting a
+      day before the change is reliably in effect. This is why DNS-based cutovers are planned days
+      ahead rather than during a maintenance window.
+
+  - id: hol-blocking
+    kind: choice
+    concept: tcp-handshake
+    prompt: "What are the two kinds of head-of-line blocking, and which protocol fixes each?"
+    options:
+      - text: "Application-layer — one request per connection in HTTP/1.1, fixed by HTTP/2 multiplexing; transport-layer — one lost TCP packet stalls every HTTP/2 stream, fixed by HTTP/3 over QUIC"
+        correct: true
+        feedback: >-
+          Transport blocking matters most on lossy networks such as mobile.
+      - text: "DNS-layer and TLS-layer, fixed by prefetch hints and session resumption"
+        feedback: >-
+          Neither of those is head-of-line blocking.
+      - text: Both are fixed by HTTP/2; HTTP/3 only adds connection migration
+        feedback: >-
+          HTTP/2 shares one TCP connection, which is where the transport-layer problem comes from.
+    explanation: >-
+      HTTP/1.1 permits only one outstanding request per connection, so a slow response delays every
+      subsequent request on that connection — blocking at the application layer, which multiplexing
+      in HTTP/2 removes. But HTTP/2's streams share a single TCP connection, and TCP delivers bytes
+      strictly in order, so a single dropped packet forces every stream to wait for its
+      retransmission even though their data has arrived. QUIC implements ordering per stream over
+      UDP, so a loss delays only the stream it belongs to — the primary motivation for HTTP/3, and
+      most visible on networks with real packet loss.
+
+  - id: slow-start
+    kind: choice
+    concept: tcp-handshake
+    prompt: "Why was \"keep critical CSS under 14KB\" advice?"
+    options:
+      - text: "TCP slow start begins with a congestion window of about ten packets, roughly 14KB, so the first 14KB arrives in one round trip and anything beyond it costs another"
+        correct: true
+        feedback: >-
+          Another reason connection reuse matters beyond saving the handshake.
+      - text: Because 14KB is the maximum size of a single TCP packet
+        feedback: >-
+          A packet is around 1.5KB; 14KB is roughly ten of them.
+      - text: Because browsers stop parsing CSS after 14KB
+        feedback: >-
+          No such limit exists.
+    explanation: >-
+      A new TCP connection does not know how much bandwidth is available, so it starts
+      conservatively and doubles its congestion window each round trip. The initial window is
+      typically ten segments, about fourteen kilobytes, which can be sent before any acknowledgement
+      is required. Content fitting inside that window therefore arrives one round trip after the
+      request; content exceeding it waits for an acknowledgement before the rest is sent. Since an
+      established connection has already grown its window, this is a further argument for reusing
+      connections rather than opening new ones.
+
+  - id: explain-cdn
+    kind: recall
+    concept: latency-budget
+    prompt: >-
+      Explain why a CDN speeds up even content it cannot cache.
+    key_points:
+      - It terminates TCP and TLS close to the user
+      - The handshake round trips cost 10ms instead of 150ms
+      - The long leg to the origin runs over an already-warm connection
+      - That connection has a grown congestion window, avoiding slow start
+      - So setup latency is removed even for a full origin fetch
+      - A CDN is primarily a latency product, not a bandwidth one
+    model: >-
+      Most of the time before the first byte is handshakes, and handshakes cost round trips
+      proportional to the distance to whoever terminates them. A CDN edge node is physically near the
+      user, so DNS, TCP and TLS complete in perhaps ten milliseconds each instead of a hundred and
+      fifty — removing the large majority of setup latency before the request has even been
+      forwarded. The request then travels to the origin over a connection the edge already holds
+      open: no new handshake, and crucially a congestion window that has long since grown past slow
+      start, so the response streams back at full rate rather than ramping up. The user therefore
+      pays one long round trip for the content itself instead of three or four for setup plus a
+      throttled transfer. This is why describing a CDN as a caching layer undersells it: caching is
+      what makes repeat requests free, but connection termination is what makes even a complete cache
+      miss substantially faster, and it is why putting a CDN in front of a wholly dynamic API is
+      often worthwhile.

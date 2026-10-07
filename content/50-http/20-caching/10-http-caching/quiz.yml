@@ -1,0 +1,193 @@
+passScore: 0.7
+questions:
+  - id: three-tiers
+    kind: choice
+    concept: caching
+    prompt: "`no-cache`, `no-store` and `max-age=0` — what does each do?"
+    options:
+      - text: "`no-cache` stores but revalidates before every use; `no-store` forbids storage entirely; `max-age=0` is stale immediately, so it revalidates like no-cache"
+        correct: true
+        feedback: >-
+          Reaching for `no-cache` when you meant `no-store` writes personal data to disk.
+      - text: All three prevent the response being stored
+        feedback: >-
+          Only `no-store` does.
+      - text: "`no-cache` forbids storage and `no-store` forbids revalidation"
+        feedback: >-
+          Exactly inverted.
+    explanation: >-
+      The naming is the trap. `no-cache` permits storage and requires validation before the stored
+      copy is used, which is why it is the right choice for an HTML entry point — always current,
+      but a 304 instead of a full body. `max-age=0` is nearly equivalent, marking the response stale
+      the instant it arrives. Only `no-store` instructs caches not to write the response anywhere,
+      which matters for a bank statement or a medical record, where the problem is not staleness but
+      the bytes sitting in a shared cache directory.
+
+  - id: fingerprinting
+    kind: choice
+    concept: immutable-assets
+    prompt: "How do you cache an asset for a year and still ship a change tomorrow?"
+    options:
+      - text: "Put a content hash in the filename — a change produces a new URL that was never cached, so invalidation is replaced by naming"
+        correct: true
+        feedback: >-
+          The HTML referencing those URLs is then the only thing that must stay fresh.
+      - text: Purge the CDN on deploy and rely on browsers revalidating
+        feedback: >-
+          Browsers with a fresh year-long copy will not ask at all.
+      - text: "Append `?v=2` to the URL, which busts every cache"
+        feedback: >-
+          Some proxies ignore query strings for caching decisions, so it is less reliable.
+    explanation: >-
+      A content-addressed URL makes the cache key a function of the content, so the stale-entry
+      problem cannot arise: new content means a new URL, and that URL has no cached copy anywhere in
+      the world. This is the standard build-tool behaviour and it is the reason a year-long `max-age`
+      is safe on assets but reckless on anything else. The residual requirement is that whatever
+      references those URLs — the HTML document — must be revalidated, which is cheap. Query-string
+      versioning aims at the same effect but is weaker, since caching behaviour around query strings
+      is less consistently implemented.
+
+  - id: immutable
+    kind: choice
+    concept: caching
+    prompt: "What does `immutable` add beyond a long `max-age`?"
+    options:
+      - text: "It stops the browser revalidating even on an explicit reload, which otherwise produces a burst of pointless 304s"
+        correct: true
+        feedback: >-
+          Only safe on URLs that genuinely never change content.
+      - text: It prevents shared caches from storing the response
+        feedback: >-
+          That is what `private` does.
+      - text: It extends the freshness lifetime indefinitely, overriding max-age
+        feedback: >-
+          The lifetime still comes from max-age.
+    explanation: >-
+      Browsers treat a user-initiated reload as a signal to check for updates, so they issue
+      conditional requests for resources they hold even when those resources are still fresh. On a
+      page with many fingerprinted assets that is dozens of requests returning 304, each costing a
+      round trip. `immutable` tells the browser the content at this URL will never differ, so a
+      reload need not check. It is a promise rather than a hint, which is why it belongs only on
+      content-addressed URLs.
+
+  - id: entry-point-maxage
+    kind: choice
+    concept: cache-invalidation
+    prompt: "Why is an accidental year-long `max-age` on `/index.html` worse than shipping a broken page?"
+    options:
+      - text: "You cannot reach the caches — browsers and ISP proxies holding a fresh copy will not ask your server for a year, so deploying a fix reaches nobody"
+        correct: true
+        feedback: >-
+          The only partial remedy is serving from a different URL, which breaks existing links.
+      - text: Because HTML cannot carry an ETag, so revalidation is impossible
+        feedback: >-
+          HTML can carry an ETag; the problem is that a fresh response is not revalidated at all.
+      - text: Because CDNs refuse to purge HTML responses
+        feedback: >-
+          CDNs purge fine — the uncontrollable caches are the clients'.
+    explanation: >-
+      Nearly every bug is fixable by deploying, because the next request reaches your new code. A
+      freshness directive removes that property: a cache holding a response it believes to be fresh
+      makes no request at all, so there is nothing for your fix to intercept. You control your own
+      CDN and can purge it, but not users' browser caches, corporate proxies or ISP caches. Those
+      users remain pinned to the cached version for the whole duration. That asymmetry — distributed
+      and partly irreversible — is why cache headers deserve review like a schema migration.
+
+  - id: vary-encoding
+    kind: choice
+    concept: caching
+    prompt: "What goes wrong without `Vary: Accept-Encoding`?"
+    options:
+      - text: "A cache may store a gzipped response and serve it to a client that did not request compression, which arrives as binary garbage"
+        correct: true
+        feedback: >-
+          Vary names the request headers that change the response.
+      - text: Compression stops working entirely
+        feedback: >-
+          Compression still happens; the caching of it becomes incorrect.
+      - text: The response is cached twice, wasting space
+        feedback: >-
+          Storing variants separately is the desired behaviour that Vary enables.
+    explanation: >-
+      A cache keys its entries on the URL, so two responses that differ because of a request header
+      are indistinguishable to it unless told otherwise. `Vary` lists the headers that matter, and the
+      cache then keeps a separate entry per distinct value. Without `Vary: Accept-Encoding`, whichever
+      representation was stored first is served to everyone — so a client that cannot decompress
+      receives gzip bytes and fails. The same mechanism applies to `Accept-Language` and content
+      negotiation generally; what it cannot safely handle is authorisation, which needs `private` or
+      `no-store` instead.
+
+  - id: public-authenticated
+    kind: choice
+    concept: caching
+    prompt: "`public, max-age=300` on a page rendered from a session cookie — what is the incident?"
+    options:
+      - text: "A shared cache stores one user's page and serves it to the next person requesting that URL"
+        correct: true
+        feedback: >-
+          Authenticated responses need `private` or `no-store`.
+      - text: Users see their own page but it becomes stale after five minutes
+        feedback: >-
+          Staleness is the benign reading; cross-user serving is the actual risk.
+      - text: The cookie is stored alongside the response and leaks
+        feedback: >-
+          Caches generally strip Set-Cookie; the body is what leaks.
+    explanation: >-
+      `public` explicitly authorises shared caches — CDN nodes, reverse proxies, corporate proxies —
+      to store and reuse the response for any client requesting the same URL. If the response content
+      depends on who asked, the next requester receives someone else's data. This is a recurring and
+      severe class of incident, and it is not mitigated by a clever `Vary` on a cookie header, since
+      cookie values are high-cardinality and some caches handle them inconsistently. The correct
+      directives are `private`, which restricts storage to the user's own browser, or `no-store`.
+
+  - id: stale-directives
+    kind: choice
+    concept: caching
+    prompt: "What do `stale-while-revalidate` and `stale-if-error` buy you?"
+    options:
+      - text: "The first serves a stale copy while refreshing in the background, hiding refresh latency; the second serves stale content when the origin is failing, turning an outage into a degradation"
+        correct: true
+        feedback: >-
+          Both are wrong where staleness is a correctness problem — a price, a stock level, a permission.
+      - text: Both extend the freshness window, reducing origin traffic
+        feedback: >-
+          They govern behaviour after expiry, not the freshness window itself.
+      - text: They instruct the cache to retry the origin before serving anything
+        feedback: >-
+          The point is to serve immediately and refresh asynchronously.
+    explanation: >-
+      Without these, the first request after expiry waits for a full origin round trip, and if the
+      origin is down it gets an error. `stale-while-revalidate` lets the cache answer immediately from
+      its stale copy and fetch a fresh one in the background, so no user experiences the refresh.
+      `stale-if-error` lets it keep answering from that copy while the origin returns errors or times
+      out, which converts an outage into slightly old content on read paths. Both trade correctness
+      for availability deliberately, so they belong on content and not on anything where a stale value
+      causes a wrong decision.
+
+  - id: explain-verify
+    kind: recall
+    concept: caching
+    prompt: >-
+      You have changed caching configuration. Describe how you verify it, and why verification is
+      mandatory here.
+    key_points:
+      - Cache headers are invisible in the application's own behaviour
+      - curl -I on each class of URL — asset, HTML, authenticated, public API
+      - Confirm the 304 path with an If-None-Match request
+      - Confirm no authenticated response carries public
+      - Mistakes are distributed and partly irreversible
+      - So a staging check before production is worth more than usual
+    model: >-
+      Verification matters more here than for most changes because the configuration has no visible
+      effect on the application: pages render identically whether the headers are right or
+      catastrophically wrong, so no functional test catches it, and the consequences land in caches I
+      cannot reach afterwards. So I check each class of URL explicitly with `curl -I`: a fingerprinted
+      asset should show a long `max-age` with `immutable`; the HTML entry point should show `no-cache`
+      with an ETag; an authenticated endpoint should show `private` or `no-store` and must never show
+      `public`; a public API endpoint should show the intended `max-age` plus `Vary:
+      Accept-Encoding`. I then confirm the validation path actually works by resending with
+      `If-None-Match` set to the returned ETag and checking for a 304 — an ETag that changes every
+      request is a common defect that makes revalidation pointless, and it only shows up by comparing
+      two responses. I would run all of that against staging first, because a wrong freshness
+      directive on an entry point cannot be fixed by deploying; the clients holding it will not ask
+      again.

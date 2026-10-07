@@ -1,0 +1,3 @@
+title: Caching
+summary: The headers that decide whether a request happens at all — and why a wrong cache header is harder to fix than a wrong page.
+level: intermediate

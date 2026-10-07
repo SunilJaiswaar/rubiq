@@ -1,0 +1,193 @@
+passScore: 0.7
+questions:
+  - id: rest-benefits
+    kind: choice
+    concept: rest
+    prompt: "What does `GET /users/42` give you that `POST /api {\"action\":\"getUser\"}` does not?"
+    options:
+      - text: "Cacheability by any intermediary, automatic retry by client libraries, and monitoring that can distinguish a read from a destructive write"
+        correct: true
+        feedback: >-
+          Otherwise you reimplement caching and retries inside your own protocol.
+      - text: Lower latency, because GET requests are prioritised by proxies
+        feedback: >-
+          No prioritisation exists; the gains are caching and retry semantics.
+      - text: Stronger validation, since path parameters are typed
+        feedback: >-
+          Both forms need the same validation.
+    explanation: >-
+      HTTP's infrastructure keys its behaviour on the method and URL. A GET is declared safe and
+      cacheable, so a CDN may store it, a browser may prefetch it, and a client library may retry it
+      after a timeout without risk. A POST is none of those, so every call becomes an uncacheable,
+      unretryable 200 that monitoring cannot classify. The practical consequence is that teams which
+      tunnel everything through one POST endpoint eventually build their own caching and retry
+      layers, duplicating what the protocol already provided.
+
+  - id: offset-problems
+    kind: choice
+    concept: pagination
+    prompt: "Why is offset pagination both slow and incorrect at scale?"
+    options:
+      - text: "`OFFSET 10000` makes the database produce and discard ten thousand rows, so later pages cost proportionally more — and a row inserted before the next fetch shifts the boundary, so an item is seen twice or missed"
+        correct: true
+        feedback: >-
+          Users report the second problem as \"the feed repeats itself\".
+      - text: It is slow because of the COUNT query, and incorrect because page numbers are cached
+        feedback: >-
+          The count is a separate issue, and nothing caches page numbers.
+      - text: Only slow — correctness is unaffected as long as the sort is deterministic
+        feedback: >-
+          A deterministic sort does not stop the window moving when rows are inserted.
+    explanation: >-
+      An offset is positional, so the engine must generate every preceding row before it can skip
+      them — page five hundred performs five hundred times the work of page one even with a perfect
+      index. Separately, the position of a row depends on how many rows precede it, and that changes
+      as writes arrive: insert one row above the window and everything shifts down by one, so the
+      first item of the next page was already the last item of the previous one. Both problems
+      disappear with a cursor, because a cursor identifies a row rather than a position.
+
+  - id: cursor-tiebreak
+    kind: choice
+    concept: pagination
+    prompt: "Why must a cursor include the id as well as the timestamp?"
+    options:
+      - text: "Duplicate timestamps make the ordering non-deterministic, so rows at a page boundary can be skipped or repeated — the id provides a unique tiebreaker"
+        correct: true
+        feedback: >-
+          The query then compares the tuple: `WHERE (created_at, id) < ($1, $2)`.
+      - text: So the client can verify the cursor has not been tampered with
+        feedback: >-
+          Integrity would need a signature, not an id.
+      - text: To let the server look the row up directly rather than scanning
+        feedback: >-
+          The comparison is a range scan either way.
+    explanation: >-
+      Ordering by a column with ties leaves the relative order of tied rows unspecified, and nothing
+      requires it to be stable between queries. If several rows share a timestamp that straddles a
+      page boundary, the next page's `WHERE created_at < $1` either excludes rows it should have
+      returned or returns rows already seen. Adding a unique column to both the sort and the
+      comparison makes the ordering total, so there is exactly one correct continuation point. The
+      comparison must be on the tuple rather than on each column independently.
+
+  - id: opaque-cursor
+    kind: choice
+    concept: pagination
+    prompt: "Why should a cursor be opaque to clients?"
+    options:
+      - text: "Otherwise clients parse it and construct their own, so its format becomes part of your contract and the sort key can never change"
+        correct: true
+        feedback: >-
+          Returning a full next URL makes the opacity obvious.
+      - text: Because a readable cursor can be used to enumerate other users' records
+        feedback: >-
+          Authorisation must be enforced regardless of cursor readability.
+      - text: To reduce the size of the response
+        feedback: >-
+          Base64 encoding makes it larger, not smaller.
+    explanation: >-
+      Anything a client can read, a client will depend on — and once integrations parse
+      `created_at=...&id=...` out of a cursor, changing the pagination key or adding a secondary sort
+      becomes a breaking change. Base64-encoding the payload, or better still returning a complete
+      `next` URL, signals that the value is for passing back verbatim rather than for interpreting.
+      This is the same reasoning as keeping internal ids out of error messages: deliberately
+      withholding structure preserves your freedom to change it.
+
+  - id: breaking-changes
+    kind: choice
+    concept: api-versioning
+    prompt: "Which of these is NOT a breaking change?"
+    options:
+      - text: "Adding an optional field to a response — removals, type changes, tightened validation and a changed default page size all break clients"
+        correct: true
+        feedback: >-
+          Whether a new enum value breaks clients depends on what you documented about unknowns.
+      - text: Changing the default page size, since clients can pass an explicit limit
+        feedback: >-
+          Clients relying on the default will silently receive a different amount of data.
+      - text: "Tightening validation, since the rejected inputs were invalid anyway"
+        feedback: >-
+          They were accepted before, so requests that worked now fail.
+    explanation: >-
+      Additive changes are safe because a client that ignores unknown fields is unaffected — which is
+      why documenting that expectation up front is valuable. Everything that alters existing
+      behaviour is breaking, including changes that feel like corrections: tightening validation turns
+      previously successful requests into errors, and changing a default alters responses for every
+      client that did not specify it. Enum additions sit in between and are determined by your
+      documentation: if clients were told to tolerate unknown values, adding one is additive; if they
+      switch exhaustively, it is not.
+
+  - id: error-usable
+    kind: choice
+    concept: error-design
+    prompt: "What makes an error response usable by a client?"
+    options:
+      - text: "An accurate status code, a stable machine-readable code per error, and a reference to the offending field"
+        correct: true
+        feedback: >-
+          A human message alone forces clients to string-match, so rewording breaks integrations.
+      - text: A detailed stack trace and the failing SQL, so the client can report it
+        feedback: >-
+          That leaks schema and file paths to anyone who asks.
+      - text: A single generic message, so clients handle all errors identically
+        feedback: >-
+          Then a client cannot distinguish a retryable failure from a validation problem.
+    explanation: >-
+      Three different readers need three different things. Infrastructure reads only the status code,
+      so it must be accurate or caches and retry logic misbehave. Client code needs a stable
+      identifier to branch on, since matching on prose means rewording or translating a message
+      breaks integrations. And a user-facing form needs to know which input was wrong, which requires
+      the field to be named rather than described. A human-readable message is still worth including
+      for logs and developers, but it should never be the only machine signal.
+
+  - id: ids-as-strings
+    kind: choice
+    concept: rest
+    prompt: "Why return numeric ids as strings in JSON?"
+    options:
+      - text: "A 64-bit integer exceeds JavaScript's safe number range, so parsing silently truncates it and the client holds a wrong id with no error"
+        correct: true
+        feedback: >-
+          Silent corruption is worse than a type mismatch.
+      - text: Because JSON does not support integers
+        feedback: >-
+          JSON has a number type; the problem is the receiving language's precision.
+      - text: To allow ids to be changed to UUIDs later without a type change
+        feedback: >-
+          A genuine secondary benefit, and not the primary reason.
+    explanation: >-
+      JavaScript represents all numbers as IEEE 754 doubles, which hold integers exactly only up to
+      2^53 − 1. Snowflake-style ids and large auto-increment sequences exceed that, and `JSON.parse`
+      rounds them without any indication — so a client ends up requesting a neighbouring record or
+      failing a lookup, with nothing in the logs to explain it. Serialising ids as strings removes the
+      hazard entirely, and has the side benefit that migrating to UUIDs later is not a type change.
+      This is the same class of defect as floating-point money.
+
+  - id: explain-not-rest
+    kind: recall
+    concept: rest
+    prompt: >-
+      Name a case where REST is the wrong shape, and say what you would use instead and what it costs.
+    key_points:
+      - Many related resources per view - GraphQL avoids a round-trip N+1
+      - But HTTP caching becomes hard and query cost is an attack surface
+      - Internal latency-sensitive service calls - gRPC, binary and schema-first
+      - But poor browser support and harder to debug
+      - Server-initiated updates - SSE or WebSockets rather than polling
+      - Long-running work - 202 Accepted plus a status resource
+      - REST remains the default for public APIs because it is cacheable and debuggable
+    model: >-
+      The clearest case is a view needing many related resources — a mobile screen assembling a user,
+      their recent orders, and each order's items. Over REST that is either several round trips, which
+      on a high-latency mobile connection is the dominant cost, or a bespoke endpoint per screen,
+      which multiplies as the UI changes. GraphQL answers it in one request shaped by the client, at
+      real cost: HTTP caching largely stops working because every query is a POST with a different
+      body, query complexity becomes an attack surface that needs depth and cost limits, and the
+      server needs a dataloader layer or the round-trip N+1 simply moves into the database. For
+      internal service-to-service calls where latency and schema enforcement matter more than
+      debuggability, gRPC is the better fit — binary, streaming, generated clients — though it needs a
+      proxy to reach browsers and you lose the ability to reproduce a call with curl. For
+      server-initiated updates, Server-Sent Events or WebSockets rather than polling a REST endpoint
+      every second. And for anything long-running, 202 Accepted with a Location pointing at a status
+      resource, because a ten-minute job inside one request dies at the first proxy timeout. REST stays
+      the default for a public API precisely because it is cacheable, inspectable and universally
+      understood; the alternatives earn their costs only in the situations they were designed for.
