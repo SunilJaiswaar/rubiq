@@ -1,0 +1,3 @@
+title: Linear structures
+summary: Linked lists, stacks and queues — what each makes cheap, what it makes expensive, and why an array is usually faster than the complexity table suggests.
+level: basic

@@ -1,0 +1,165 @@
+passScore: 0.7
+questions:
+  - id: save-next
+    kind: choice
+    concept: pointer-manipulation
+    prompt: "In `reverse`, what happens if you do not save `curr.next` before overwriting it?"
+    options:
+      - text: "The only reference to the rest of the list is destroyed, so everything after `curr` becomes unreachable"
+        correct: true
+        feedback: >-
+          In a garbage-collected language it is collected; in C it leaks.
+      - text: The loop still works but runs in O(n²)
+        feedback: >-
+          There is nothing left to traverse, so it does not work at all.
+      - text: Nothing — `prev` still holds a path to the remaining nodes
+        feedback: >-
+          `prev` points backwards, at the part already reversed.
+    explanation: >-
+      `curr.next = prev` is a destructive assignment: the node's forward link is the only thing
+      pointing at the remainder of the list, and overwriting it detaches that remainder with no way
+      back. The subsequent `curr = curr.next` then reads the value just written, which is `prev`,
+      so the traversal walks backwards into the already-reversed section. This is why the problem is
+      really about aliasing rather than about an algorithm — you have to notice that one assignment
+      invalidates the information you need next.
+
+  - id: cache-locality
+    kind: choice
+    concept: cache-locality
+    prompt: "Why does an array's O(n) middle insertion often beat a linked list's O(1)?"
+    options:
+      - text: "The array shift is one contiguous memory move with excellent locality, while each pointer hop risks a cache miss — roughly 100ns against 1ns"
+        correct: true
+        feedback: >-
+          Finding the insertion position in a list is also O(n), which the O(1) claim omits.
+      - text: Because array insertion is actually O(log n) in modern runtimes
+        feedback: >-
+          It is linear; the constant factor is what differs.
+      - text: Because linked list nodes require a system call to allocate
+        feedback: >-
+          Allocation is usually user-space; the dominant cost is memory access.
+    explanation: >-
+      Two effects compound. First, the linked list's O(1) insertion assumes you already hold a
+      reference to the position; locating it is O(n) traversal, which usually dominates. Second,
+      array elements are adjacent, so one cache-line fetch delivers several of them and a shift is
+      a single bulk move the CPU is heavily optimised for — whereas list nodes sit wherever the
+      allocator put them, so each hop can be a cache miss costing around a hundred times a hit.
+      That is why the asymptotic comparison is actively misleading here.
+
+  - id: floyd-proof
+    kind: choice
+    concept: cycle-detection
+    prompt: "Why must Floyd's two pointers meet if a cycle exists?"
+    options:
+      - text: "Once both are inside the cycle, the fast pointer gains exactly one position per step, so the gap decreases by one and must reach zero"
+        correct: true
+        feedback: >-
+          A gap shrinking by exactly one cannot be jumped over.
+      - text: Because the fast pointer eventually laps the slow one an exact number of times
+        feedback: >-
+          Lapping is the consequence; the gap argument is what proves it.
+      - text: Because the cycle length always divides the list length
+        feedback: >-
+          No such relationship is needed.
+    explanation: >-
+      Once both pointers are within the cycle, consider the gap from fast to slow measured forward
+      around the loop. Each step moves fast two and slow one, so the gap shrinks by exactly one.
+      Since it starts at some value less than the cycle length and decreases by one each step, it
+      must hit zero — and because the decrement is exactly one, fast cannot skip past slow. That
+      precision is the whole proof, and it is why the step sizes are 1 and 2 rather than any other
+      pair.
+
+  - id: cycle-entry
+    kind: choice
+    concept: cycle-detection
+    prompt: "After the pointers meet, how do you find where the cycle begins?"
+    options:
+      - text: "Reset one pointer to the head and advance both one step at a time; they meet at the entry"
+        correct: true
+        feedback: >-
+          The distance travelled before meeting is a whole number of cycles plus the head-to-entry distance.
+      - text: Continue advancing the fast pointer until it returns to the meeting point, then count
+        feedback: >-
+          That gives the cycle's length, not its start.
+      - text: Walk backwards from the meeting point, which requires a doubly linked list
+        feedback: >-
+          No backwards traversal is needed.
+    explanation: >-
+      Let L be the distance from head to the cycle entry and let the meeting point be k steps into
+      the cycle. When they meet, slow has travelled L + k and fast exactly twice that, so the
+      difference — L + k — is a whole number of cycle lengths. That means advancing L steps from the
+      head and L steps from the meeting point both land on the entry. So resetting one pointer to
+      the head and stepping both by one converges there, still in O(n) time and O(1) space.
+
+  - id: dummy-head
+    kind: choice
+    concept: linked-lists
+    prompt: "What does a dummy head node eliminate?"
+    options:
+      - text: "The special case for operating on the first node, which is where most linked-list bugs live"
+        correct: true
+        feedback: >-
+          Return `dummy.next` at the end, since the real head may have changed.
+      - text: The need to track the list's length
+        feedback: >-
+          Unrelated; length still needs counting or storing.
+      - text: The possibility of a null pointer anywhere in the list
+        feedback: >-
+          The tail is still null-terminated.
+    explanation: >-
+      Without a sentinel, any operation that might remove or replace the first node needs a separate
+      branch — and that branch is both rarely exercised and easy to get wrong, which is exactly the
+      profile of a bug that reaches production. A dummy node placed before the head means every real
+      node has a predecessor, so one uniform code path handles all positions. The same trick in a
+      doubly linked list, with sentinels at both ends, removes every null check from the
+      splice operations.
+
+  - id: delete-advance
+    kind: choice
+    concept: linked-lists
+    prompt: >-
+      `while (node.next) { if (match) node.next = node.next.next; node = node.next; }` — what input
+      breaks this?
+    options:
+      - text: "Two consecutive matching values — the second survives, because the cursor advances past the node that moved into place"
+        correct: true
+        feedback: >-
+          Advance only in the `else` branch.
+      - text: A list with exactly one element
+        feedback: >-
+          A single element is handled; the loop simply does not delete it.
+      - text: A list whose last element matches
+        feedback: >-
+          The final element is removed correctly.
+    explanation: >-
+      After `node.next = node.next.next`, a new node has taken the deleted one's position and has
+      not yet been examined. Advancing unconditionally skips it, so a run of two matching values
+      loses only the first. The fix is to advance only when no deletion occurred, which is the same
+      discipline as `each`-while-mutating in any other structure: when the container shifts under
+      you, the cursor must not move.
+
+  - id: explain-lru
+    kind: recall
+    concept: linked-lists
+    prompt: >-
+      Explain why an LRU cache needs both a doubly linked list and a hash map, and why neither alone
+      is enough.
+    key_points:
+      - The map gives O(1) lookup by key
+      - The list gives O(1) move-to-front and O(1) eviction from the tail
+      - A map alone has no usable recency ordering
+      - An array alone would need O(n) shifting for move-to-front
+      - Doubly linked, because splicing a node out requires its predecessor
+      - Sentinel head and tail nodes remove the null checks
+    model: >-
+      The two structures answer two different questions and the cache needs both in O(1). The hash
+      map maps a key to its node, which is what makes `get` constant time — without it you would
+      scan the list. The doubly linked list maintains recency order, which is what makes
+      move-to-front and eviction constant time: on a hit you splice the node out and reattach it at
+      the front, and on overflow you drop the node before the tail sentinel. A map alone gives no
+      ordering you can evict from — insertion order exists in some languages but you cannot move an
+      entry to the front without deleting and reinserting, and that is both awkward and not
+      guaranteed. An array alone gives ordering but move-to-front costs O(n) shifting per access,
+      which defeats the purpose. The list must be doubly linked because splicing a node out needs
+      its predecessor, and the map only hands you the node itself. Sentinel nodes at both ends are
+      worth adding, since they remove every null check from the splice code.

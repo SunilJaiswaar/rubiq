@@ -1,0 +1,141 @@
+passScore: 0.7
+questions:
+  - id: shift-quadratic
+    kind: choice
+    concept: queues
+    prompt: "Why is `while (q.length) process(q.shift())` O(n²), and why does a small test pass?"
+    options:
+      - text: "`shift` reindexes every remaining element, so each call is O(n) — and engines optimise the small-array case, so ten items look fine"
+        correct: true
+        feedback: >-
+          Use an advancing index, a ring buffer, or two stacks.
+      - text: "`length` is recomputed each iteration, which is the O(n) factor"
+        feedback: "`length` is a stored property, read in constant time."
+      - text: It is not quadratic; `shift` is O(1) in every modern engine
+        feedback: >-
+          It is O(1) only for small arrays under specific optimisations.
+    explanation: >-
+      Removing the first element of an array means every subsequent element moves down one
+      position, so `shift` is linear in the remaining length and n dequeues total O(n²). On
+      100,000 items that is billions of element moves. It passes small tests because V8 keeps
+      short arrays in a representation where this is cheap, which is the worst possible failure
+      mode: correct behaviour and acceptable timing in development, then a cliff in production.
+
+  - id: bracket-final-check
+    kind: choice
+    concept: stacks
+    prompt: "In bracket matching, why check `stack.length === 0` at the end?"
+    options:
+      - text: "Unclosed openers never trigger a mismatch — `\"(((\"` passes every comparison because no closer arrives"
+        correct: true
+        feedback: >-
+          The loop only detects wrong matches, not missing ones.
+      - text: To release memory held by the stack
+        feedback: >-
+          Garbage collection handles that; this is a correctness check.
+      - text: Because `pop` on an empty stack would otherwise throw
+        feedback: >-
+          That is a different case — too many closers, not too few.
+    explanation: >-
+      The loop can only report a failure when a closing bracket disagrees with the top of the
+      stack. A string of openers produces no closing brackets at all, so no comparison ever runs
+      and the function would report success. The leftover stack contents are precisely the
+      unmatched openers, so a final emptiness check is what turns "no contradictions found" into
+      "actually balanced". The symmetric case — more closers than openers — is caught by popping
+      an empty stack.
+
+  - id: two-stack-amortised
+    kind: choice
+    concept: amortised-analysis
+    prompt: "A dequeue from a two-stack queue can be O(n). Why is the amortised cost O(1)?"
+    options:
+      - text: "Each element is moved from inbox to outbox exactly once in its lifetime, so n operations cost O(n) in total"
+        correct: true
+        feedback: >-
+          Expensive dequeues are rare precisely because they make the next ones cheap.
+      - text: Because the pour only happens when the queue is large
+        feedback: >-
+          It happens whenever the outbox is empty, regardless of size.
+      - text: Because pushing and popping a stack are both O(1), so the loop must be too
+        feedback: >-
+          The loop runs a variable number of times; the bound comes from counting total moves.
+    explanation: >-
+      Amortised analysis counts total work across a sequence rather than worst case per
+      operation. An element is pushed onto the inbox once, moved to the outbox once, and popped
+      once — three constant-time steps over its whole lifetime, no matter how the calls
+      interleave. So n enqueues and n dequeues perform at most 3n operations, giving O(1) each on
+      average. The caveat is that this is a throughput guarantee, not a latency one: a single
+      dequeue can still stall for O(n), which matters if you care about tail latency.
+
+  - id: ring-ambiguity
+    kind: choice
+    concept: queues
+    prompt: "Why is `head === tail` an inadequate emptiness test for a ring buffer?"
+    options:
+      - text: "It is true both when the buffer is empty and when it is completely full — keep a count, or deliberately waste one slot"
+        correct: true
+        feedback: >-
+          A classic ring-buffer bug, and it silently drops or duplicates data.
+      - text: Because the indices wrap, so they can never be equal
+        feedback: >-
+          They are equal both initially and after a full lap.
+      - text: Because `head` is always less than `tail`
+        feedback: >-
+          Wrapping breaks that ordering, which is the whole point of the structure.
+    explanation: >-
+      Both indices advance modulo the capacity, so after exactly `capacity` pushes with no pops,
+      `tail` has wrapped all the way around to `head` — indistinguishable from the initial empty
+      state. Two standard resolutions: maintain an explicit element count, which is unambiguous
+      and costs one integer, or treat the buffer as full when `(tail + 1) % n === head`, which
+      sacrifices one slot to keep the states distinguishable. Getting this wrong produces silent
+      data loss rather than an error.
+
+  - id: dfs-push-order
+    kind: choice
+    concept: stacks
+    prompt: "You push a node's children onto a stack in order and pop to traverse. What order are they visited?"
+    options:
+      - text: "Right to left — a stack returns the most recently pushed first, so push in reverse for left-to-right"
+        correct: true
+        feedback: >-
+          Replacing pop with shift gives breadth-first instead.
+      - text: Left to right, since they were pushed in that order
+        feedback: >-
+          LIFO reverses the insertion order.
+      - text: Unspecified, depending on the stack implementation
+        feedback: >-
+          LIFO is fully determined by the interface.
+    explanation: >-
+      Pushing children left-to-right puts the rightmost on top, so it is popped first and the
+      traversal proceeds right-to-left at every level. Pushing them in reverse order restores
+      left-to-right visiting. This is one of the two one-line details that make iterative
+      traversals work; the other is that swapping `stack.pop()` for `queue.shift()` converts the
+      same loop from depth-first to breadth-first, which is why BFS finds shortest paths in an
+      unweighted graph and DFS does not.
+
+  - id: explain-bounded
+    kind: recall
+    concept: queues
+    prompt: >-
+      Argue for bounding a work queue rather than leaving it unbounded, and say what you do when it
+      is full.
+    key_points:
+      - An unbounded queue turns a throughput problem into a memory problem
+      - Memory exhaustion kills the whole process, not just the overloaded path
+      - Bounding forces an explicit overload policy
+      - Options — reject so the caller can retry, block to apply backpressure, or shed oldest
+      - Rejection gives honest signalling and preserves the rest of the system
+      - Queue depth also becomes a usable health metric
+    model: >-
+      An unbounded queue does not remove the overload problem, it converts it into a worse one: if
+      arrivals exceed service rate, the queue grows until the process runs out of memory, and that
+      failure takes down every unrelated code path in the same process rather than just the
+      overloaded one. It also destroys latency long before it destroys memory, since items at the
+      back wait for everything ahead of them. Bounding it forces the decision to be made
+      deliberately, and there are three reasonable answers. Reject, returning a failure so the
+      caller can retry with backoff or report honestly — usually the right default for a request
+      path. Block the producer, which applies backpressure and is right when the producer is
+      something that can usefully slow down, like a file reader. Or shed, dropping the oldest
+      items, which suits metrics and telemetry where fresh data is worth more than complete data.
+      A bounded queue also makes depth a meaningful signal: "the queue is at 80 percent" is
+      actionable, whereas an unbounded queue's depth is just a number going up.

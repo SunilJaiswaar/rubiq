@@ -1,0 +1,3 @@
+title: Arrays and strings
+summary: Two techniques that turn a nested loop into a single pass, and the exact conditions each one needs to be correct.
+level: basic

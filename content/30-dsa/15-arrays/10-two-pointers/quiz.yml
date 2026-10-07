@@ -1,0 +1,139 @@
+passScore: 0.7
+questions:
+  - id: elimination
+    kind: choice
+    concept: two-pointers
+    prompt: "On a sorted array, why is advancing `lo` safe when the sum is too small?"
+    options:
+      - text: "`hi` holds the largest remaining partner, so no pair using this `lo` can reach the target — the whole column is eliminated"
+        correct: true
+        feedback: >-
+          Each step removes a row or column, and there are 2n of them.
+      - text: Because the smallest element is least likely to be part of the answer
+        feedback: >-
+          Likelihood is not a proof; the ordering gives certainty.
+      - text: Because moving either pointer is equally valid and we pick arbitrarily
+        feedback: >-
+          Moving the wrong one discards valid answers.
+    explanation: >-
+      The correctness rests on an elimination argument, not on a heuristic. Since the array is
+      sorted, `nums[hi]` is the largest value still available to pair with `nums[lo]`. If even
+      that pairing falls short of the target, then every pair `(lo, j)` with `j < hi` is smaller
+      still and also falls short — so `lo` can never be part of an answer and advancing past it
+      loses nothing. This is also why the technique is invalid on unsorted input: the argument
+      simply does not hold.
+
+  - id: unsorted
+    kind: choice
+    concept: sorted-input
+    prompt: "`twoSum([7, 2, 24, 11], 9)` with two pointers returns null, though 7 + 2 = 9. Why?"
+    options:
+      - text: "The array is unsorted, so the rule for which pointer to move eliminates valid candidates"
+        correct: true
+        feedback: >-
+          On unsorted data the technique is incorrect, not merely slower.
+      - text: The target is smaller than the first element, which the loop cannot handle
+        feedback: >-
+          The target is larger than nums[1]; the problem is the ordering assumption.
+      - text: Two pointers only works on arrays of even length
+        feedback: >-
+          Length parity is irrelevant.
+    explanation: >-
+      Each move assumes that values to the left are smaller and to the right are larger. Here 24
+      sits in the middle, so "sum too large, move `hi` left" discards 2 — a value that was part of
+      the answer. The loop then terminates with the pointers crossed. This is the most important
+      correctness point about the technique: the precondition is not an optimisation detail, it is
+      what makes the result right.
+
+  - id: three-sum-complexity
+    kind: choice
+    concept: two-pointers
+    prompt: "What is the complexity of the standard three-sum solution?"
+    options:
+      - text: "O(n²) — an O(n log n) sort, then an outer loop of n each running an O(n) two-pointer scan"
+        correct: true
+        feedback: >-
+          The n² dominates the n log n sort.
+      - text: "O(n log n), because two pointers makes each inner scan logarithmic"
+        feedback: >-
+          The inner scan is linear, not logarithmic.
+      - text: "O(n³), the same as three nested loops"
+        feedback: >-
+          Two pointers removes one of the three loops.
+    explanation: >-
+      Sorting is O(n log n). The outer loop fixes each element in turn, which is n iterations, and
+      for each one the two-pointer scan over the remainder is O(n) — giving O(n²), which dominates
+      the sort. That is the whole value of the technique here: it collapses the innermost two
+      nested loops into one linear pass, turning a cubic solution into a quadratic one.
+
+  - id: loop-bound
+    kind: choice
+    concept: invariants
+    prompt: "When is `while (lo <= hi)` a bug rather than a choice?"
+    options:
+      - text: "When the two elements must be distinct — `lo === hi` lets a single element pair with itself"
+        correct: true
+        feedback: >-
+          For palindrome checks `lo < hi` is also right: a lone middle character needs no comparison.
+      - text: Always — the condition should be `lo < hi` in every two-pointer algorithm
+        feedback: >-
+          Some problems legitimately include the single-element case.
+      - text: Only when the array length is odd
+        feedback: >-
+          The pointers can meet regardless of parity.
+    explanation: >-
+      With `lo <= hi` the loop body can execute when both pointers reference the same index, so an
+      element is paired with itself — for target 8 and `[1, 4, 9]`, that reports 4 + 4 as a
+      solution. For distinct pairs the condition must be `lo < hi`. It is worth deciding this
+      explicitly rather than by trial and error, since both forms appear in correct algorithms
+      depending on whether the degenerate single-element case is meaningful.
+
+  - id: diff-sorted
+    kind: choice
+    concept: two-pointers
+    prompt: >-
+      Two sorted lists of a million ids, and you need the added and removed sets. Two pointers or
+      two hash sets?
+    options:
+      - text: "Two pointers — both are O(n + m) in time, but the pointer version needs no extra allocation beyond the output"
+        correct: true
+        feedback: >-
+          This is exactly what an index merge join does inside a database.
+      - text: Hash sets, because set difference is faster than a linear scan
+        feedback: >-
+          Both are linear; the sets cost two million entries of memory.
+      - text: Two pointers, because it is asymptotically faster
+        feedback: >-
+          The asymptotics match; the difference is space and constant factors.
+    explanation: >-
+      Both approaches are linear in the combined length, so the choice comes down to space and
+      constants. Building two hash sets allocates two million entries and pays hashing costs; the
+      two-pointer merge walks both lists once with a constant amount of state and better cache
+      behaviour, since it reads both arrays sequentially. It also works on streams that do not fit
+      in memory, which is why external sort, log merging, LSM compaction and index merge joins are
+      all this loop.
+
+  - id: explain-choice
+    kind: recall
+    concept: two-pointers
+    prompt: >-
+      You are asked for two numbers summing to a target in an unsorted array, returning the
+      original indices. Argue for an approach.
+    key_points:
+      - Hash map is the better fit — O(n) time, O(n) space, no reordering
+      - Two pointers needs a sort, which destroys the indices
+      - Sorting [value, index] pairs works but is more code for no gain
+      - The sort also makes it O(n log n) rather than O(n)
+      - Two pointers wins when input is already sorted or space is constrained
+      - And when the question is about ordering — closest sum, ranges — rather than exact equality
+    model: >-
+      A hash map, scanning once and storing each value against its index while checking for the
+      complement. That is O(n) time, O(n) space, and crucially it never reorders the array, so the
+      indices I return are the ones that were asked for. Two pointers would require sorting first,
+      which both destroys the original positions and raises the complexity to O(n log n). I could
+      sort `[value, index]` pairs and carry the positions through, but that is more code for a
+      worse bound. Two pointers would be the better choice under different conditions: if the input
+      arrived sorted, if I needed O(1) extra space, or if the question were about ordering rather
+      than exact equality — a hash map cannot answer "the pair whose sum is closest to the target"
+      in one pass, because it can only test for a specific value, whereas the ordering lets two
+      pointers converge on the nearest.

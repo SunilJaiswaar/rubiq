@@ -1,0 +1,145 @@
+passScore: 0.7
+questions:
+  - id: amortised
+    kind: choice
+    concept: amortised-analysis
+    prompt: "A variable sliding window contains a nested `while`. Why is it still O(n)?"
+    options:
+      - text: "Both pointers only move forward and never reset, so total movement is at most 2n regardless of nesting"
+        correct: true
+        feedback: >-
+          The inner loop can only run by consuming left-moves that are then gone for good.
+      - text: "Because the inner loop runs a constant number of times per outer iteration"
+        feedback: >-
+          It can run many times in one iteration; the bound is on the total, not per-iteration.
+      - text: It is not — it is O(n·k), and the window only helps with constants
+        feedback: >-
+          Total pointer movement is linear, so the whole run is linear.
+    explanation: >-
+      Counting nesting depth gives the wrong answer here. The correct analysis is amortised: `left`
+      starts at 0, only ever increases, and cannot exceed n, so across the entire execution it
+      moves at most n times — and the same holds for `right`. A single outer iteration may shrink
+      the window by hundreds of positions, but every one of those moves is permanently spent. The
+      sum of all work is therefore bounded by 2n.
+
+  - id: monotonicity
+    kind: choice
+    concept: monotonicity
+    prompt: >-
+      "Longest subarray with sum at most K", with negative numbers allowed. Why does a sliding
+      window fail?
+    options:
+      - text: "Extending the window can decrease the sum, so a window you already shrank past might have become valid — moving `left` forward permanently is no longer justified"
+        correct: true
+        feedback: >-
+          Prefix sums with a hash map is the correct tool for sums with negatives.
+      - text: Because the sum can become negative, which the comparison cannot handle
+        feedback: >-
+          Comparing negative sums is fine; the problem is the lost monotonicity.
+      - text: It does not fail; it just needs the array sorted first
+        feedback: >-
+          Sorting destroys contiguity, which is what "subarray" means.
+    explanation: >-
+      The window's licence to advance `left` permanently comes from monotonicity: extending must
+      only ever push the condition in one direction. With all-positive values, adding an element
+      can only increase the sum, so once a window is too large it stays too large until you shrink.
+      Introduce a negative and extending can reduce the sum, meaning a prefix you discarded could
+      have been part of the answer. The algorithm then returns a wrong result rather than a slow
+      one — which is why checking monotonicity is not an optional step.
+
+  - id: shrink-direction
+    kind: choice
+    concept: sliding-window
+    prompt: >-
+      For "shortest window with sum ≥ target", do you shrink while valid or while invalid, and
+      where do you record the answer?
+    options:
+      - text: "Shrink while valid, recording inside the shrink loop — the minimum occurs exactly as the window stops being valid"
+        correct: true
+        feedback: >-
+          Longest-window problems are the mirror image: shrink while invalid, record after.
+      - text: Shrink while invalid, recording after the loop
+        feedback: >-
+          That is the longest-window shape; here it would never find the minimum.
+      - text: Shrink while valid, recording after the loop
+        feedback: >-
+          By then the window is already too small, so the measurement is wrong.
+    explanation: >-
+      For a shortest answer, every valid window is a candidate and you want the tightest one, so
+      you keep removing from the left while validity holds, measuring at each step — the last
+      measurement before validity breaks is the best for that right end. For a longest answer the
+      logic inverts: you remove from the left only while the window is invalid, and measure once it
+      is valid again. Swapping these is the most common structural error in the pattern, and both
+      versions compile and run.
+
+  - id: zero-counts
+    kind: choice
+    concept: sliding-window
+    prompt: "Why delete a key from the frequency map when its count reaches zero?"
+    options:
+      - text: "`map.size` is the validity test for 'at most k distinct', and a key left at zero counts a character that is no longer in the window"
+        correct: true
+        feedback: >-
+          Leaving zeros makes the shrink loop run forever or hang.
+      - text: To save memory, since the map would otherwise grow with the alphabet
+        feedback: >-
+          A real concern in principle, and not why the algorithm breaks.
+      - text: Because Map lookups get slower with more keys
+        feedback: >-
+          Lookup stays O(1); correctness is the issue.
+    explanation: >-
+      The distinct-character count is read from `map.size`, so a key whose count has dropped to
+      zero still contributes to that number even though the character has left the window. The
+      condition `size > k` then remains true no matter how much you shrink, so the inner loop keeps
+      removing elements until the window is empty or the code walks off the array. Deleting the key
+      keeps the data structure's size equal to the quantity the algorithm is actually testing.
+
+  - id: left-backwards
+    kind: choice
+    concept: sliding-window
+    prompt: >-
+      In the `lastSeen` version of longest-unique-substring, what breaks without
+      `Math.max(left, lastSeen.get(c) + 1)`?
+    options:
+      - text: "A repeat from before the current window drags `left` backwards, breaking the invariant and potentially the termination argument"
+        correct: true
+        feedback: >-
+          On \"abba\", the second 'a' would send `left` from 2 back to 1.
+      - text: Nothing — `left` can only ever increase when a repeat is found
+        feedback: >-
+          `lastSeen` remembers occurrences that have already fallen out of the window.
+      - text: The best length is undercounted but the loop still terminates
+        feedback: >-
+          It can also overcount, since the window may re-admit a duplicate.
+    explanation: >-
+      `lastSeen` records every character's most recent index, including characters that are no
+      longer inside the window. For "abba", by the time the second 'a' is read, `left` has already
+      advanced to 2 because of the repeated 'b'; `lastSeen.get('a') + 1` is 1, so assigning it
+      directly moves `left` backwards and re-admits the earlier 'b'. The window then contains a
+      duplicate while the code believes it does not. Guarding with `Math.max` preserves the
+      forward-only invariant that both correctness and the O(n) bound depend on.
+
+  - id: explain-rate-limiter
+    kind: recall
+    concept: sliding-window
+    prompt: >-
+      Describe how a sliding window implements a rate limiter, and what you would use for the
+      underlying structure.
+    key_points:
+      - Keep timestamps of recent requests; the window is the last N milliseconds
+      - Shrink from the left by dropping timestamps older than now minus the window
+      - Reject if the remaining count is at or above the limit
+      - Each timestamp enters once and leaves once, so it is O(1) amortised
+      - Array#shift is O(n), so use a ring buffer or deque
+      - Memory is proportional to the limit, not to traffic, since excess requests are rejected
+    model: >-
+      Keep the timestamps of accepted requests and treat the window as the last N milliseconds. On
+      each request, first drop every timestamp older than `now - windowMs` from the front, then
+      compare the remaining count against the limit and either reject or append the new timestamp.
+      It is O(1) amortised by the same argument as any sliding window: each timestamp is added once
+      and removed once, so although the cleanup loop may remove many entries on one call, those
+      removals are permanently spent. The detail that matters in practice is the structure —
+      `Array#shift` is O(n) in most implementations, so the naive version quietly reintroduces
+      quadratic behaviour under load. A ring buffer sized to the limit, or a deque, keeps both ends
+      O(1), and memory stays proportional to the limit rather than to incoming traffic because
+      requests over the limit are never stored.

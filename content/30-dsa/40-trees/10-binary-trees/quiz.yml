@@ -1,0 +1,142 @@
+passScore: 0.7
+questions:
+  - id: height-postorder
+    kind: choice
+    concept: traversals
+    prompt: "Why must height be computed with a post-order traversal?"
+    options:
+      - text: "`height(n) = 1 + max(height(left), height(right))` needs both children's answers first, so the node is handled on the way up"
+        correct: true
+        feedback: >-
+          Any aggregation whose value flows upward is post-order by necessity.
+      - text: Because post-order is the most efficient of the three
+        feedback: >-
+          All three are O(n); this is about dependency direction, not speed.
+      - text: It does not have to be — pre-order works if you pass the depth down
+        feedback: >-
+          Passing depth down computes depth, not height. They are different quantities.
+    explanation: >-
+      The dependency direction forces the traversal. A node's height is defined in terms of its
+      children's heights, so there is no value to compute until both recursive calls have
+      returned — which is exactly what post-order means. Passing a depth parameter downward is a
+      different computation: it tells each node how far it is from the root, not how far it is
+      from its deepest leaf. The same reasoning applies to subtree size, subtree sum,
+      is-balanced, and freeing a tree.
+
+  - id: dfs-bfs-space
+    kind: choice
+    concept: traversals
+    prompt: "Space cost of DFS versus BFS on a balanced tree of a million nodes?"
+    options:
+      - text: "DFS about O(log n) — roughly 20 frames; BFS about O(n/2) — half a million queued nodes"
+        correct: true
+        feedback: >-
+          On a degenerate tree it inverts: DFS O(n), BFS O(1).
+      - text: Both O(n), since both visit every node
+        feedback: >-
+          Visiting every node does not mean holding every node.
+      - text: "DFS O(n) and BFS O(log n), since the queue only holds one level"
+        feedback: >-
+          One level of a balanced tree is about half the nodes.
+    explanation: >-
+      DFS holds a single root-to-current path, so its space is the height — about 20 for a
+      balanced million-node tree. BFS holds an entire level, and in a balanced binary tree the
+      deepest level contains roughly half of all nodes, so the queue grows to around 500,000. The
+      comparison reverses completely on a degenerate tree, where the height is n and every level
+      has one node. So "which uses less memory" has no answer independent of the tree's shape.
+
+  - id: level-snapshot
+    kind: choice
+    concept: traversals
+    prompt: "What does `const size = queue.length` do at the top of the BFS loop?"
+    options:
+      - text: "Marks where the current level ends, since the loop appends children to the same queue it is consuming"
+        correct: true
+        feedback: >-
+          Without it you get breadth-first order with no level boundaries.
+      - text: Prevents the queue from growing unbounded
+        feedback: >-
+          It does not limit growth; it records a boundary.
+      - text: Avoids re-reading `length` on every iteration for performance
+        feedback: >-
+          A real but trivial effect; correctness is the reason.
+    explanation: >-
+      The queue is being read from the front and appended to at the back in the same loop, so its
+      length changes continuously and cannot tell you where a level stops. Capturing the length
+      before processing fixes the count of nodes belonging to the current depth; everything pushed
+      during those iterations belongs to the next. Without that snapshot you still get correct
+      breadth-first ordering, but no way to group by depth — and attempts to recover the grouping
+      by counting totals or comparing values are fragile.
+
+  - id: balanced-quadratic
+    kind: choice
+    concept: trees
+    prompt: "Why is the naive `isBalanced` — comparing `height(left)` and `height(right)` at every node — O(n²)?"
+    options:
+      - text: "Each node calls `height`, which itself walks that whole subtree, so subtrees are traversed repeatedly — returning height and balance together makes it O(n)"
+        correct: true
+        feedback: >-
+          Carrying a sentinel such as -1 for \"unbalanced\" avoids both the second pass and an exception.
+      - text: Because `Math.abs` is called n times
+        feedback: >-
+          That is constant work per node.
+      - text: Because recursion itself is quadratic on trees
+        feedback: >-
+          A single traversal is linear; the repetition is the problem.
+    explanation: >-
+      The outer traversal visits n nodes, and at each one the height call re-walks the entire
+      subtree below it — so nodes near the root are traversed once per ancestor, giving O(n·h),
+      which is O(n²) on a degenerate tree. The fix is to compute each subtree's height exactly
+      once and return it upward along with the balance verdict, encoding failure in the return
+      value. That pattern — return the aggregate you already had to compute, rather than asking
+      for it again — is the standard remedy for quadratic tree code.
+
+  - id: inorder-bst
+    kind: choice
+    concept: traversals
+    prompt: "Why does in-order give sorted output on a BST but not on an arbitrary binary tree?"
+    options:
+      - text: "In-order emits left subtree, node, right subtree — which is sorted precisely because the BST invariant says left is smaller and right is larger"
+        correct: true
+        feedback: >-
+          On an arbitrary tree the children have no ordering relationship to the parent.
+      - text: Because a BST stores its values in a sorted array internally
+        feedback: >-
+          There is no array; the ordering is structural.
+      - text: Because in-order sorts as it traverses
+        feedback: >-
+          No comparison happens during traversal at all.
+    explanation: >-
+      In-order traversal is just a visiting order: everything in the left subtree, then the node,
+      then everything in the right subtree. On a binary search tree, the invariant guarantees that
+      every value on the left is less than the node and every value on the right is greater, so
+      that visiting order coincides exactly with ascending order — no comparisons required. On a
+      tree without that invariant, in-order produces some order, and nothing about it is sorted.
+      This is also the property that makes a range query on a database index cheap: it is a
+      partial in-order walk.
+
+  - id: explain-depth-dos
+    kind: recall
+    concept: recursion
+    prompt: >-
+      Explain why deeply nested JSON is a denial-of-service vector, and how you would defend
+      against it.
+    key_points:
+      - A recursive parser or validator uses one stack frame per nesting level
+      - A few kilobytes of brackets can exceed the stack limit
+      - Stack overflow may crash the process rather than raise a catchable error
+      - Validate maximum nesting depth at the boundary, before parsing
+      - Cheaper than converting every traversal to an explicit stack
+      - Same class of problem as any input-controlled recursion depth
+    model: >-
+      Any recursive processing of a tree consumes a stack frame per level, and the nesting depth
+      of a JSON document is chosen entirely by whoever sends it. A payload of a few kilobytes —
+      ten thousand open brackets — exceeds the stack limit in most runtimes, and depending on the
+      language that is a crash of the whole process rather than an exception the request handler
+      can catch. So one cheap request takes down a worker, which is a very good ratio for an
+      attacker. The defence I would put in place is a depth check at the boundary: scan the raw
+      input counting bracket nesting and reject anything past a limit like 100, before any
+      recursive parse or schema validation runs. That is a single linear pass and it protects
+      every downstream consumer at once, which is much cheaper than rewriting every traversal to
+      use an explicit stack. The general principle is that recursion depth driven by untrusted
+      input is a resource limit that needs enforcing, exactly like body size or request rate.

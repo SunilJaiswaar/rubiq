@@ -1,0 +1,3 @@
+title: Trees
+summary: Recursive structure, the four traversals and what each is for, why a BST degenerates into a linked list, and the heap that gives you the smallest item without sorting.
+level: intermediate

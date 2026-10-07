@@ -1,0 +1,142 @@
+passScore: 0.7
+questions:
+  - id: array-indices
+    kind: choice
+    concept: heaps
+    prompt: "What does storing a heap in a flat array buy you?"
+    options:
+      - text: "No per-element allocation and strong cache locality — children are found by arithmetic (`2i+1`, `2i+2`) rather than by following pointers"
+        correct: true
+        feedback: >-
+          It only works because a heap is a complete tree, so the array has no holes.
+      - text: It allows O(1) search for arbitrary values
+        feedback: >-
+          Searching a heap is still O(n); only the root is known.
+      - text: It keeps the elements sorted, which is why peek is O(1)
+        feedback: >-
+          The array is not sorted; peek is O(1) because the root is at index 0.
+    explanation: >-
+      Because a heap is always a complete tree, every level is full except possibly the last,
+      which fills left to right — so a level-order listing has no gaps and can live in a dense
+      array. Parent and child relationships become index arithmetic, eliminating two pointers per
+      node, the allocation per node, and the pointer-chasing cache misses. That is why a binary
+      heap typically outperforms a pointer-based tree by a large constant factor even where the
+      asymptotics match.
+
+  - id: heapify-linear
+    kind: choice
+    concept: heapify
+    prompt: "Why is bottom-up heapify O(n) while building by repeated insertion is O(n log n)?"
+    options:
+      - text: "Work per node is its height, and most nodes are near the bottom — half are leaves and do nothing; insertion sifts upward from the bottom, so most elements pay the full depth"
+        correct: true
+        feedback: >-
+          Same elements, same final structure, opposite direction of movement.
+      - text: Heapify uses a smarter comparison function
+        feedback: >-
+          The comparisons are identical; only their number differs.
+      - text: Insertion must reallocate the array, which adds a log factor
+        feedback: >-
+          Amortised growth is O(1); the sift distance is the cost.
+    explanation: >-
+      The asymmetry is about where the nodes are. Sifting down, a node moves at most its own
+      height, and a complete tree has half its nodes as leaves with height zero, a quarter with
+      height one, and so on — summing n/2^(k+1)·k over all k converges to n. Sifting up, a newly
+      pushed element starts at the bottom, which is precisely where the distance to the root is
+      greatest, and most elements are pushed into that bottom region. So the same n elements cost
+      linear time one way and n log n the other.
+
+  - id: topk-minheap
+    kind: choice
+    concept: top-k
+    prompt: "Top 10 of a million numbers. Why a min-heap rather than a max-heap?"
+    options:
+      - text: "The root of a size-10 min-heap is the weakest of the kept candidates, which is exactly the one to evict — a max-heap offers no cheap way to find it"
+        correct: true
+        feedback: >-
+          O(n log k) time and O(k) space, and it works on a stream.
+      - text: Min-heaps are faster than max-heaps for the same size
+        feedback: >-
+          They are structurally identical with the comparison reversed.
+      - text: Because the answer must be returned in ascending order
+        feedback: >-
+          Output order is incidental and easily reversed.
+    explanation: >-
+      The algorithm keeps the best k seen so far and must repeatedly discard the worst of them.
+      A min-heap of size k puts that worst survivor at the root, so the eviction is an O(log k)
+      pop. A max-heap puts the best at the root, which is never the thing to remove, and locating
+      the minimum inside it is O(k) — so the heap grows without bound and the approach collapses.
+      The result is O(n log k) time against O(n log n) for sorting, and crucially O(k) space, so
+      it handles a stream larger than memory.
+
+  - id: extract-last
+    kind: choice
+    concept: heaps
+    prompt: "On extract-min, why move the last element to the root instead of promoting the smaller child?"
+    options:
+      - text: "Promoting a child leaves a hole, so the tree is no longer complete and the index arithmetic breaks — silently, since the array still looks valid"
+        correct: true
+        feedback: >-
+          Taking the last element is the only removal that keeps the array dense.
+      - text: Because the last element is usually close to the minimum
+        feedback: >-
+          It is typically one of the largest; it then sifts down.
+      - text: Because promoting a child would require two comparisons instead of one
+        feedback: >-
+          Comparison count is not the issue; structural completeness is.
+    explanation: >-
+      The array representation depends entirely on the tree being complete: every index from 0 to
+      n-1 must correspond to an occupied node. Promoting a child vacates that child's slot
+      somewhere in the middle, so subsequent index arithmetic addresses the wrong nodes and the
+      structure stops being a heap while still being a perfectly ordinary array — no error, just
+      wrong answers. Removing the final element is the only deletion that preserves density, which
+      is why extraction is defined as "take the root, move the last element there, sift down".
+
+  - id: boolean-comparator
+    kind: choice
+    concept: heaps
+    prompt: "`new MinHeap((a, b) => a < b)` — what goes wrong, and why is it silent?"
+    options:
+      - text: "A comparator must return a number; `false` coerces to 0, which reads as \"equal\", so the heap stops ordering without raising anything"
+        correct: true
+        feedback: >-
+          The same class of bug as `a - b` on strings, which yields NaN.
+      - text: Nothing — booleans are valid comparator results
+        feedback: >-
+          They are accepted and interpreted as 0 or 1, which loses the \"less than\" case.
+      - text: It throws a TypeError on the first comparison
+        feedback: >-
+          No type error occurs; coercion hides it.
+    explanation: >-
+      The protocol is a three-way result: negative, zero, positive. A boolean supplies only two
+      values, and `false` becomes 0, which the heap reads as "these are equivalent" — so roughly
+      half of all comparisons report equality and the invariant is never enforced. Nothing throws,
+      so the heap returns plausible-looking but incorrect extremes. The sibling bug is `(a, b) =>
+      a - b` applied to strings or BigInts, where the subtraction produces NaN and every
+      comparison with NaN is false, disabling ordering entirely.
+
+  - id: explain-median
+    kind: recall
+    concept: heaps
+    prompt: >-
+      You need a running median over a stream. Describe the structure and why a single heap cannot
+      do it.
+    key_points:
+      - Two heaps — a max-heap for the lower half, a min-heap for the upper half
+      - The median is at one or both roots
+      - Rebalance so sizes differ by at most one
+      - O(log n) per element, O(1) to read the median
+      - One heap only exposes an extreme, not the middle
+      - Sorting the window per element would be O(n log n) each time
+    model: >-
+      Two heaps facing each other: a max-heap holding the smaller half of the values and a min-heap
+      holding the larger half. The median is then the max-heap's root when the counts are unequal,
+      or the average of the two roots when they are equal. On each new value, push it to the
+      appropriate side by comparing against the max-heap's root, then rebalance by moving one
+      element across if the sizes differ by more than one. That is O(log n) per element with O(1)
+      median reads. A single heap cannot do it because a heap only ever exposes an extreme — the
+      root is the smallest or largest, and the middle element could be anywhere in the array with
+      no way to locate it short of a linear scan. The naive alternative, keeping a sorted array
+      and indexing the middle, gives O(1) reads but O(n) insertion from shifting; re-sorting per
+      element is worse still. The two-heap trick works precisely by arranging for the thing you
+      want to be an extreme of something.

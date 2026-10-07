@@ -1,0 +1,168 @@
+passScore: 0.7
+questions:
+  - id: oh-not-logn
+    kind: choice
+    concept: binary-search-trees
+    prompt: "Why is BST search honestly described as O(h) rather than O(log n)?"
+    options:
+      - text: "h equals log n only when the tree is balanced, and nothing in a plain BST guarantees that"
+        correct: true
+        feedback: >-
+          Sorted insertion gives h = n, and the realistic input is sorted.
+      - text: "Because h is always smaller than log n in practice"
+        feedback: >-
+          h is at best log n and at worst n.
+      - text: Because comparisons are not constant time
+        feedback: >-
+          Comparisons are constant; the number of them is the question.
+    explanation: >-
+      Each step of the search descends one level, so the comparison count is the height. For a
+      perfectly balanced tree the height is about log₂ n — 20 for a million nodes — but a plain
+      BST makes no promise about shape. Insert ascending values and every node becomes a right
+      child, giving a height of n and a search that is a linear scan. Writing O(h) and then
+      stating what bounds h is the precise answer; writing O(log n) without that qualification
+      hides the failure mode.
+
+  - id: sorted-insertion
+    kind: choice
+    concept: balancing
+    prompt: "Insert 1, 2, 3, 4, 5 in order into a plain BST. What do you get?"
+    options:
+      - text: "A right-leaning chain of height 5 — a linked list, with no error reported"
+        correct: true
+        feedback: >-
+          Auto-increment ids and timestamps produce exactly this.
+      - text: A balanced tree with 3 at the root
+        feedback: >-
+          Nothing reorders the input; the first value inserted becomes the root.
+      - text: An error, since BSTs reject sorted input
+        feedback: >-
+          Every insertion is perfectly valid.
+    explanation: >-
+      Each value is larger than all before it, so every insertion walks to the rightmost position
+      and attaches there. The result satisfies the BST invariant completely while having the shape
+      and performance of a singly linked list. What makes this important rather than academic is
+      that ordered input is the normal case in real systems — primary keys, timestamps,
+      alphabetised imports — so the realistic default input to a plain BST is its worst case.
+      That is why self-balancing variants are the baseline rather than an optimisation.
+
+  - id: validate-range
+    kind: choice
+    concept: binary-search-trees
+    prompt: >-
+      Root 5, left child 3, right child 7, and 7 has left child 4. Every parent-child pair is
+      valid. Why is it not a BST?
+    options:
+      - text: "4 is in the root's right subtree, so it must exceed 5 — the invariant constrains all ancestors, and a correct validator passes a permitted range down"
+        correct: true
+        feedback: >-
+          Comparing only with the parent is the classic failing answer to this question.
+      - text: Because 4 and 3 are both less than 5, which creates a duplicate ordering
+        feedback: >-
+          Two values below 5 is fine; the problem is which subtree 4 sits in.
+      - text: It is a valid BST — local validity is the definition
+        feedback: >-
+          Searching for 4 from the root would go right and then fail to find it.
+    explanation: >-
+      The invariant says every value in a node's right subtree exceeds it, and that applies to the
+      whole subtree rather than just the immediate child. 4 is a descendant of 5 via the right
+      branch, so it violates the rule even though 4 < 7 is locally fine. The practical consequence
+      is that search breaks: looking for 4 goes right at the root, since 4 < 5 is false... in fact
+      it goes left and never reaches 4. A correct validator threads a (min, max) range downward,
+      narrowing it at each step, which is the invariant expressed as code.
+
+  - id: delete-successor
+    kind: choice
+    concept: binary-search-trees
+    prompt: "Deleting a node with two children, why must the replacement be the in-order successor or predecessor?"
+    options:
+      - text: "They are the only values with nothing between them and the removed node, so they can occupy the position without violating either subtree's constraint"
+        correct: true
+        feedback: >-
+          The successor is the smallest value in the right subtree; the predecessor the largest in the left.
+      - text: Because they are always leaves, which makes removal simple
+        feedback: >-
+          The successor can have a right child; it merely has no left child.
+      - text: Because any other choice would unbalance the tree
+        feedback: >-
+          Other choices break correctness, not just balance.
+    explanation: >-
+      The vacated position must hold a value greater than everything in the left subtree and less
+      than everything in the right. Exactly two values satisfy that: the largest in the left
+      subtree and the smallest in the right — the in-order predecessor and successor. Any other
+      value has something between it and the removed node, so placing it there puts that something
+      on the wrong side. As an aside, always choosing the same side accumulates imbalance over many
+      deletions, which is one reason balanced trees alternate or rebalance explicitly.
+
+  - id: avl-vs-rb
+    kind: choice
+    concept: balancing
+    prompt: "AVL or red-black for a read-heavy workload, and why?"
+    options:
+      - text: "AVL — it enforces a stricter height bound (about 1.44 log n versus 2 log n), so lookups are faster at the cost of more rotations per write"
+        correct: true
+        feedback: >-
+          Standard libraries pick red-black because a general-purpose map sees both reads and writes.
+      - text: Red-black, because its lookups are faster
+        feedback: >-
+          Red-black trees are taller, so lookups are slightly slower.
+      - text: Neither differs for reads; the choice only affects writes
+        feedback: >-
+          Height differs, and height is exactly the read cost.
+    explanation: >-
+      Both guarantee logarithmic height; they differ in how tight the bound is and what it costs to
+      maintain. AVL requires the heights of two siblings to differ by at most one, giving a height
+      under roughly 1.44 log n, so searches traverse fewer levels — paid for with more rotations
+      on insert and delete. Red-black permits up to about 2 log n, so it is slightly taller but
+      restructures less on writes. Read-heavy favours AVL, write-heavy favours red-black, and a
+      general-purpose ordered map favours red-black because it must serve both.
+
+  - id: btree-disk
+    kind: choice
+    concept: b-trees
+    prompt: "A billion keys on disk. Why does a B-tree beat a red-black tree, and by how much?"
+    options:
+      - text: "The cost is page reads, not comparisons — 30 levels binary versus 3 or 4 with hundreds of keys per page-sized node"
+        correct: true
+        feedback: >-
+          In-node comparisons are free because the page is already in memory.
+      - text: Because B-trees have better asymptotic complexity
+        feedback: >-
+          Both are logarithmic; the base of the logarithm is what changes.
+      - text: Because B-trees keep the whole index in memory
+        feedback: >-
+          Neither does at a billion keys; that is the premise.
+    explanation: >-
+      Both structures are logarithmic, but in a different base. A binary tree halves the search
+      space per level, giving about 30 levels for a billion keys and therefore up to 30 separate
+      page fetches — each one a disk or SSD access orders of magnitude slower than a comparison. A
+      B-tree node is sized to a page and holds hundreds of keys, so each level divides the space by
+      hundreds and three or four levels suffice. Scanning within a node costs nothing meaningful
+      because the page is already resident. It is precisely the locality argument that makes arrays
+      beat linked lists, applied one level up the memory hierarchy.
+
+  - id: explain-hash-vs-tree
+    kind: recall
+    concept: binary-search-trees
+    prompt: >-
+      Name operations an ordered tree supports that a hash map cannot, and say when you would
+      choose each.
+    key_points:
+      - Range queries — all keys between x and y
+      - Ordered iteration, smallest and largest, successor and predecessor
+      - Prefix and nearest-value lookups
+      - Hash map wins for pure exact-match lookup — O(1) average, simpler
+      - Tree gives a guaranteed O(log n) rather than an average
+      - Hashing destroys order to buy constant-time equality, which is the underlying trade
+    model: >-
+      A hash map can only answer "is this exact key present". An ordered tree additionally gives
+      range queries — every key between two bounds — ordered iteration, minimum and maximum,
+      successor and predecessor, and nearest-value or prefix lookups. Those are not niche: they are
+      why a database index on `created_at` can serve `WHERE created_at > x`, and why Redis sorted
+      sets exist. The reason is structural: hashing deliberately scatters keys so that equal keys
+      collide and nothing else is related, which buys constant-time equality at the cost of
+      destroying every ordering relationship. So I choose a hash map when the access pattern is
+      purely exact-match — it is simpler, O(1) on average, and has smaller constants — and an
+      ordered structure the moment the question involves order, ranges or neighbours. The secondary
+      consideration is worst case: a hash map is O(n) if the hashing degrades, while a balanced
+      tree's O(log n) is a guarantee, which matters when the keys are attacker-influenced.
