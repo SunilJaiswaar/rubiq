@@ -349,8 +349,15 @@ try {
     !(await evaluate('document.body.innerText.includes("Nothing run yet")')))
 
   /* -------------------------------------------------------- playground */
+  // The playground now opens on Ruby, so the JavaScript sandbox has to be selected
+  // explicitly. This check previously relied on JS being the default.
   await goto('/playground')
-  await sleep(2500)
+  await waitFor('document.querySelectorAll(".monaco-editor").length > 0')
+  await evaluate(`
+    [...document.querySelectorAll('[role=tab]')]
+      .find((b) => b.textContent.trim() === 'JavaScript')?.click()
+  `)
+  await sleep(600)
   await evaluate(`
     [...document.querySelectorAll('button')].find(b => b.textContent.includes('Run'))?.click()
   `)
@@ -410,6 +417,39 @@ try {
     `${stored.length} keys`)
   check('storage: concepts enrolled for spaced review',
     Array.isArray(stored) && stored.some((k) => k.startsWith('srs:')))
+
+  /* --------------------------------------------- Ruby, for real */
+  // The whole platform is for Ruby engineers, so Ruby executing is not a nice-to-have.
+  // This is real CRuby compiled to WebAssembly: an 8.5 MB lazy chunk, ~1.3s to boot the
+  // first VM. All of which means a generous wait, and a check that it actually computed
+  // the answer rather than merely rendering an editor.
+  await goto('/playground')
+  check('ruby: the playground defaults to Ruby',
+    (await evaluate(`
+      [...document.querySelectorAll('[role=tab]')]
+        .find((b) => b.getAttribute('aria-selected') === 'true')?.textContent.trim()
+    `)) === 'Ruby')
+
+  check('ruby: Monaco mounted for the Ruby tab',
+    await waitFor('document.querySelectorAll(".monaco-editor").length > 0'))
+
+  await evaluate(`
+    [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Run'))?.click()
+  `)
+
+  // 5.0 from Math.hypot(3, 4) in the starter — so the VM booted, parsed Ruby, ran
+  // Data.define, and returned a computed value.
+  const rubyRan = await waitFor(
+    `document.body.innerText.includes('5.0')`,
+    { timeout: 90_000 },
+  )
+  check('ruby: the starter runs and computes a result', rubyRan, 'Data.define + Math.hypot = 5.0')
+
+  // The standard library has to be present, or `require 'set'` in a graph lesson fails
+  // and the learner concludes the platform is broken. This is why the +stdlib build.
+  check('ruby: the standard library is available',
+    (await evaluate(`document.body.innerText.includes('[1, 2, 3]')`)),
+    "require 'set' then to_set.sort")
 
   /* ------------------------------------- Monaco's TypeScript worker */
   // The worker import specifiers are version-sensitive — monaco 0.57 changed them —

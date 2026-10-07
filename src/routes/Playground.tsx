@@ -14,6 +14,25 @@ import { Page, Card, Button, Badge, cx } from '@/ui/primitives'
 import type { Playground as PlaygroundData } from '@/content/types'
 
 const STARTERS: Partial<Record<Language, string>> = {
+  ruby: `# Real CRuby 3.4, compiled to WebAssembly, running in this tab.
+# The first run downloads and starts the runtime, so it takes a moment.
+# Every run after that gets a fresh VM in about 400ms — fresh, so nothing
+# you define here leaks into the next run.
+
+Point = Data.define(:x, :y) do
+  def distance_to(other)
+    Math.hypot(x - other.x, y - other.y)
+  end
+end
+
+puts Point.new(x: 0, y: 0).distance_to(Point.new(x: 3, y: 4))
+
+# Enumerable, the object model and the standard library are all here.
+require 'set'
+puts [3, 1, 2, 1].to_set.sort.inspect
+
+# Gems are not — there is no bundler in a browser tab.
+`,
   javascript: `// Anything you like. Cmd/Ctrl+Enter runs it.
 
 function fib(n) {
@@ -97,8 +116,8 @@ ORDER BY spent DESC;`,
 }
 
 export default function Playground() {
-  const [language, setLanguage] = useState<Language>('javascript')
-  const [code, setCode] = useState(STARTERS.javascript ?? '')
+  const [language, setLanguage] = useState<Language>('ruby')
+  const [code, setCode] = useState(STARTERS.ruby ?? '')
   const [result, setResult] = useState<RunResult | null>(null)
   const [running, setRunning] = useState(false)
 
@@ -119,7 +138,7 @@ export default function Playground() {
     setResult(null)
   }
 
-  const unavailable = (['ruby', 'python', 'go', 'java', 'cpp', 'csharp', 'php', 'rust'] as Language[])
+  const unavailable = (['python', 'go', 'java', 'cpp', 'csharp', 'php', 'rust'] as Language[])
 
   return (
     <Page className="py-10">

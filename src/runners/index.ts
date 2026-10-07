@@ -1,14 +1,17 @@
 /**
  * Runner registry.
  *
- * Languages that cannot run in a browser get an honest `unavailable` runner that
- * explains itself, rather than a button that does nothing (brief §63).
- * When a sandbox service exists, swap `UnavailableRunner` for a `RemoteRunner` here —
- * no component changes.
+ * Ruby, JavaScript, TypeScript and SQL all run locally, in the browser. Ruby is real
+ * CRuby compiled to WebAssembly; nothing executes on a server, because there is no server.
+ *
+ * Everything else gets an honest `unavailable` runner that explains itself, rather than a
+ * button that does nothing (brief §63). When a sandbox service exists, swap
+ * `UnavailableRunner` for a `RemoteRunner` here — no component changes.
  */
 import type { CodeRunner, Language, RunResult } from './types'
 import { JsRunner } from './js-runner'
 import { SqlRunner } from './sql-runner'
+import { RubyRunner } from './ruby-runner'
 
 class UnavailableRunner implements CodeRunner {
   readonly availability = 'unavailable' as const
@@ -38,7 +41,7 @@ const registry = new Map<Language, () => CodeRunner>([
   ['javascript', () => new JsRunner('javascript')],
   ['typescript', () => new JsRunner('typescript')],
   ['sql', () => new SqlRunner()],
-  ['ruby', () => new UnavailableRunner('ruby', 'Ruby', NOT_YET)],
+  ['ruby', () => new RubyRunner()],
   ['python', () => new UnavailableRunner('python', 'Python', NOT_YET)],
   ['go', () => new UnavailableRunner('go', 'Go', NOT_YET)],
   ['java', () => new UnavailableRunner('java', 'Java', NOT_YET)],
@@ -73,7 +76,7 @@ export function normaliseLanguage(language: string): Language {
 }
 
 /** Declared rather than derived, so importing this module constructs nothing. */
-export const RUNNABLE_LANGUAGES: Language[] = ['javascript', 'typescript', 'sql']
+export const RUNNABLE_LANGUAGES: Language[] = ['ruby', 'javascript', 'typescript', 'sql']
 
-export { JsRunner, SqlRunner }
+export { JsRunner, SqlRunner, RubyRunner }
 export type { CodeRunner, RunResult, Language } from './types'
