@@ -1,0 +1,3 @@
+title: Asynchrony
+summary: One thread, a queue, and the reason your `await` did not block anything. The event loop first, then promises as a consequence of it.
+level: intermediate

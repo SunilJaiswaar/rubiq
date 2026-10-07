@@ -1,0 +1,190 @@
+passScore: 0.7
+questions:
+  - id: class-is-syntax
+    kind: choice
+    concept: prototypes
+    prompt: "Where do `class` methods live, and what does `Object.keys(instance)` return?"
+    options:
+      - text: "On `Constructor.prototype`; `Object.keys` returns only the instance's own data properties"
+        correct: true
+        feedback: >-
+          Methods are shared through delegation rather than copied per instance.
+      - text: On the instance; `Object.keys` returns the data and the methods
+        feedback: >-
+          That would mean one copy of every method per instance.
+      - text: On the constructor function itself; `Object.keys` returns nothing
+        feedback: >-
+          Properties on the constructor are static members, which instances do not see.
+    explanation: >-
+      `class` is a spelling for the prototype model: method definitions are installed on
+      `Constructor.prototype`, and each instance holds only the properties its constructor
+      assigned. `Object.keys` lists own enumerable properties, so it shows the data and not the
+      methods. This is why ten thousand instances cost ten thousand copies of their fields and one
+      copy of each method — and why an arrow class field, which is per instance, is a different
+      trade.
+
+  - id: array-plus-object
+    kind: choice
+    concept: coercion
+    prompt: "Explain `[] + {}` and why `{} + []` differs in a REPL."
+    options:
+      - text: "`+` uses the default hint, so both sides become strings: `\"\" + \"[object Object]\"`. At statement start, `{}` parses as a block, so `{} + []` evaluates unary `+[]`, which is 0"
+        correct: true
+        feedback: >-
+          A parsing quirk masquerading as a coercion quirk.
+      - text: Arrays coerce to 0 and objects to NaN, so the first is NaN
+        feedback: >-
+          Neither side is converted to a number here.
+      - text: "`{} + []` is 0 because an empty object has no valueOf"
+        feedback: >-
+          It inherits one; the difference is that no object is involved after parsing.
+    explanation: >-
+      For `+`, each non-primitive operand goes through `ToPrimitive` with the default hint, which
+      tries `valueOf` first. An array's `valueOf` returns the array itself, so `toString` is used
+      and yields the empty string; a plain object yields `"[object Object]"`. Since one side is a
+      string, `+` concatenates. The second expression never reaches that logic: in statement
+      position `{}` is an empty block, leaving `+[]` — unary plus applied to an array, which
+      stringifies to `""` and converts to 0. Inside parentheses or an assignment, `({} + [])`
+      gives the string, which is why this only appears in a console.
+
+  - id: plus-overloaded
+    kind: choice
+    concept: coercion
+    prompt: "Why does `+` surprise people when `-` and `*` do not?"
+    options:
+      - text: "`+` is overloaded for addition and concatenation, so a string on either side wins; the others are numeric only and coerce their operands to numbers"
+        correct: true
+        feedback: >-
+          Hence `1 + \"2\"` is \"12\" while `1 - \"2\"` is -1.
+      - text: "`+` has lower precedence, so it binds unexpectedly"
+        feedback: >-
+          Precedence is not the issue; operand conversion is.
+      - text: Because `-` and `*` throw on non-numeric operands
+        feedback: >-
+          They convert silently, producing NaN when conversion fails.
+    explanation: >-
+      Every other arithmetic operator has exactly one meaning, so it requests a numeric conversion
+      and the result is predictable — `"3" * "4"` is 12 and `1 - "2"` is -1. `+` has to serve two
+      purposes, so it cannot commit to a hint: it converts both operands to primitives and then
+      concatenates if either result is a string, otherwise adds. That single ambiguity accounts for
+      most of the folklore about JavaScript coercion, and the remedy is to convert explicitly
+      whenever either operand's type is uncertain.
+
+  - id: prototype-mutable
+    kind: choice
+    concept: prototypes
+    prompt: "`Thing.prototype.tags = []` — what breaks?"
+    options:
+      - text: "Every instance shares one array, so a push from one instance is visible from all — initialise mutable state in the constructor or as a class field"
+        correct: true
+        feedback: >-
+          Immutable defaults on a prototype are fine; mutable ones are shared state.
+      - text: Instances cannot read the property until they assign to it
+        feedback: >-
+          Reads resolve through the chain immediately.
+      - text: Assigning to `instance.tags` mutates the prototype's array
+        feedback: >-
+          Assignment creates an own property; the problem is mutation through the shared reference.
+    explanation: >-
+      Property lookup delegates, so every instance that has not assigned its own `tags` resolves to
+      the single array on the prototype. Mutating it — pushing, splicing — affects what every
+      instance sees, because they are all looking at the same object. Note the asymmetry:
+      *assigning* `instance.tags = []` shadows the prototype property and is harmless, which is
+      why the bug only appears with mutation and can survive casual testing. Per-instance mutable
+      state belongs in the constructor or in a class field.
+
+  - id: prototype-pollution
+    kind: choice
+    concept: prototypes
+    prompt: "How does prototype pollution work, and what defends against it?"
+    options:
+      - text: "A recursive merge assigns through a `__proto__` key, modifying `Object.prototype`, so every object in the program inherits the attacker's property — block `__proto__`/`constructor`/`prototype`, or merge into a null-prototype object or Map"
+        correct: true
+        feedback: >-
+          A real CVE in lodash, jQuery and many smaller packages.
+      - text: An attacker replaces a class's prototype by reassigning `Constructor.prototype`
+        feedback: >-
+          That requires code execution; pollution needs only data.
+      - text: It only affects objects created after the pollution
+        feedback: >-
+          Delegation is live, so existing objects are affected immediately.
+    explanation: >-
+      A merge that walks a user-supplied object and assigns each key reaches `target["__proto__"]`,
+      which is not an ordinary property but an accessor for the prototype link — so writing nested
+      values through it mutates `Object.prototype`. Because delegation is live and every plain
+      object delegates there, the injected property instantly appears on every object in the
+      process, including ones created earlier. A single JSON payload can therefore make
+      `user.isAdmin` truthy everywhere. Defences are to reject the dangerous key names, to merge
+      into `Object.create(null)` targets, or to avoid recursive merge of untrusted input altogether.
+
+  - id: instanceof-array
+    kind: choice
+    concept: prototypes
+    prompt: "Why is `x instanceof Array` unreliable?"
+    options:
+      - text: "It compares against the current realm's `Array`, so an array from an iframe or worker fails — use `Array.isArray`"
+        correct: true
+        feedback: >-
+          `Object.prototype.toString.call(x)` is the older cross-realm check.
+      - text: Because arrays do not actually inherit from Array.prototype
+        feedback: >-
+          They do, within their own realm.
+      - text: Because `instanceof` only checks the immediate prototype
+        feedback: >-
+          It walks the whole chain.
+    explanation: >-
+      `instanceof` tests whether a specific constructor's `prototype` appears in the object's
+      prototype chain. Each JavaScript realm — an iframe, a worker, a Node vm context — has its own
+      `Array` with its own `prototype`, so an array created in one realm and passed to another has a
+      prototype chain that does not include the receiving realm's `Array.prototype`. The check
+      returns false for something that is unmistakably an array. `Array.isArray` inspects the
+      internal slot instead and is realm-independent, which is why it exists.
+
+  - id: falsy
+    kind: choice
+    concept: coercion
+    prompt: "Which of these is truthy?"
+    options:
+      - text: "`\"0\"` — a non-empty string is always truthy, as are `[]` and `{}`"
+        correct: true
+        feedback: >-
+          The falsy list is exactly: false, 0, -0, 0n, \"\", null, undefined, NaN.
+      - text: "`\"\"`, because an empty string is a valid value"
+        feedback: >-
+          The empty string is falsy.
+      - text: "`NaN`, because it is a number"
+        feedback: >-
+          NaN is falsy.
+    explanation: >-
+      The falsy values are a short closed list: `false`, `0`, `-0`, `0n`, the empty string, `null`,
+      `undefined` and `NaN`. Everything else is truthy, which includes several values people expect
+      to be falsy — the strings `"0"` and `"false"`, the empty array and the empty object. That
+      asymmetry is why `if (array.length)` is correct and `if (array)` is almost always a bug, and
+      why checking a parsed numeric field with a truthiness test silently rejects a legitimate zero.
+
+  - id: explain-coercion-control
+    kind: recall
+    concept: coercion
+    prompt: >-
+      You own a `Money` value object that will be interpolated into strings, serialised to JSON, and
+      compared. What do you define and why?
+    key_points:
+      - toString for template literals and string concatenation
+      - toJSON to control JSON.stringify output
+      - valueOf if arithmetic or relational comparison should work
+      - Equality still needs an explicit method — == / === cannot be overridden
+      - Defining them makes coercion specified rather than accidental
+      - Storing integer cents avoids floating-point comparison problems
+    model: >-
+      Three methods, each covering a different implicit conversion. `toString` controls template
+      literals and string concatenation, so `${money}` renders a formatted amount instead of
+      `[object Object]`. `toJSON` controls what `JSON.stringify` emits, which matters because the
+      default would serialise the internal field names and leak the representation into an API
+      response. `valueOf` controls the numeric hint, so arithmetic and relational comparisons work —
+      though I would think carefully before defining it, since it also makes `money1 + money2`
+      silently produce a number rather than a Money, which may be worse than an error. What I cannot
+      define is equality: `==` and `===` are not overridable in JavaScript, so value comparison needs
+      an explicit `equals` method and a discipline of using it. Separately, I would store the amount
+      as integer cents rather than a float, because comparing or summing floating-point currency
+      produces the classic off-by-a-cent errors. The general point is that defining these turns
+      coercion from something that happens to the object into something the object specifies.

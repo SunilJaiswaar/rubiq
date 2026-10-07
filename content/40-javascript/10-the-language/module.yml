@@ -1,0 +1,3 @@
+title: The language
+summary: The three features that make JavaScript look inconsistent — `this`, coercion and prototypes — explained by what problem each was solving.
+level: basic

@@ -1,0 +1,168 @@
+passScore: 0.7
+questions:
+  - id: lost-this
+    kind: choice
+    concept: this-binding
+    prompt: "`const inc = counter.increment; inc()` throws. Which rule applied?"
+    options:
+      - text: "Rule 4, the plain call — there is no object before the dot any more, so `this` is `undefined` in strict mode"
+        correct: true
+        feedback: >-
+          The function never \"had\" a `this`; the dot supplied one at each call.
+      - text: Rule 3 still applies, but the method was copied without its prototype
+        feedback: >-
+          Rule 3 requires a receiver at the call site, which the bare call lacks.
+      - text: The assignment stripped the function's internal binding
+        feedback: >-
+          There is no internal binding to strip.
+    explanation: >-
+      `this` is established per call, by the call site. `counter.increment()` supplies `counter`
+      because of the member access — the dot is what provides the receiver. Assigning the function
+      to a variable copies only the function, and calling it bare matches no other rule, so the
+      plain-call rule applies and `this` is `undefined` under strict mode or module semantics.
+      Nothing about the function changed; the only difference is how it was invoked.
+
+  - id: arrow-as-method
+    kind: choice
+    concept: this-binding
+    prompt: "Why is an arrow function wrong as an object-literal method?"
+    options:
+      - text: "It has no `this` of its own, so `this` resolves to whatever encloses the literal — never the object, since an object literal creates no scope"
+        correct: true
+        feedback: >-
+          Usually `undefined` in a module or `globalThis` in a script.
+      - text: Arrow functions cannot be stored as object properties
+        feedback: >-
+          They can; the problem is what `this` means inside them.
+      - text: Because arrows are not hoisted, so the property is undefined at call time
+        feedback: >-
+          Hoisting is irrelevant to a property assigned in a literal.
+    explanation: >-
+      An object literal is an expression, not a scope, so there is no "object scope" for an arrow
+      to close over. The arrow therefore inherits `this` from wherever the literal appears — module
+      top level, a function, a class body — and in the common case that is `undefined`. Methods
+      need the dynamic binding that the member-access call provides, which means ordinary function
+      syntax or method shorthand. Arrows are the right tool for callbacks, where the enclosing
+      `this` is exactly what you want.
+
+  - id: var-let-loop
+    kind: choice
+    concept: closures
+    prompt: "`for (var i=0;i<3;i++) setTimeout(()=>console.log(i))` versus the same with `let`?"
+    options:
+      - text: "`var` prints 3, 3, 3 — one shared binding holding its final value; `let` prints 0, 1, 2 — a fresh binding per iteration"
+        correct: true
+        feedback: >-
+          The clearest demonstration that closures capture bindings rather than values.
+      - text: "Both print 0, 1, 2; the difference only affects synchronous code"
+        feedback: >-
+          The callbacks run after the loop finishes, which is when the difference shows.
+      - text: "`var` prints 0, 1, 2 and `let` throws a temporal dead zone error"
+        feedback: >-
+          The TDZ applies before initialisation, not inside the loop body.
+    explanation: >-
+      `var` is function-scoped, so the loop creates a single binding that every callback captures.
+      By the time the timers fire, the loop has completed and that one binding holds 3. `let` is
+      block-scoped and the specification explicitly creates a new binding for each iteration,
+      copying the current value into it, so each closure captures a distinct variable. Before `let`
+      existed, the workaround was an immediately invoked function per iteration — creating a fresh
+      scope by brute force to get the same effect.
+
+  - id: fix-this
+    kind: choice
+    concept: this-binding
+    prompt: "Three ways to fix a lost `this` on a class method, and their costs?"
+    options:
+      - text: "An arrow class field (one function per instance, not on the prototype); wrapping in an arrow at the call site (a new closure per use); `.bind()` (a new function each call unless bound once)"
+        correct: true
+        feedback: >-
+          Binding inside a render path breaks referential equality for memoised children.
+      - text: "Only `.bind()` works; the others change the function's identity"
+        feedback: >-
+          All three produce a correctly bound callable.
+      - text: "Use `self = this` in the constructor, which is the only approach without overhead"
+        feedback: >-
+          That pattern predates arrows and does not fix a method passed by reference.
+    explanation: >-
+      An arrow class field is created per instance with `this` lexically fixed, so it is safe to
+      pass anywhere — at the cost of one function object per instance and absence from the
+      prototype, which affects overriding. Wrapping at the call site is explicit and allocates a
+      closure wherever used. `.bind()` returns a new function, so calling it in a render path
+      allocates every render and produces a different reference each time, which defeats
+      memoisation on child components; binding once in the constructor avoids that. Choosing
+      between them is about where the allocation happens, not about correctness.
+
+  - id: hoisting
+    kind: choice
+    concept: hoisting
+    prompt: "Why does `console.log(a); var a = 1` print `undefined` while the `let` version throws?"
+    options:
+      - text: "`var` declarations are hoisted and initialised to `undefined`; `let` is hoisted but uninitialised, so access before the declaration is a ReferenceError — the temporal dead zone"
+        correct: true
+        feedback: >-
+          The TDZ converts a silent wrong value into a named error.
+      - text: "`let` is not hoisted at all, so the name does not exist yet"
+        feedback: >-
+          It is hoisted — which is how the engine knows to throw rather than look up the scope chain.
+      - text: Because `var` is function-scoped and `let` is block-scoped
+        feedback: >-
+          True, and not the reason for this particular difference.
+    explanation: >-
+      Both declarations are hoisted to the top of their scope, but they differ in initialisation.
+      `var` bindings are created and set to `undefined` immediately, so reading one early yields
+      that placeholder and the bug is silent. `let` and `const` bindings are created without a
+      value, and any access before the declaration executes throws — the temporal dead zone. The
+      fact that the name is hoisted is what makes the error possible: the engine knows a local
+      binding exists and deliberately refuses to fall back to an outer scope.
+
+  - id: stale-closure
+    kind: choice
+    concept: closures
+    prompt: >-
+      A React effect with empty dependencies calls `setCount(count + 1)` on an interval. Why does
+      the count stick at 1?
+    options:
+      - text: "The effect ran once, so its closure captured the first render's `count` binding of 0 — every tick computes 0 + 1"
+        correct: true
+        feedback: >-
+          `setCount(c => c + 1)` needs no captured value and is the fix.
+      - text: React batches the updates, so only one is applied
+        feedback: >-
+          Batching would not pin the value at 1 indefinitely.
+      - text: The interval is recreated each render, resetting the count
+        feedback: >-
+          Empty dependencies mean the effect never re-runs.
+    explanation: >-
+      Each render creates new bindings for its state values. An effect with an empty dependency
+      array runs once, so the function it registered closed over the bindings from that first
+      render and keeps them for the lifetime of the interval. `count` is therefore permanently 0
+      inside that callback, and every tick sets the state to 1. The updater form sidesteps it
+      entirely by asking React for the current value rather than capturing one — which is the
+      general remedy whenever a long-lived callback needs state it did not capture.
+
+  - id: explain-memoise-leak
+    kind: recall
+    concept: closures
+    prompt: >-
+      The `memoise` helper closes over an unbounded `Map`. Explain the problem and how you would
+      fix it.
+    key_points:
+      - The cache lives as long as the returned function, which is usually forever
+      - Varied arguments mean the cache grows without limit
+      - JSON.stringify keys only work for primitives and are order-sensitive for objects
+      - Bound it with an LRU or a maximum size
+      - Or use a WeakMap keyed on an object argument so entries can be collected
+      - Decide whether caching is even appropriate for the call pattern
+    model: >-
+      The closure holds a strong reference to the `Map`, and the returned function is typically
+      stored at module level, so the cache survives for the process's lifetime. Every distinct
+      argument tuple adds an entry that is never removed, which means memory grows in proportion to
+      the variety of inputs rather than to anything bounded — a textbook retention leak, and one
+      that looks like a performance optimisation. There is a second problem in the key: `JSON.stringify`
+      cannot represent functions, symbols or cyclic structures, and for objects it is sensitive to
+      property order, so two equivalent arguments can produce different keys and miss the cache. I
+      would fix it by bounding the cache — an LRU with a maximum size is the usual answer, and
+      evicting the least recently used entry keeps the hit rate reasonable. Where the argument is a
+      single object, a `WeakMap` keyed on it is better still, because entries disappear once the
+      caller stops referencing the object. And I would check the call pattern first: memoisation
+      only pays when arguments repeat, and if they rarely do, the cache is pure cost.

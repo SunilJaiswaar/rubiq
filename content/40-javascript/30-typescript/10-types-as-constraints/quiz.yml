@@ -1,0 +1,172 @@
+passScore: 0.7
+questions:
+  - id: state-count
+    kind: choice
+    concept: discriminated-unions
+    prompt: >-
+      `{ isLoading: boolean; isError: boolean; data?: User; error?: Error }` — what is wrong with
+      this shape?
+    options:
+      - text: "It represents dozens of states where only three are valid — loading and errored simultaneously, or data present alongside an error, are all constructible"
+        correct: true
+        feedback: >-
+          A three-member discriminated union makes those combinations impossible.
+      - text: Optional properties are slower to access than required ones
+        feedback: >-
+          There is no runtime difference; the problem is which states can exist.
+      - text: "`boolean` should be a union of `true | false` for narrowing to work"
+        feedback: >-
+          `boolean` already is that union; narrowing works fine.
+    explanation: >-
+      Each independent flag multiplies the state space, so two booleans and two optional fields give
+      sixteen combinations before considering the field values — and exactly three of them are
+      meaningful. Every other combination is something a caller can construct, something a reader has
+      to reason about, and a branch someone must defend against or forget to. Expressing the three
+      real states as union members removes the rest from the language of the program entirely, which
+      eliminates both the bugs and the defensive code written to catch them.
+
+  - id: never-exhaustive
+    kind: choice
+    concept: discriminated-unions
+    prompt: "What does `const _: never = s` in a `default` branch buy you?"
+    options:
+      - text: "Adding a union member breaks the build at every switch that does not handle it, so the compiler finds the places you would have had to remember"
+        correct: true
+        feedback: >-
+          In a codebase with twenty handlers, that is twenty sites located for free.
+      - text: It asserts at runtime that the value is impossible
+        feedback: >-
+          The `throw` does that; the assignment is purely a compile-time check.
+      - text: It silences the compiler's complaint about a missing return
+        feedback: >-
+          A return type annotation handles that; this does the opposite of silencing.
+    explanation: >-
+      After handling every known member, narrowing leaves the value with type `never`, so assigning
+      it to a `never` variable compiles. Introduce a new member and that branch is now reachable
+      with a real type, which is not assignable to `never` — a compile error precisely where the
+      unhandled case is. This converts "remember to update all the switch statements" from a review
+      discipline into a build failure, which is the most practical benefit of discriminated unions
+      in a large codebase.
+
+  - id: any-propagates
+    kind: choice
+    concept: type-narrowing
+    prompt: "Why is `any` worse than one unchecked value?"
+    options:
+      - text: "It propagates — everything derived from an `any` is also `any`, so one at a boundary can disable checking across a whole call graph silently"
+        correct: true
+        feedback: >-
+          `unknown` stops at the first access and forces narrowing.
+      - text: Because it disables the compiler's optimisations
+        feedback: >-
+          TypeScript emits no optimisations based on types.
+      - text: Because it is a runtime value that defeats narrowing
+        feedback: >-
+          It has no runtime existence at all.
+    explanation: >-
+      Assigning an `any` to a typed variable is permitted in both directions, and property access on
+      an `any` yields `any`, so the lack of information spreads through every expression derived
+      from it. A single `const data: any = JSON.parse(body)` can let a string flow into a
+      `number`-typed variable twenty lines later with no diagnostic anywhere. `unknown` behaves
+      oppositely: it accepts any value but permits no property access, no call and no assignment to
+      a narrower type until you have proved something about it, which puts the validation exactly
+      where the uncertainty is.
+
+  - id: branded
+    kind: choice
+    concept: structural-typing
+    prompt: "`type UserId = string` does not stop an `OrderId` being passed. Why, and what fixes it?"
+    options:
+      - text: "TypeScript is structurally typed, so both are just `string` — intersecting with a unique marker (a branded type) makes them structurally distinct at zero runtime cost"
+        correct: true
+        feedback: >-
+          The only `as` lives in the constructor function, which is where validation belongs.
+      - text: "Because `type` aliases are erased while `interface` would be nominal"
+        feedback: >-
+          Interfaces are structural too.
+      - text: Because the alias needs `readonly` to be enforced
+        feedback: >-
+          Mutability is unrelated to nominal distinctness.
+    explanation: >-
+      A type alias introduces a name, not a new type: `UserId` and `OrderId` both describe exactly
+      the set of strings, so any string satisfies either and they are freely interchangeable. That
+      structural behaviour is desirable almost everywhere — it is why a plain object literal
+      satisfies an interface — but it leaves argument-swap bugs undetectable when several parameters
+      share a primitive type. Intersecting with a phantom property gives each alias a distinct
+      shape, so the compiler rejects the swap while the runtime value remains an ordinary string.
+
+  - id: satisfies
+    kind: choice
+    concept: type-inference
+    prompt: "`: Record<string, string>` versus `satisfies Record<string, string>` on an object literal?"
+    options:
+      - text: "The annotation widens the type, losing the literal keys and values; `satisfies` validates the shape while preserving the inferred literals"
+        correct: true
+        feedback: >-
+          So `routes.nonexistent` errors with satisfies and is allowed with the annotation.
+      - text: They are equivalent; `satisfies` is newer syntax for the same check
+        feedback: >-
+          The difference in the resulting type is the whole point.
+      - text: "`satisfies` performs a runtime check while the annotation is compile-time only"
+        feedback: >-
+          Both are erased entirely.
+    explanation: >-
+      Annotating with a type both checks the value against it and makes that type the variable's
+      type, so the specific keys and the literal string values are forgotten — the result accepts
+      any string key and yields `string` for every lookup. `satisfies` performs the same check
+      without replacing the inferred type, so you get the validation and keep the precise key union
+      and literal value types. That matters for exactly the cases where the object is a lookup table
+      whose keys you want checked at every use site.
+
+  - id: json-parse
+    kind: choice
+    concept: type-narrowing
+    prompt: "Why is `JSON.parse` returning `any` a problem?"
+    options:
+      - text: "The data is genuinely unknown, and `any` lets you skip validating it while propagating the absence of checking downstream — the parameter should be `unknown`"
+        correct: true
+        feedback: >-
+          Deriving the type from a runtime schema is the better answer still.
+      - text: Because `JSON.parse` can throw, which `any` conceals
+        feedback: >-
+          The throw is visible and separate from the typing problem.
+      - text: Because the parsed value is always a string at runtime
+        feedback: >-
+          It is whatever the JSON described.
+    explanation: >-
+      `any` claims the value can be used however you like, which for data that just arrived over a
+      network is a false claim — and because it propagates, the falseness spreads. Typing the
+      boundary as `unknown` instead makes the compiler demand evidence before any property is
+      touched, which is precisely the validation that should exist there. Better still is to derive
+      both the validator and the type from one schema declaration, so the runtime check and the
+      static type cannot disagree — the characteristic failure of a hand-written interface sitting
+      next to a hand-written validator.
+
+  - id: explain-boundary
+    kind: recall
+    concept: type-narrowing
+    prompt: >-
+      Explain why types cannot be trusted at a system boundary, and describe how you would handle an
+      API response.
+    key_points:
+      - Types describe your program, not the data the network delivers
+      - They are erased at compile time, so nothing checks at runtime
+      - An annotation on a response is a claim nobody verified
+      - Validate with a schema and derive the type from it
+      - One declaration means the check and the type cannot drift
+      - Same applies to query strings, localStorage, env vars and webhooks
+      - Fail loudly at the boundary rather than at an unrelated line later
+    model: >-
+      TypeScript's types exist only during compilation and are erased from the emitted JavaScript, so
+      they constrain what my code may do and say nothing about what actually arrives. Annotating a
+      response as `User`, or asserting it with `as User`, is a claim no one verified — if the server
+      changed a field, the failure surfaces much later at some unrelated property access, with a
+      stack trace pointing nowhere near the cause. So I treat every boundary as `unknown` and
+      validate. In practice that means a schema — zod or valibot — with the static type inferred from
+      the same declaration, so there is exactly one place describing the shape and the runtime check
+      and the type cannot drift apart. The validation runs immediately on receipt and throws with a
+      message naming the offending field, which turns a confusing downstream error into an obvious
+      one at the point of entry. The same reasoning applies to anything else crossing in: query
+      string parameters, `localStorage` contents, environment variables, webhook payloads, and the
+      results of a raw database query. Inside the validated boundary the types are trustworthy, which
+      is exactly what makes them worth having.

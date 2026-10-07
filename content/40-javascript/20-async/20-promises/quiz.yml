@@ -1,0 +1,195 @@
+passScore: 0.7
+questions:
+  - id: promise-guarantees
+    kind: choice
+    concept: promises
+    prompt: "Which guarantee do promises make that callbacks did not?"
+    options:
+      - text: "A handler runs at most once, always asynchronously, and still works if attached after the promise settled"
+        correct: true
+        feedback: >-
+          \"Always asynchronously\" is what lets you reason about a function's synchronous section.
+      - text: Handlers are guaranteed to run even if the operation never completes
+        feedback: >-
+          A pending promise that never settles never calls anything.
+      - text: Rejections are automatically logged by the runtime
+        feedback: >-
+          Unhandled rejections are reported, which is not the same as being handled.
+    explanation: >-
+      Callback-based APIs made none of these promises: a buggy library could invoke your callback
+      twice, or synchronously in the already-cached case and asynchronously otherwise, and
+      registering interest after the fact was simply impossible. Promises fix all three. The
+      asynchrony guarantee is the subtle one — even `Promise.resolve(1).then(f)` defers `f` to a
+      microtask, so a function's synchronous body always completes before any handler runs and you
+      never have to ask whether a callback has already fired.
+
+  - id: sequential-vs-concurrent
+    kind: choice
+    concept: concurrency-patterns
+    prompt: >-
+      Three independent 200ms calls: awaited one per line, versus `Promise.all`. Timings, and when
+      is sequential right?
+    options:
+      - text: "600ms versus 200ms — sequential is right when each call depends on the previous result, or when the far end must not be overloaded"
+        correct: true
+        feedback: >-
+          Accidental serialisation is the characteristic performance bug of async/await code.
+      - text: "Both 200ms — `await` does not block, so the calls overlap either way"
+        feedback: >-
+          `await` suspends the function, so the next call is not even started yet.
+      - text: "600ms versus 600ms — `Promise.all` only changes error handling"
+        feedback: >-
+          It awaits already-started promises, so they overlap.
+    explanation: >-
+      `await` suspends the function until the awaited promise settles, so the second call is not
+      initiated until the first finishes — three sequential round trips. `Promise.all` receives
+      promises that have already been started by evaluating the array, so the waiting overlaps and
+      the total is the slowest single call. Sequential execution is correct, not merely acceptable,
+      when there is a genuine dependency between steps — a migration sequence, or a request needing
+      an id from the previous response — or when deliberately limiting load on the far end.
+
+  - id: foreach-async
+    kind: choice
+    concept: promises
+    prompt: "`items.forEach(async i => await save(i)); console.log(\"done\")` — why does \"done\" print first?"
+    options:
+      - text: "`forEach` ignores the returned promises, so it finishes immediately and all the saves are still pending"
+        correct: true
+        feedback: >-
+          Use `for...of` with await for sequential, or `Promise.all` with map for concurrent.
+      - text: Because `async` callbacks are queued as macrotasks
+        feedback: >-
+          They begin executing synchronously up to the first await.
+      - text: Because `save` resolves immediately and the log is just interleaved
+        feedback: >-
+          The saves have genuinely not completed.
+    explanation: >-
+      `forEach` calls its callback for each element and discards the return value, which for an
+      async callback is a promise. So the loop completes as soon as each callback has reached its
+      first `await`, leaving every save in flight with nothing tracking it. Beyond printing in the
+      wrong order, this means errors inside the callbacks become unhandled rejections and the
+      caller has no way to know when the work finished. The fixes are `for (const i of items) await
+      save(i)` for sequential execution or `await Promise.all(items.map(save))` for concurrent.
+
+  - id: combinators
+    kind: choice
+    concept: concurrency-patterns
+    prompt: "Which combinator reports every outcome without ever rejecting?"
+    options:
+      - text: "`allSettled` — it resolves with a status and value or reason per input, which suits independent work where partial success is useful"
+        correct: true
+        feedback: >-
+          `all` would discard the successes you already paid for on the first failure.
+      - text: "`any`, which resolves with the first success and ignores failures"
+        feedback: >-
+          It rejects if every input rejects, and reports only one outcome.
+      - text: "`race`, which reports whichever settles first"
+        feedback: >-
+          It reports exactly one outcome and rejects if that one rejected.
+    explanation: >-
+      `allSettled` waits for every input and resolves with a descriptor per promise, so a single
+      failure among a hundred lookups leaves the ninety-nine successes available. `all` rejects the
+      moment any input rejects, which is correct when the set is transaction-like and a partial
+      result is worthless, and wasteful when the work is independent. `race` settles with the first
+      outcome of either kind, which is what makes it a timeout primitive. `any` ignores rejections
+      until all have failed, which is the fallback-across-replicas pattern.
+
+  - id: no-cancel
+    kind: choice
+    concept: promises
+    prompt: "Does a `Promise.all` rejection cancel the other operations?"
+    options:
+      - text: "No — they run to completion and their results are discarded; real cancellation needs `AbortController`"
+        correct: true
+        feedback: >-
+          It matters most when the siblings perform writes.
+      - text: Yes, the remaining promises are rejected with a cancellation error
+        feedback: >-
+          Promises have no cancellation mechanism of their own.
+      - text: Only if they were created inside the `Promise.all` call
+        feedback: >-
+          Creation site makes no difference.
+    explanation: >-
+      A promise represents an observation of an operation, not control over it, so rejecting the
+      aggregate simply means you stop waiting — the underlying requests continue, consume
+      connections, and complete, including any side effects they cause. That is easy to overlook
+      when the operations are reads and important when they are writes, since a "failed" batch can
+      still have applied some of its changes. Stopping the work itself requires the operation to
+      accept a signal, which is what `AbortController` provides and what `fetch` and most modern
+      clients support.
+
+  - id: try-without-await
+    kind: choice
+    concept: error-propagation
+    prompt: "Why does `try { someAsyncThing() } catch (e) {}` never catch?"
+    options:
+      - text: "Without `await`, the call returns a pending promise and the try block exits immediately — the rejection happens later, with no active handler"
+        correct: true
+        feedback: >-
+          It also becomes an unhandled rejection, which terminates Node 15+.
+      - text: Because async errors are not instances of Error
+        feedback: >-
+          The rejection reason is usually an Error; the problem is timing.
+      - text: Because `catch` only handles synchronous throws by design
+        feedback: >-
+          It handles a rejection fine when the promise is awaited inside the block.
+    explanation: >-
+      `try`/`catch` is lexically scoped to synchronous execution: it is active only while control is
+      inside the block. An un-awaited call returns a promise and control leaves the block
+      immediately, so by the time the operation fails there is no handler installed. Adding `await`
+      keeps the function suspended inside the block, which is precisely what lets the rejection be
+      converted into a thrown exception the `catch` can see. The dropped promise is a second
+      problem: its rejection is unhandled and in Node 15 and later that ends the process.
+
+  - id: fetch-not-ok
+    kind: choice
+    concept: promises
+    prompt: "What does `fetch` do on an HTTP 500?"
+    options:
+      - text: "Resolves — it rejects only on network failure, so you must check `res.ok` yourself"
+        correct: true
+        feedback: >-
+          This silently turns server errors into rendered pages.
+      - text: Rejects with an error carrying the status code
+        feedback: >-
+          That is how most libraries behave, and not how fetch does.
+      - text: Resolves, but with `res.body` set to null
+        feedback: >-
+          The body is present and usually contains the error payload.
+    explanation: >-
+      From `fetch`'s perspective a 500 response is a successful exchange: a request was sent and a
+      complete response came back. Only transport-level problems — DNS failure, connection refused,
+      an aborted request — produce a rejection. The practical consequence is that code wrapping
+      `fetch` in `try`/`catch` and assuming errors surface there will happily parse an error page as
+      if it were data, so every wrapper needs an explicit `if (!res.ok) throw`. Libraries such as
+      axios made the opposite choice, which is why switching between them is a common source of
+      silently swallowed failures.
+
+  - id: explain-bounded
+    kind: recall
+    concept: concurrency-patterns
+    prompt: >-
+      You must fetch ten thousand URLs. Explain why `Promise.all(urls.map(fetch))` is wrong and
+      describe what you would do.
+    key_points:
+      - It starts all ten thousand requests at once
+      - Exhausts sockets and file descriptors, and trips rate limits
+      - Looks like a denial-of-service attack from the receiving end
+      - A bounded worker pool keeps a fixed number in flight
+      - Pair it with per-request timeouts and AbortController
+      - allSettled semantics so one failure does not discard the rest
+      - Retry with backoff and jitter for transient failures
+    model: >-
+      Evaluating the `map` starts every request immediately, so ten thousand connections are opened
+      before `Promise.all` is even called. That exhausts file descriptors and local ports, overwhelms
+      DNS resolution, almost certainly trips the far end's rate limiting, and from the receiving
+      side is indistinguishable from an attack — and the all-or-nothing semantics mean a single
+      failure discards ten thousand responses you have already paid for. I would use a bounded pool:
+      a fixed number of workers, say ten or twenty, each pulling the next index from a shared
+      counter and awaiting one request at a time, with the whole thing awaited via `Promise.all`
+      over the workers. That keeps concurrency constant regardless of input size. Around it I would
+      put a per-request timeout wired to an `AbortController`, so a stalled request releases its
+      slot and actually stops consuming a connection rather than merely being ignored; record
+      outcomes per URL rather than failing the batch, which is `allSettled` semantics; and retry
+      transient failures with exponential backoff and jitter, since without jitter everything that
+      failed together retries together.

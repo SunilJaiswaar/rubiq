@@ -1,0 +1,3 @@
+title: TypeScript
+summary: Types as a way of making illegal states unrepresentable, rather than as annotations you add afterwards to satisfy a linter.
+level: intermediate

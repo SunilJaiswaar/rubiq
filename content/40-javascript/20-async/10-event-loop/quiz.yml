@@ -1,0 +1,166 @@
+passScore: 0.7
+questions:
+  - id: ordering
+    kind: choice
+    concept: event-loop
+    prompt: >-
+      `log(1); setTimeout(()=>log(2),0); Promise.resolve().then(()=>log(3)); queueMicrotask(()=>log(4)); log(5);`
+    options:
+      - text: "1, 5, 3, 4, 2 — synchronous code first, then all microtasks in queue order, then the next macrotask"
+        correct: true
+        feedback: >-
+          The microtask queue is drained completely before any macrotask runs.
+      - text: "1, 2, 3, 4, 5 — callbacks run in the order they were registered"
+        feedback: >-
+          Nothing registered runs until the synchronous code finishes.
+      - text: "1, 5, 2, 3, 4 — a zero-delay timer runs before microtasks"
+        feedback: >-
+          Timers are macrotasks and wait for the next turn of the loop.
+    explanation: >-
+      The current script is itself a task that runs to completion, so `1` and `5` print first. On
+      finishing, the loop drains the microtask queue in FIFO order, giving `3` then `4`. Only then
+      does it take the next macrotask, which is the timer callback printing `2`. The zero delay is
+      irrelevant — a timer cannot run until the current task and every pending microtask have
+      finished.
+
+  - id: microtask-priority
+    kind: choice
+    concept: microtasks
+    prompt: "Why does a promise callback run before a `setTimeout(0)` that was queued earlier?"
+    options:
+      - text: "The entire microtask queue is drained between macrotasks, so all pending promise reactions run before the next timer is considered"
+        correct: true
+        feedback: >-
+          This ordering is what makes promise chains predictable relative to I/O.
+      - text: Promise callbacks have a higher priority value assigned by the scheduler
+        feedback: >-
+          There is no priority number — there are two separate queues with a fixed relationship.
+      - text: Because `setTimeout(0)` is clamped to 4ms, which is longer than a microtask takes
+        feedback: >-
+          Clamping exists, and even with zero clamping the microtask would still go first.
+    explanation: >-
+      The loop's cycle is: run one macrotask, drain all microtasks, repeat. Registration order
+      between the two queues is therefore irrelevant — a microtask queued at any point during the
+      current task runs before the next macrotask regardless of when that macrotask was scheduled.
+      The benefit is that a `.then` is always observed before any timer or I/O callback from the
+      same region of code. The hazard is starvation: microtasks that queue further microtasks
+      prevent the loop from ever reaching step one again.
+
+  - id: async-sync-prefix
+    kind: choice
+    concept: event-loop
+    prompt: >-
+      `log("start"); f(); log("end")` where `async function f(){ log("a"); await null; log("b"); }`
+    options:
+      - text: "start, a, end, b — everything before the first `await` runs synchronously, and the remainder becomes a microtask"
+        correct: true
+        feedback: >-
+          So marking a function async does not defer the work before its first await.
+      - text: "start, end, a, b — calling an async function schedules the whole body"
+        feedback: >-
+          The body begins executing immediately on call.
+      - text: "start, a, b, end — await null resolves immediately, so nothing is deferred"
+        feedback: >-
+          Awaiting any value yields to the microtask queue, even an already-resolved one.
+    explanation: >-
+      Calling an async function invokes it like any other function; the body runs until it reaches
+      an `await`, at which point the function suspends and the continuation is queued as a
+      microtask. So `"a"` prints before control returns to the caller, `"end"` prints as the
+      caller's synchronous code continues, and `"b"` prints when the microtask queue is drained.
+      The practical consequence is that expensive work placed before the first `await` blocks
+      exactly as much as it would in a non-async function.
+
+  - id: await-vs-render
+    kind: choice
+    concept: macrotasks
+    prompt: "Why does `await Promise.resolve()` not let the browser paint, while awaiting a wrapped `setTimeout` does?"
+    options:
+      - text: "A microtask boundary keeps the loop inside the drain step, which precedes rendering; only a macrotask boundary completes the turn and allows a paint"
+        correct: true
+        feedback: >-
+          Which is why chunked processing yields with setTimeout rather than with a resolved promise.
+      - text: Because `setTimeout` runs on a different thread
+        feedback: >-
+          Both callbacks run on the same single thread.
+      - text: Because promises are lower priority than rendering
+        feedback: >-
+          Microtasks run before rendering, which is the opposite of lower priority.
+    explanation: >-
+      Rendering happens after the microtask drain, once per turn of the loop. Awaiting a resolved
+      promise queues a microtask, so the loop re-enters the drain step and never advances to style,
+      layout and paint — a loop of such awaits freezes the page while appearing to yield. Awaiting a
+      promise resolved from a `setTimeout` callback ends the current task entirely, letting the
+      browser render and process input before the next chunk runs. This is the distinction that
+      makes chunked processing actually keep a page responsive.
+
+  - id: starvation
+    kind: choice
+    concept: microtasks
+    prompt: "`function spin(){ Promise.resolve().then(spin) } spin()` — what does the user see?"
+    options:
+      - text: "A completely frozen page — no rendering, input or timers — because the microtask queue never empties, with no loop visible in the source"
+        correct: true
+        feedback: >-
+          `setTimeout(spin, 0)` would yield each turn and stay responsive.
+      - text: High CPU use but a responsive page, since each microtask is short
+        feedback: >-
+          Length per task is irrelevant; the drain step never terminates.
+      - text: A stack overflow after a few thousand iterations
+        feedback: >-
+          Each callback returns before the next is invoked, so the stack stays shallow.
+    explanation: >-
+      The drain step processes microtasks until the queue is empty, including ones added during the
+      drain. A callback that enqueues another therefore keeps the queue non-empty forever, so the
+      loop never reaches rendering, input handling or the timer phase. The page is indistinguishable
+      from one stuck in an infinite `while` loop, except that nothing in the source looks like a
+      loop — which makes it unusually hard to diagnose. The same code using `setTimeout` completes a
+      turn each iteration and remains perfectly usable.
+
+  - id: io-cheap
+    kind: choice
+    concept: event-loop
+    prompt: "One thread, ten thousand in-flight HTTP requests. Why is that cheap?"
+    options:
+      - text: "The thread does no waiting — the host's networking runs on other threads and queues a callback per completion, so the thread only ever executes callbacks"
+        correct: true
+        feedback: >-
+          Which is also why one CPU-bound function ruins it for everything else.
+      - text: Because the requests are batched into a single socket
+        feedback: >-
+          Each has its own connection; batching is not what makes it cheap.
+      - text: Because promises are lightweight compared with threads
+        feedback: >-
+          The object cost is minor; the absence of blocked threads is the point.
+    explanation: >-
+      The expensive resource in a thread-per-request model is a thread blocked on a socket — stack
+      memory plus scheduler pressure for every concurrent connection. In the event-loop model the
+      waiting is delegated to the host, which uses an efficient readiness mechanism such as epoll or
+      kqueue, and JavaScript is involved only when data has arrived. Ten thousand pending requests
+      are therefore ten thousand entries in a table plus some promise objects. The flip side is
+      total: any CPU-bound work occupies the single thread and delays every one of those callbacks.
+
+  - id: explain-loop-lag
+    kind: recall
+    concept: blocking
+    prompt: >-
+      What is event loop lag, how do you measure it without a library, and why is it the most useful
+      Node metric?
+    key_points:
+      - The delay between when a task should run and when it does
+      - Measure it as timer drift — an interval that fires late
+      - A 100ms interval firing every 400ms means 300ms of blocking
+      - It explains p99 latency for requests that do no work themselves
+      - Because one blocked task delays every pending callback in the process
+      - Common causes - sync file I/O, large JSON.parse, CPU-bound handlers
+    model: >-
+      Event loop lag is the gap between when the loop should have picked up a task and when it
+      actually did — in other words, how long the thread was occupied elsewhere. The cheapest
+      measurement is timer drift: schedule a `setInterval` at a fixed period and compare the actual
+      elapsed time against the expected time on each firing. If a 100ms interval fires 400ms late,
+      something held the thread for roughly 300ms. It is the most valuable single metric because the
+      single thread makes blocking contagious: one request that spends 300ms parsing a large JSON
+      body delays every other pending callback in the process by that amount, so endpoints doing
+      almost no work show elevated p99 latency with no slow query or slow dependency to blame. Lag is
+      the metric that explains those, and it points at the real causes — synchronous file I/O in a
+      handler, a large synchronous parse or serialise, crypto, or genuinely CPU-bound work that
+      should be in a worker thread or a separate service.
