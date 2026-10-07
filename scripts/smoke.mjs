@@ -184,6 +184,28 @@ try {
     await sleep(1400)
   }
 
+  /**
+   * Wait for a condition rather than for a duration.
+   *
+   * A fixed `sleep` before an assertion is a guess about how long something
+   * takes, and the guess has to be wrong in one direction: tuned for a local
+   * server it fails against a remote host, and tuned for a remote host it adds
+   * that cost to every local run. Monaco is a 957 KB chunk and ts.worker is
+   * 1.4 MB, so against GitHub Pages the lazy-load checks were failing
+   * intermittently — 48/54 on one run and 52/54 on the next.
+   *
+   * This polls instead, so the check completes as soon as the condition holds
+   * and only fails when the page is genuinely too slow.
+   */
+  const waitFor = async (expression, { timeout = 20_000, interval = 200 } = {}) => {
+    const deadline = Date.now() + timeout
+    for (;;) {
+      if (await evaluate(expression)) return true
+      if (Date.now() > deadline) return false
+      await sleep(interval)
+    }
+  }
+
   /* ---------------------------------------------------------- home page */
   await goto('/')
   check('home: h1 renders',
@@ -235,8 +257,9 @@ try {
 
   /* ------------------------------------------------- exercise + runner */
   await evaluate('document.getElementById("exercise")?.scrollIntoView()')
-  await sleep(2500)  // Monaco loads lazily here
-  const monacoLoaded = await evaluate('document.querySelectorAll(".monaco-editor").length > 0')
+  // Monaco loads lazily here, and it is a 957 KB chunk — wait for it to arrive
+  // rather than guessing how long that takes.
+  const monacoLoaded = await waitFor('document.querySelectorAll(".monaco-editor").length > 0')
   check('exercise: Monaco loaded lazily on scroll', monacoLoaded)
 
   check('exercise: hints are hidden until asked for',
@@ -394,19 +417,19 @@ try {
   // language service. So this switches to TypeScript, waits for the worker, and
   // checks both that it answered and that the code still executes.
   await goto('/playground')
-  await sleep(2500)
+  await waitFor('document.querySelectorAll(".monaco-editor").length > 0')
   await evaluate(`
     [...document.querySelectorAll('[role=tab]')]
       .find((b) => b.textContent.trim() === 'TypeScript')?.click()
   `)
-  await sleep(3500)
 
   check('typescript: Monaco mounted for the TS tab',
-    (await evaluate('document.querySelectorAll(".monaco-editor").length > 0')))
+    await waitFor('document.querySelectorAll(".monaco-editor").length > 0'))
 
   // A language service that is alive decorates the model; a dead worker leaves none
   // and logs a worker-load failure, which the no-console-error check below catches.
-  const tsWorkerLoaded = await evaluate(
+  // ts.worker is 1.4 MB, so this is the slowest fetch in the run.
+  const tsWorkerLoaded = await waitFor(
     String.raw`performance.getEntriesByType('resource').some((r) => /ts\.worker/.test(r.name))`,
   )
   check('typescript: the ts.worker chunk was fetched', tsWorkerLoaded === true)
