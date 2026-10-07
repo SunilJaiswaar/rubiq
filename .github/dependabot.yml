@@ -5,6 +5,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+
+    # Do not chase a version published hours ago. Letting a release settle for a
+    # few days avoids pulling in the ones that get unpublished or immediately
+    # patched, and keeps the lockfile inside the window Dependabot's own registry
+    # view can resolve — a version newer than that window makes its updater fail
+    # with "no matching version found ... with a date before <cutoff>", even
+    # though the version is perfectly real.
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
     groups:
       # `vitest` and `@vitest/*` pin each other at an exact version, so a PR that
       # bumps one without the other cannot install — `npm ci` fails with ERESOLVE
