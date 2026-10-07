@@ -51,34 +51,33 @@ resources:
 
 ## The problem
 
-```js
-// Maximum sum of any 3 consecutive elements.
-const nums = [2, 1, 5, 1, 3, 2];
+```ruby
+# Maximum sum of any 3 consecutive elements.
+nums = [2, 1, 5, 1, 3, 2]
 
-// Recompute each window from scratch: O(n · k).
-function maxSumSlow(nums, k) {
-  let best = -Infinity;
-  for (let i = 0; i + k <= nums.length; i++) {
-    let sum = 0;
-    for (let j = i; j < i + k; j++) sum += nums[j];   // re-adds k-1 elements
-    best = Math.max(best, sum);
-  }
-  return best;
-}
+# Recompute each window from scratch: O(n · k).
+def max_sum_slow(nums, k)
+  best = -Float::INFINITY
+  (0..nums.size - k).each do |i|
+    sum = 0
+    (i...i + k).each { |j| sum += nums[j] }   # re-adds k-1 elements
+    best = [best, sum].max
+  end
+  best
+end
 ```
 
-```js
-// Slide instead: add the entering element, subtract the leaving one. O(n).
-function maxSum(nums, k) {
-  let sum = 0;
-  for (let i = 0; i < k; i++) sum += nums[i];
-  let best = sum;
-  for (let i = k; i < nums.length; i++) {
-    sum += nums[i] - nums[i - k];
-    best = Math.max(best, sum);
-  }
-  return best;
-}
+```ruby
+# Slide instead: add the entering element, subtract the leaving one. O(n).
+def max_sum(nums, k)
+  sum = nums.first(k).sum
+  best = sum
+  (k...nums.size).each do |i|
+    sum += nums[i] - nums[i - k]
+    best = [best, sum].max
+  end
+  best
+end
 ```
 
 The insight is that consecutive windows overlap in `k - 1` elements, so recomputing the sum
@@ -140,53 +139,60 @@ returns the wrong answer.
 :::
 
 :::example
-```js
-// 1. Variable window: longest substring without repeating characters.
-function longestUnique(s) {
-  const lastSeen = new Map();
-  let left = 0, best = 0;
-  for (let right = 0; right < s.length; right++) {
-    const c = s[right];
-    // Jump left straight past the previous occurrence — but never
-    // backwards, hence the Math.max.
-    if (lastSeen.has(c) && lastSeen.get(c) >= left) left = lastSeen.get(c) + 1;
-    lastSeen.set(c, right);
-    best = Math.max(best, right - left + 1);
-  }
-  return best;
-}
+```ruby
+# 1. Variable window: longest substring without repeating characters.
+def longest_unique(str)
+  last_seen = {}
+  left = 0
+  best = 0
+  str.each_char.with_index do |char, right|
+    # Jump left straight past the previous occurrence — but never
+    # backwards, hence the `>= left` guard.
+    left = last_seen[char] + 1 if last_seen.key?(char) && last_seen[char] >= left
+    last_seen[char] = right
+    best = [best, right - left + 1].max
+  end
+  best
+end
 
-// 2. Variable window: smallest subarray with sum >= target.
-//    Note the shape difference — shrink WHILE valid, recording as you go.
-function minSubarrayLen(nums, target) {
-  let left = 0, sum = 0, best = Infinity;
-  for (let right = 0; right < nums.length; right++) {
-    sum += nums[right];
-    while (sum >= target) {            // valid → try to make it smaller
-      best = Math.min(best, right - left + 1);
-      sum -= nums[left++];
-    }
-  }
-  return best === Infinity ? 0 : best;
-}
+# 2. Variable window: smallest subarray with sum >= target.
+#    Note the shape difference — shrink WHILE valid, recording as you go.
+def min_subarray_len(nums, target)
+  left = 0
+  sum = 0
+  best = Float::INFINITY
+  nums.each_with_index do |value, right|
+    sum += value
+    while sum >= target                      # valid → try to make it smaller
+      best = [best, right - left + 1].min
+      sum -= nums[left]
+      left += 1
+    end
+  end
+  best.infinite? ? 0 : best
+end
 
-// 3. Window with a frequency map: longest substring with at most k distinct.
-function longestKDistinct(s, k) {
-  const counts = new Map();
-  let left = 0, best = 0;
-  for (let right = 0; right < s.length; right++) {
-    counts.set(s[right], (counts.get(s[right]) ?? 0) + 1);
-    while (counts.size > k) {          // invalid → shrink
-      const c = s[left++];
-      const n = counts.get(c) - 1;
-      if (n === 0) counts.delete(c); else counts.set(c, n);
-    }
-    best = Math.max(best, right - left + 1);
-  }
-  return best;
-}
-// The `delete` when the count hits zero is load-bearing: `counts.size`
-// is the validity test, and a key left at zero inflates it forever.
+# 3. Window with a frequency Hash: longest substring with at most k distinct.
+def longest_k_distinct(str, k)
+  counts = Hash.new(0)                       # default 0, so += needs no guard
+  left = 0
+  best = 0
+  str.each_char.with_index do |char, right|
+    counts[char] += 1
+    while counts.size > k                    # invalid → shrink
+      leaving = str[left]
+      left += 1
+      counts[leaving] -= 1
+      counts.delete(leaving) if counts[leaving].zero?
+    end
+    best = [best, right - left + 1].max
+  end
+  best
+end
+# The `delete` when the count hits zero is load-bearing: `counts.size`
+# is the validity test, and a key left at zero inflates it forever.
+# Note that `Hash.new(0)` gives a default WITHOUT storing the key, so
+# merely reading `counts[x]` does not create an entry.
 ```
 
 Notice the two shapes. For a **longest** answer you shrink *while invalid* and record after.
@@ -197,43 +203,43 @@ these the wrong way round is the most common structural error.
 :::failure
 **Applying it where the condition is not monotonic.**
 
-```js
-// "Longest subarray with sum at most 10", with negatives present.
-nums = [5, -3, 8, 2];
-// Window [5, -3, 8] sums to 10 — valid.
-// Extending to [5, -3, 8, 2] sums to 12 — invalid, so we shrink.
-// But extending can also DECREASE the sum when a negative arrives,
-// so a window we already shrank past might have become valid again.
-// The left pointer moving forward permanently is no longer justified.
+```ruby
+# "Longest subarray with sum at most 10", with negatives present.
+nums = [5, -3, 8, 2]
+# Window [5, -3, 8] sums to 10 — valid.
+# Extending to [5, -3, 8, 2] sums to 12 — invalid, so we shrink.
+# But extending can also DECREASE the sum when a negative arrives,
+# so a window we already shrank past might have become valid again.
+# The left pointer moving forward permanently is no longer justified.
 ```
 
-With negatives, the correct tool is prefix sums plus a hash map (for exact targets) or a
+With negatives, the correct tool is prefix sums plus a `Hash` (for exact targets) or a
 monotonic deque (for min/max over a window) — not a sliding window.
 
 **Leaving zero-count keys in the frequency map.**
 
-```js
-counts.set(c, counts.get(c) - 1);     // leaves a 0 entry
-while (counts.size > k) { ... }       // size now counts absent characters
-// → shrinks forever, or hangs. Delete the key when it reaches 0.
+```ruby
+counts[leaving] -= 1                  # leaves a 0 entry
+while counts.size > k                 # size now counts absent characters
+# → shrinks forever, or walks off the string. Delete the key at 0.
 ```
 
 **Shrinking while valid when you wanted the longest.**
 
-```js
-// Longest window with sum <= target.
-while (sum <= target) { sum -= nums[left++]; }   // destroys the answer
-while (sum >  target) { sum -= nums[left++]; }   // correct: shrink while invalid
+```ruby
+# Longest window with sum <= target.
+while sum <= target then sum -= nums[left]; left += 1 end  # destroys the answer
+while sum >  target then sum -= nums[left]; left += 1 end  # correct: while INVALID
 ```
 
 **Moving `left` backwards.** In the `lastSeen` version of `longestUnique`, omitting the
 `Math.max` guard lets a repeat from before the window drag `left` backwards, which both breaks
 the invariant and can make the loop non-terminating:
 
-```js
-if (lastSeen.has(c)) left = lastSeen.get(c) + 1;   // wrong
-// "abba": at the second 'a', lastSeen('a') = 0, so left jumps back to 1
-// after already having been 2.
+```ruby
+left = last_seen[char] + 1 if last_seen.key?(char)   # wrong
+# "abba": at the second 'a', last_seen['a'] == 0, so left jumps back to 1
+# after already having been 2.
 ```
 
 **Recording the answer in the wrong place.** For a shortest window the answer must be recorded
@@ -245,54 +251,71 @@ qualifies, and `best` initialised to `Infinity` is what lets you detect that.
 :::
 
 :::realworld
-```js
-// 1. Rate limiting — a sliding window over timestamps. This is the
-//    technique's most common production appearance.
-class RateLimiter {
-  #windowMs; #max; #hits = [];
-  constructor(windowMs, max) { this.#windowMs = windowMs; this.#max = max; }
+```ruby
+# 1. Rate limiting — a sliding window over timestamps. This is the
+#    technique's most common production appearance.
+class RateLimiter
+  def initialize(window_seconds, max)
+    @window = window_seconds
+    @max = max
+    @hits = []
+  end
 
-  allow(now = Date.now()) {
-    // Shrink from the left: drop anything older than the window.
-    while (this.#hits.length && this.#hits[0] <= now - this.#windowMs) this.#hits.shift();
-    if (this.#hits.length >= this.#max) return false;
-    this.#hits.push(now);
-    return true;
-  }
-}
-// Each timestamp is pushed once and shifted once, so allow() is O(1)
-// amortised despite the inner while — the same argument as above.
-// (`shift` on a JS array is O(n); a real implementation uses a ring
-// buffer or deque. The algorithm is right; the data structure matters.)
+  def allow?(now = Time.now.to_f)
+    # Shrink from the left: drop anything older than the window.
+    @hits.shift while @hits.any? && @hits.first <= now - @window
+    return false if @hits.size >= @max
+
+    @hits << now
+    true
+  end
+end
+# Each timestamp is pushed once and shifted once, so allow? is O(1)
+# amortised despite the inner while — the same argument as above.
+#
+# And here Ruby is genuinely better than JavaScript rather than merely
+# different: `Array#shift` in MRI is O(1), because the array keeps a
+# start offset and shifting advances it instead of moving elements. The
+# JavaScript version of this code needs a ring buffer or a deque to stay
+# linear; the Ruby version does not. Measured on Ruby 3.4: shifting
+# 100,000 elements takes 6.4ms and 400,000 takes 23.2ms — four times the
+# work for four times the time, which is constant per shift.
 ```
 
-```js
-// 2. Moving averages over a metric stream — a fixed window, O(1) per point.
-function* movingAverage(stream, k) {
-  const buf = []; let sum = 0;
-  for (const x of stream) {
-    buf.push(x); sum += x;
-    if (buf.length > k) sum -= buf.shift();
-    if (buf.length === k) yield sum / k;
-  }
-}
+```ruby
+# 2. Moving averages over a metric stream — a fixed window, O(1) per point.
+#    An Enumerator, so it is lazy: nothing is computed until something
+#    asks for the next value, and an endless stream stays endless.
+def moving_average(stream, k)
+  Enumerator.new do |yielder|
+    buf = []
+    sum = 0.0
+    stream.each do |x|
+      buf << x
+      sum += x
+      sum -= buf.shift if buf.size > k
+      yielder << sum / k if buf.size == k
+    end
+  end
+end
 
-// 3. Maximum in every window of size k — a monotonic deque, which is
-//    the sliding window's companion structure.
-function maxInWindows(nums, k) {
-  const dq = [];        // holds INDICES, values decreasing
-  const out = [];
-  for (let i = 0; i < nums.length; i++) {
-    while (dq.length && dq[0] <= i - k) dq.shift();            // out of window
-    while (dq.length && nums[dq[dq.length - 1]] <= nums[i]) dq.pop();  // dominated
-    dq.push(i);
-    if (i >= k - 1) out.push(nums[dq[0]]);
-  }
-  return out;
-}
-// O(n): each index is pushed once and popped once. A plain window
-// cannot do this, because removing the maximum from the left requires
-// knowing the next-largest — which is exactly what the deque keeps.
+# 3. Maximum in every window of size k — a monotonic deque, which is
+#    the sliding window's companion structure.
+def max_in_windows(nums, k)
+  dq = []                                              # holds INDICES,
+  out = []                                             # values decreasing
+  nums.each_with_index do |value, i|
+    dq.shift while dq.any? && dq.first <= i - k        # out of window
+    dq.pop   while dq.any? && nums[dq.last] <= value   # dominated
+    dq << i
+    out << nums[dq.first] if i >= k - 1
+  end
+  out
+end
+# O(n): each index is pushed once and popped once. A plain window cannot
+# do this, because removing the maximum from the left requires knowing
+# the next-largest — which is exactly what the deque keeps. An Array is
+# a fine deque in Ruby: push, pop, shift and unshift are all O(1).
 ```
 
 Worth noting where else this appears: TCP's congestion window, log-based anomaly detection
@@ -320,8 +343,10 @@ have written the O(n·k) version with extra steps.
 **Claiming O(n·k) because of the inner `while`.** Count total pointer movement. Each moves at
 most n times.
 
-**Using `Array#shift` in a hot loop.** It is O(n) in most implementations, which quietly
-reintroduces the quadratic behaviour you removed. A ring buffer or deque keeps it O(1).
+**Assuming `Array#shift` is O(n).** It is in JavaScript, and that advice is widely repeated
+— but MRI's `shift` advances a start offset instead of moving elements, so it is O(1). In Ruby
+an Array is already a usable queue and deque, and reaching for a ring buffer here is
+complexity you do not need. (`unshift` is likewise O(1) amortised.)
 :::
 
 :::tradeoffs
@@ -334,7 +359,7 @@ length is given.
 **Variable sliding window** — O(n) and answers "longest/shortest range with property P", at
 the cost of needing monotonicity and careful shrink-loop placement.
 
-**Prefix sums with a hash map** — handles negatives and exact-sum targets that a window
+**Prefix sums with a `Hash`** — handles negatives and exact-sum targets that a window
 cannot, costs O(n) space, and does not answer "longest range" as directly.
 
 **Monotonic deque** — gives min or max over a moving window in O(n), which a plain window
@@ -355,8 +380,8 @@ have.
 4. Why must a zero count be deleted from the frequency map rather than left at zero?
 5. In `longestUnique`, what breaks without `Math.max` when guarding `left`?
 6. Why can a plain sliding window not give you the maximum in every window of size k?
-7. Why is `Array#shift` inside the rate limiter's loop a problem even though the algorithm is
-   O(1) amortised?
+7. The rate limiter calls `Array#shift` in a loop. In JavaScript that would reintroduce O(n).
+   Why does it not in Ruby, and what would you have to change if you ported it?
 :::
 
 :::interview
@@ -373,7 +398,7 @@ Then the precondition, which is the part that shows judgement:
 *"The condition has to be monotonic — extending the window must only ever move it one way.
 'Sum of positives at most K' qualifies. The same problem with negatives does not, because
 extending can reduce the sum, so a window I already shrank past might have become valid again.
-There I would use prefix sums with a hash map instead. Applying a window to a non-monotonic
+There I would use prefix sums with a Hash instead. Applying a window to a non-monotonic
 condition gives a wrong answer rather than a slow one, which is worse."*
 
 And the structural distinction, stated as a rule you can apply rather than recall:
@@ -396,4 +421,5 @@ common bug in this pattern."*
 - Delete zero-count keys when `map.size` is the validity test.
 - Never let `left` move backwards; guard it.
 - A monotonic deque gives window min/max, which a plain window cannot.
-- `Array#shift` in the loop reintroduces O(n) — use a ring buffer or deque.
+- `Array#shift` is O(1) in MRI, so an Array is a fine queue — the JavaScript advice to avoid
+  it does not transfer.

@@ -27,18 +27,18 @@ interview:
       Because the technique usually needs sorted input, and sorting costs O(n log n), which
       dominates the O(n) scan. That is still a large improvement over O(n²), and it is worth
       stating in an interview because it shows you are accounting for the whole solution. If
-      the input arrives sorted, or if a hash set can replace the sort, you can get the full
+      the input arrives sorted, or if a `Set` can replace the sort, you can get the full
       O(n).
     followUps:
-      - "When would you use a hash set instead?"
-  - question: For two-sum, when is a hash map better than two pointers?
+      - "When would you use a Set instead?"
+  - question: For two-sum, when is a Hash better than two pointers?
     level: basic
     answer: >-
       When the array is unsorted and you need the original indices. The hash approach is
       O(n) time and O(n) space and never reorders anything. Two pointers is O(n log n) if you
       must sort, and sorting destroys the indices unless you sort pairs of value and index.
       Two pointers wins when the input is already sorted, when you need O(1) extra space, or
-      when the problem is about a *range* rather than an exact target — a hash map cannot
+      when the problem is about a *range* rather than an exact target — a Hash cannot
       answer "the closest sum to X" in one pass.
     followUps:
       - "Which would you use for three-sum, and why?"
@@ -49,34 +49,41 @@ resources:
 
 ## The problem
 
-```js
-// Find two numbers in a sorted array that sum to the target.
-const nums = [2, 7, 11, 15, 19, 24];
-const target = 26;
+```ruby
+# Find two numbers in a sorted array that sum to the target.
+nums = [2, 7, 11, 15, 19, 24]
+target = 26
 
-// Obvious version: check every pair.
-function twoSumSlow(nums, target) {
-  for (let i = 0; i < nums.length; i++)
-    for (let j = i + 1; j < nums.length; j++)
-      if (nums[i] + nums[j] === target) return [i, j];
-  return null;
-}
-// n = 100,000 → about 5,000,000,000 comparisons.
+# Obvious version: check every pair.
+def two_sum_slow(nums, target)
+  nums.each_index do |i|
+    ((i + 1)...nums.size).each do |j|
+      return [i, j] if nums[i] + nums[j] == target
+    end
+  end
+  nil
+end
+# n = 100,000 → about 5,000,000,000 comparisons.
 ```
 
-```js
-// Two pointers: one pass.
-function twoSum(nums, target) {
-  let lo = 0, hi = nums.length - 1;
-  while (lo < hi) {
-    const sum = nums[lo] + nums[hi];
-    if (sum === target) return [lo, hi];
-    if (sum < target) lo++;   // need more → the only way is a bigger small number
-    else hi--;                // need less → the only way is a smaller big number
-  }
-  return null;
-}
-// n = 100,000 → at most 100,000 comparisons.
+```ruby
+# Two pointers: one pass.
+def two_sum(nums, target)
+  lo = 0
+  hi = nums.size - 1
+  while lo < hi
+    sum = nums[lo] + nums[hi]
+    return [lo, hi] if sum == target
+
+    if sum < target
+      lo += 1   # need more → the only way is a bigger small number
+    else
+      hi -= 1   # need less → the only way is a smaller big number
+    end
+  end
+  nil
+end
+# n = 100,000 → at most 100,000 comparisons.
 ```
 
 :::what
@@ -137,41 +144,58 @@ unsorted array is not a slower algorithm — it is an incorrect one.
 :::
 
 :::example
-```js
-// The three canonical shapes. Learn these and most variants are obvious.
+```ruby
+# The three canonical shapes. Learn these and most variants are obvious.
 
-// 1. Opposite ends, converging — pair with a target property.
-function isPalindrome(s) {
-  let lo = 0, hi = s.length - 1;
-  while (lo < hi) {
-    if (s[lo] !== s[hi]) return false;
-    lo++; hi--;
-  }
-  return true;
-}
+# 1. Opposite ends, converging — pair with a target property.
+def palindrome?(str)
+  lo = 0
+  hi = str.length - 1
+  while lo < hi
+    return false if str[lo] != str[hi]
 
-// 2. Same direction, different speeds — in-place filtering.
-//    `write` lags behind `read`, so the kept elements compact to the front.
-function removeDuplicates(sorted) {
-  if (sorted.length === 0) return 0;
-  let write = 1;
-  for (let read = 1; read < sorted.length; read++) {
-    if (sorted[read] !== sorted[write - 1]) sorted[write++] = sorted[read];
-  }
-  return write;              // the new length; O(1) extra space
-}
+    lo += 1
+    hi -= 1
+  end
+  true
+end
 
-// 3. Two sequences — merging.
-function mergeSorted(a, b) {
-  const out = [];
-  let i = 0, j = 0;
-  while (i < a.length && j < b.length) out.push(a[i] <= b[j] ? a[i++] : b[j++]);
-  while (i < a.length) out.push(a[i++]);
-  while (j < b.length) out.push(b[j++]);
-  return out;
-}
-// This is the merge step of merge sort, and `<=` rather than `<`
-// is what makes it stable.
+# 2. Same direction, different speeds — in-place filtering.
+#    `write` lags behind `read`, so the kept elements compact to the front.
+#    The `!` is Ruby's convention for "this mutates its argument".
+def remove_duplicates!(sorted)
+  return 0 if sorted.empty?
+
+  write = 1
+  (1...sorted.size).each do |read|
+    if sorted[read] != sorted[write - 1]
+      sorted[write] = sorted[read]
+      write += 1
+    end
+  end
+  write          # the new length; O(1) extra space
+end
+
+# 3. Two sequences — merging.
+def merge_sorted(a, b)
+  out = []
+  i = j = 0
+  while i < a.size && j < b.size
+    if a[i] <= b[j]
+      out << a[i]
+      i += 1
+    else
+      out << b[j]
+      j += 1
+    end
+  end
+  # Whichever side is left over is already sorted, so append it wholesale.
+  out.concat(a[i..]).concat(b[j..])
+end
+# This is the merge step of merge sort, and `<=` rather than `<` is what
+# makes it stable. That matters more in Ruby than in JavaScript: MRI's
+# Array#sort is NOT stable, so a stable merge is something you build
+# rather than something you inherit.
 ```
 :::
 
@@ -179,109 +203,132 @@ function mergeSorted(a, b) {
 **Using it on unsorted input.** The elimination argument requires the ordering, so without it
 the algorithm reports "not found" for pairs that exist:
 
-```js
-twoSum([7, 2, 24, 11], 9);   // null. 7 + 2 = 9 is right there.
-// 7 + 11 = 18 > 9 → hi--
-// 7 + 24 = 31 > 9 → hi--
-// 7 + 2  = 9 ... but lo < hi is now false. Missed.
+```ruby
+two_sum([1, 3, 2], 4)   # => nil. But 1 + 3 = 4 is right there, at [0, 1].
+
+# lo=0 hi=2   1 + 2 = 3 < 4  → lo += 1
+# lo=1 hi=2   3 + 2 = 5 > 4  → hi -= 1
+# lo=1 hi=1   lo < hi is false → nil
+#
+# The pair at indices 0 and 1 was never compared. Advancing `lo` past
+# index 0 threw away the only element that could have completed the sum,
+# because on unsorted input "the sum is too small" does not imply
+# "no larger partner exists to the left".
 ```
 
 **Returning indices after sorting.** Sorting moves the elements, so the indices you return
 are positions in the sorted array, which is usually not what was asked:
 
-```js
-// If you must sort AND report original indices, carry them:
-const pairs = nums.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
-// ...then two-pointer over pairs and return pairs[lo][1], pairs[hi][1].
-// At that point, consider whether a hash map is simpler.
+```ruby
+# If you must sort AND report original indices, carry them:
+pairs = nums.each_with_index.sort_by { |value, _index| value }
+# ...then two-pointer over pairs and return pairs[lo][1], pairs[hi][1].
+# At that point, consider whether a Hash is simpler.
 ```
 
 **Off-by-one in the loop condition.** `lo < hi` versus `lo <= hi` decides whether an element
 can pair with itself:
 
-```js
-// target = 8, nums = [1, 4, 9]
-// lo <= hi allows lo === hi: 4 + 4 = 8, "found", using one element twice.
-// For distinct pairs, the condition is lo < hi.
-// For palindromes, lo < hi is also correct — a single middle character
-// needs no comparison.
+```ruby
+# target = 8, nums = [1, 4, 9]
+# `lo <= hi` allows lo == hi: 4 + 4 = 8, "found", using one element twice.
+# For distinct pairs, the condition is `lo < hi`.
+# For palindromes, `lo < hi` is also correct — a single middle character
+# needs no comparison.
 ```
 
 **Forgetting to skip duplicates when the answer must be unique.** In three-sum this is the
 difference between a correct solution and one that returns the same triple many times:
 
-```js
-// After finding a valid pair, advance past equal values:
-while (lo < hi && nums[lo] === nums[lo + 1]) lo++;
-while (lo < hi && nums[hi] === nums[hi - 1]) hi--;
-lo++; hi--;
-// Note the `lo < hi` guard inside the skip loops — without it,
-// an array of identical values walks off the end.
+```ruby
+# After finding a valid pair, advance past equal values:
+lo += 1 while lo < hi && nums[lo] == nums[lo + 1]
+hi -= 1 while lo < hi && nums[hi] == nums[hi - 1]
+lo += 1
+hi -= 1
+# Note the `lo < hi` guard inside the skip loops — without it,
+# an array of identical values walks off the end.
 ```
 
 **A move that does not make progress.** Every iteration must advance a pointer. A branch
 that moves neither is an infinite loop, and it is easy to introduce when adding a third case:
 
-```js
-if (sum === target) { /* record, and... */ }   // forgot to move → hangs
+```ruby
+out << [nums[lo], nums[hi]] if sum == target   # forgot to move → hangs
 ```
 :::
 
 :::realworld
-```js
-// 1. Three-sum, which is two pointers inside one loop: O(n²) rather
-//    than the O(n³) of three nested loops.
-function threeSum(nums) {
-  nums.sort((a, b) => a - b);
-  const out = [];
-  for (let i = 0; i < nums.length - 2; i++) {
-    if (i > 0 && nums[i] === nums[i - 1]) continue;   // skip duplicate anchors
-    if (nums[i] > 0) break;                           // sorted: no triple can sum to 0
-    let lo = i + 1, hi = nums.length - 1;
-    while (lo < hi) {
-      const sum = nums[i] + nums[lo] + nums[hi];
-      if (sum < 0) lo++;
-      else if (sum > 0) hi--;
-      else {
-        out.push([nums[i], nums[lo], nums[hi]]);
-        while (lo < hi && nums[lo] === nums[lo + 1]) lo++;
-        while (lo < hi && nums[hi] === nums[hi - 1]) hi--;
-        lo++; hi--;
-      }
-    }
-  }
-  return out;
-}
+```ruby
+# 1. Three-sum, which is two pointers inside one loop: O(n²) rather
+#    than the O(n³) of three nested loops.
+def three_sum(nums)
+  nums = nums.sort                                 # sort, not sort! — do not
+  out = []                                         # mutate the caller's array
+  (0..nums.size - 3).each do |i|
+    next if i.positive? && nums[i] == nums[i - 1]   # skip duplicate anchors
+    break if nums[i].positive?                      # sorted: no triple can reach 0
+
+    lo = i + 1
+    hi = nums.size - 1
+    while lo < hi
+      sum = nums[i] + nums[lo] + nums[hi]
+      if sum.negative?
+        lo += 1
+      elsif sum.positive?
+        hi -= 1
+      else
+        out << [nums[i], nums[lo], nums[hi]]
+        lo += 1 while lo < hi && nums[lo] == nums[lo + 1]
+        hi -= 1 while lo < hi && nums[hi] == nums[hi - 1]
+        lo += 1
+        hi -= 1
+      end
+    end
+  end
+  out
+end
+# `(0..nums.size - 3)` is empty rather than wrong for a short array:
+# with two elements the range is (0..-1), which iterates zero times.
 ```
 
-```js
-// 2. Where this appears outside interviews.
-
-// Merging sorted streams — the core of external sort, log merging,
-// LSM-tree compaction, and git's own merge of sorted file lists.
-// You cannot load the inputs into memory, and two pointers needs
-// only the current element of each.
-
-// Diffing two sorted ID lists to find adds and removes, in one pass
-// with no set allocation:
-function diffSorted(before, after) {
-  const added = [], removed = [];
-  let i = 0, j = 0;
-  while (i < before.length && j < after.length) {
-    if (before[i] === after[j]) { i++; j++; }
-    else if (before[i] < after[j]) removed.push(before[i++]);
-    else added.push(after[j++]);
-  }
-  while (i < before.length) removed.push(before[i++]);
-  while (j < after.length) added.push(after[j++]);
-  return { added, removed };
-}
-// O(n + m) time, O(1) extra space beyond the output. The hash-set
-// version is also O(n + m) and allocates two sets — which matters
-// when the lists are millions of ids long.
-
-// Reading two sorted index scans in a database: an index merge join
-// is literally this loop.
+```ruby
+# 2. Where this appears outside interviews.
+#
+# Merging sorted streams — the core of external sort, log merging,
+# LSM-tree compaction, and git's own merge of sorted file lists.
+# You cannot load the inputs into memory, and two pointers needs
+# only the current element of each.
+#
+# Diffing two sorted id lists to find adds and removes, in one pass
+# with no Set allocation:
+def diff_sorted(before, after)
+  added = []
+  removed = []
+  i = j = 0
+  while i < before.size && j < after.size
+    if before[i] == after[j]
+      i += 1
+      j += 1
+    elsif before[i] < after[j]
+      removed << before[i]
+      i += 1
+    else
+      added << after[j]
+      j += 1
+    end
+  end
+  removed.concat(before[i..])   # anything left on the left was removed
+  added.concat(after[j..])      # anything left on the right was added
+  { added: added, removed: removed }
+end
+# O(n + m) time, O(1) extra space beyond the output. The Set version is
+# also O(n + m) and allocates two Sets — which matters when the lists
+# are millions of ids long, and is why ActiveRecord's own bulk-diff
+# code paths work on sorted id arrays.
+#
+# Reading two sorted index scans in Postgres: a merge join is
+# literally this loop.
 ```
 :::
 
@@ -289,7 +336,7 @@ function diffSorted(before, after) {
 **Applying it without the elimination argument.** If you cannot say what moving a pointer
 rules out, the pattern does not apply yet.
 
-**Sorting when you needed indices.** Sort pairs of `[value, index]`, or use a hash map.
+**Sorting when you needed indices.** Sort pairs of `[value, index]`, or use a `Hash`.
 
 **`lo <= hi` when pairs must be distinct.** Decide deliberately which you want.
 
@@ -301,7 +348,7 @@ inside the skip loops.
 **Ignoring the sort in the complexity.** The answer is O(n log n) when you sort, and saying
 O(n) without qualification is the kind of imprecision interviewers notice.
 
-**Reaching for it when a hash map is clearer.** For unsorted two-sum with original indices,
+**Reaching for it when a `Hash` is clearer.** For unsorted two-sum with original indices,
 the hash is simpler, O(n), and does not reorder the input.
 :::
 
@@ -318,7 +365,7 @@ destroys original indices. Good when you need ordering anyway, as in three-sum.
 **Hash map** — O(n) time and O(n) space, no ordering required, preserves indices. Usually the
 better answer for exact-match lookups on unsorted data.
 
-The distinction worth carrying: a hash map answers *"is this exact value present"*, so it
+The distinction worth carrying: a `Hash` answers *"is this exact value present"*, so it
 cannot help with closest-sum, ranges, or anything needing neighbours. Two pointers exploits
 order, which is exactly what gives you those. Pick based on whether the question is about
 equality or about ordering.
@@ -326,12 +373,12 @@ equality or about ordering.
 
 :::checkpoint
 1. Why does moving `lo` forward when the sum is too small not risk skipping a valid pair?
-2. `twoSum([7, 2, 24, 11], 9)` with the two-pointer version returns null. Why?
+2. `two_sum([1, 3, 2], 4)` returns `nil`, though 1 + 3 = 4. Trace it and say which comparison never happened.
 3. What is the total complexity of three-sum, and where does each factor come from?
 4. When is `lo <= hi` correct, and when is it a bug?
 5. Two sorted lists of a million ids, and you need the added and removed sets. Two pointers or
-   two hash sets? Argue it.
-6. `removeDuplicates` uses `write` and `read`. Why does the output stay correct even though it
+   two `Set`s? Argue it.
+6. `remove_duplicates!` uses `write` and `read`. Why does the output stay correct even though it
    overwrites the array it is reading?
 :::
 
@@ -352,8 +399,8 @@ O(n²). If the input arrives sorted, it is genuinely O(n)."*
 
 And show you would choose, not just produce:
 
-*"For unsorted two-sum where the original indices matter, I would use a hash map instead — O(n),
-no reordering. The general split is that a hash map answers 'is this exact value present', so it
+*"For unsorted two-sum where the original indices matter, I would use a Hash instead — O(n),
+no reordering. The general split is that a Hash answers 'is this exact value present', so it
 cannot do closest-sum or anything involving neighbours. Two pointers exploits ordering, which is
 precisely what buys you those."*
 :::
@@ -366,8 +413,8 @@ precisely what buys you those."*
 - With a sort, the total is O(n log n), and saying so is part of a correct answer.
 - Three shapes: converging from the ends, same-direction with different speeds, and merging
   two sequences.
-- Sorting destroys original indices; carry `[value, index]` pairs or use a hash map.
+- Sorting destroys original indices; carry `[value, index]` pairs or use a `Hash`.
 - `lo < hi` for distinct pairs; `lo <= hi` lets an element pair with itself.
 - Skip duplicates when the output must be unique, with a bounds guard inside the skip.
 - Every branch must move a pointer, or the loop never ends.
-- Hash maps answer equality questions; two pointers answers ordering questions.
+- A `Hash` answers equality questions; two pointers answers ordering questions.

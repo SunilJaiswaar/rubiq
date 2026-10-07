@@ -23,12 +23,16 @@ interview:
   - question: How do you implement a queue efficiently with arrays?
     level: intermediate
     answer: >-
-      Either a circular buffer with head and tail indices that wrap, which gives O(1) at both
-      ends in fixed memory, or two stacks: push onto an inbox stack, and when the outbox is
-      empty, pour the inbox into it. The two-stack version is O(1) amortised — each element is
-      moved exactly once between stacks — even though a single dequeue can be O(n). The naive
-      version, shifting an array from the front, is O(n) per dequeue because every remaining
-      element moves.
+      In Ruby, with an Array: `push` to enqueue and `shift` to dequeue, both O(1), because MRI's
+      Array keeps a start offset rather than moving elements. That is worth saying plainly because
+      the usual answer — "never use an array as a queue" — is imported from languages where
+      `shift` is O(n). The reasons to reach for something else are memory rather than time: a ring
+      buffer with wrapping head and tail indices gives O(1) in *fixed* memory, which an Array
+      queue does not, and `Thread::Queue` is the right answer when producers and consumers are
+      different threads. Two stacks — push onto an inbox, and pour it into an outbox when the
+      outbox empties — is the classic trick worth knowing for the amortisation argument: each
+      element moves between stacks exactly once, so it is O(1) amortised even though one dequeue
+      can be O(n).
     followUps:
       - "Why is the two-stack version amortised O(1) rather than O(n)?"
   - question: What is a deque and when do you need one?
@@ -49,17 +53,24 @@ resources:
 
 ## Two structures, one difference
 
-```js
-// Stack — last in, first out.
-const stack = [];
-stack.push(1); stack.push(2); stack.push(3);
-stack.pop();        // 3 — the most recent
+```ruby
+# Stack — last in, first out.
+stack = []
+stack.push(1, 2, 3)
+stack.pop        # => 3, the most recent
 
-// Queue — first in, first out.
-const queue = [];
-queue.push(1); queue.push(2); queue.push(3);
-queue.shift();      // 1 — the one that has waited longest
+# Queue — first in, first out.
+queue = []
+queue.push(1, 2, 3)
+queue.shift      # => 1, the one that has waited longest
 ```
+
+In Ruby one class is both. `Array` gives you `push`/`pop` at the end and
+`shift`/`unshift` at the front, and **all four are O(1)** — so an Array is a stack, a
+queue and a deque depending only on which pair of methods you call. That is not true
+everywhere: in JavaScript `shift` is O(n), which is why so much algorithm writing warns
+against using an array as a queue. Worth knowing so you can ignore the warning here and
+heed it when you port the code.
 
 That is the entire difference, and it determines which problems each solves.
 
@@ -136,111 +147,154 @@ So the right way to read "a stack can only do two things" is: a stack can do two
 :::
 
 :::example
-```js
-// 1. Bracket matching, the canonical stack problem.
-function balanced(s) {
-  const pairs = { ")": "(", "]": "[", "}": "{" };
-  const stack = [];
-  for (const c of s) {
-    if (c === "(" || c === "[" || c === "{") stack.push(c);
-    else if (c in pairs) {
-      if (stack.pop() !== pairs[c]) return false;   // pop() on empty is undefined
-    }
-  }
-  return stack.length === 0;        // leftover openers mean unbalanced
-}
-// The final length check is load-bearing: "((" never fails a
-// comparison, because no closer arrives.
+```ruby
+# 1. Bracket matching, the canonical stack problem.
+def balanced?(str)
+  pairs = { ')' => '(', ']' => '[', '}' => '{' }
+  stack = []
+  str.each_char do |char|
+    if '([{'.include?(char)
+      stack << char
+    elsif pairs.key?(char)
+      return false if stack.pop != pairs[char]   # pop on empty is nil
+    end
+  end
+  stack.empty?                     # leftover openers mean unbalanced
+end
+# The final emptiness check is load-bearing: "((" never fails a
+# comparison, because no closer arrives.
+#
+# `stack.pop` returns nil on an empty stack, and `nil != '('` is true,
+# so an unmatched closer is rejected correctly. That is worth a comment
+# in real code — it reads like an oversight and is not.
 
-// 2. A queue from two stacks. O(1) amortised at both ends.
-class Queue {
-  #in = []; #out = [];
-  enqueue(x) { this.#in.push(x); }
-  dequeue() {
-    if (this.#out.length === 0) {
-      while (this.#in.length) this.#out.push(this.#in.pop());
-    }
-    return this.#out.pop();
-  }
-  get size() { return this.#in.length + this.#out.length; }
-}
+# 2. A queue from two stacks. O(1) amortised at both ends.
+#    In Ruby you would just use an Array — this is here because the
+#    amortisation argument is the thing worth understanding, and
+#    because it is the answer in languages where shift is O(n).
+class TwoStackQueue
+  def initialize
+    @inbox = []
+    @outbox = []
+  end
 
-// 3. A circular buffer — O(1) in fixed memory, which is what you
-//    want in an embedded or high-throughput context.
-class RingBuffer {
-  #buf; #head = 0; #tail = 0; #count = 0;
-  constructor(capacity) { this.#buf = new Array(capacity); }
-  push(x) {
-    if (this.#count === this.#buf.length) throw new Error("full");
-    this.#buf[this.#tail] = x;
-    this.#tail = (this.#tail + 1) % this.#buf.length;   // the wrap
-    this.#count++;
-  }
-  shift() {
-    if (this.#count === 0) return undefined;
-    const x = this.#buf[this.#head];
-    this.#buf[this.#head] = undefined;        // release the reference
-    this.#head = (this.#head + 1) % this.#buf.length;
-    this.#count--;
-    return x;
-  }
-}
-// Note `#count` rather than inferring emptiness from head === tail:
-// that comparison is ambiguous between full and empty, which is a
-// classic ring-buffer bug.
+  def enqueue(item) = @inbox << item
 
-// 4. Converting recursion to iteration — the stack makes the call
-//    stack explicit, which is how you avoid a stack overflow.
-function dfsRecursive(node, visit) {
-  if (!node) return;
-  visit(node);
-  for (const child of node.children) dfsRecursive(child, visit);
-}
+  def dequeue
+    @outbox = @inbox.reverse.tap { @inbox = [] } if @outbox.empty?
+    @outbox.pop
+  end
 
-function dfsIterative(root, visit) {
-  const stack = [root];
-  while (stack.length) {
-    const node = stack.pop();
-    visit(node);
-    // Push in reverse so children are visited left to right.
-    for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
-  }
-}
-// Swap `stack.pop()` for `queue.shift()` and depth-first becomes
-// breadth-first. That one-line difference is worth remembering.
+  def size = @inbox.size + @outbox.size
+end
+
+# 3. A circular buffer — O(1) in FIXED memory, which is the reason to
+#    want one: an Array queue is already O(1), but it grows.
+class RingBuffer
+  def initialize(capacity)
+    @buf = Array.new(capacity)
+    @head = 0
+    @tail = 0
+    @count = 0
+  end
+
+  def push(item)
+    raise 'full' if @count == @buf.size
+
+    @buf[@tail] = item
+    @tail = (@tail + 1) % @buf.size       # the wrap
+    @count += 1
+    item
+  end
+
+  def shift
+    return nil if @count.zero?
+
+    item = @buf[@head]
+    @buf[@head] = nil                     # release the reference
+    @head = (@head + 1) % @buf.size
+    @count -= 1
+    item
+  end
+
+  def size = @count
+end
+# Note `@count` rather than inferring emptiness from head == tail:
+# that comparison is ambiguous between full and empty, which is a
+# classic ring-buffer bug.
+
+# 4. Converting recursion to iteration — the stack makes the call
+#    stack explicit, which is how you avoid a stack overflow.
+def dfs_recursive(node, &visit)
+  return if node.nil?
+
+  visit.call(node)
+  node.children.each { |child| dfs_recursive(child, &visit) }
+end
+
+def dfs_iterative(root)
+  out = []
+  stack = [root]
+  until stack.empty?
+    node = stack.pop
+    out << node.name
+    # Push in reverse so children are visited left to right.
+    node.children.reverse_each { |child| stack << child }
+  end
+  out
+end
+# Change `stack.pop` to `queue.shift` and depth-first becomes
+# breadth-first. That one-method difference is worth remembering, and
+# in Ruby it costs nothing — both are O(1) on an Array.
 ```
 :::
 
 :::failure
-**`Array#shift` as a queue.** The single most common performance bug in this area:
+**Porting the "never use shift as a queue" rule into Ruby.** It is the single most repeated
+performance warning about queues, it is correct in JavaScript, and it is false here:
 
-```js
-const queue = [];
-// ...
-while (queue.length) process(queue.shift());
-// shift() is O(n) in most implementations — it reindexes every
-// remaining element. n dequeues become O(n²).
-// On 100,000 items that is 5 billion element moves.
-
-// Use an index instead, if you can afford not to reclaim memory:
-let head = 0;
-while (head < queue.length) process(queue[head++]);
-// Or a real deque / ring buffer / two-stack queue.
+```ruby
+queue = []
+# ...
+process(queue.shift) until queue.empty?    # fine. O(1) per shift.
 ```
 
-(V8 optimises `shift` for small arrays, which is exactly why this passes a test with ten items
-and fails in production with a hundred thousand.)
+MRI's Array keeps a start offset, so `shift` advances the offset instead of moving every
+remaining element. Measured on Ruby 3.4: shifting 100,000 elements takes 5.7ms and 400,000
+takes 24.2ms — four times the work for roughly four times the time, which is constant per
+operation. `unshift`, `push` and `pop` are the same.
+
+**The trap that *is* real in Ruby** is the same shape — a quiet quadratic hiding inside an
+innocuous-looking method — but a different method:
+
+```ruby
+seen = []
+items.each { |x| seen << x unless seen.include?(x) }   # O(n) per check
+```
+
+`Array#include?` is a linear scan, so this is O(n²). Measured: 2,000 items takes 16.4ms
+against 0.7ms for a `Set` — 22 times slower — and 8,000 items takes 260.8ms against 1.8ms,
+which is **143 times** slower. The ratio grows with n, which is the signature. Use a `Set`,
+or a `Hash` if you need to associate something with each key:
+
+```ruby
+require 'set'
+seen = Set.new
+items.each { |x| seen << x }        # O(1) per membership test
+```
 
 **Popping an empty stack.** Different languages fail differently, and all of them badly:
 
-```js
-[].pop()           // undefined — comparisons then silently succeed or fail
-// In Ruby:  [].pop → nil
-// In Python: [].pop() → IndexError
-// In Java:  Stack.pop() → EmptyStackException; Deque.pop() → NoSuchElement
-// Always check emptiness, or in the bracket case rely on the fact
-// that `undefined !== "("` happens to be correct — and say so in a
-// comment, because it looks like an oversight.
+```ruby
+[].pop              # => nil, silently
+[].first            # => nil
+[].fetch(0)         # => IndexError: index 0 outside of array bounds
+# Ruby returns nil rather than raising, so a comparison against nil
+# then quietly succeeds or fails. In Python this is an IndexError; in
+# Java, EmptyStackException. Either check emptiness, use `fetch` when
+# absence is a bug, or — as in the bracket matcher — rely on
+# `nil != '('` being correct and say so in a comment, because it
+# reads like an oversight.
 ```
 
 **Forgetting the final emptiness check** in bracket matching. `"((("` triggers no mismatch,
@@ -295,27 +349,37 @@ DEQUES
                             at the front.
 ```
 
-```js
-// The one production detail worth stating explicitly: a bounded
-// queue is a design decision, not a limitation.
-class BoundedQueue {
-  #items = []; #capacity;
-  constructor(capacity) { this.#capacity = capacity; }
-  offer(x) {
-    if (this.#items.length >= this.#capacity) return false;  // reject
-    this.#items.push(x);
-    return true;
-  }
-}
-// An unbounded queue converts a throughput problem into a memory
-// problem, and memory exhaustion takes down the whole process rather
-// than just the overloaded path. Rejecting work is a feature —
-// it is what lets the caller retry, shed load, or report honestly.
+```ruby
+# The one production detail worth stating explicitly: a bounded queue
+# is a design decision, not a limitation.
+class BoundedQueue
+  def initialize(capacity)
+    @capacity = capacity
+    @items = []
+  end
+
+  def offer(item)
+    return false if @items.size >= @capacity   # reject
+
+    @items << item
+    true
+  end
+end
+# An unbounded queue converts a throughput problem into a memory
+# problem, and memory exhaustion takes down the whole process rather
+# than just the overloaded path. Rejecting work is a feature — it is
+# what lets the caller retry, shed load, or report honestly.
+#
+# For work shared between threads, reach for `Thread::Queue` rather
+# than an Array: it is built for the producer/consumer case, blocks on
+# `pop` until something arrives, and takes a `max` for the bounded
+# version (`Thread::SizedQueue`).
 ```
 :::
 
 :::mistakes
-**`Array#shift` in a loop.** O(n) per call. Use an index, a deque or two stacks.
+**Assuming `Array#shift` is O(n)** because it is in JavaScript. It is O(1) in MRI. The real
+quadratic to watch for is `Array#include?` inside a loop — use a `Set`.
 
 **No emptiness check before `pop`.** Silent `undefined`/`nil` or an exception, depending on
 language.
@@ -344,8 +408,9 @@ reallocation. The default.
 **Stack on a linked list** — true O(1) with no reallocation pause, one pointer of overhead per
 element and poor locality. Worth it when a pause is unacceptable.
 
-**Queue by `shift` on an array** — simplest to write, O(n) per dequeue. Acceptable only for
-small, bounded sizes, and it will pass your tests before failing in production.
+**Queue by `shift` on an Array** — simplest to write and O(1) per dequeue in MRI, so it is the
+default rather than a compromise. It grows without bound, which is the real reason to replace
+it.
 
 **Queue as a ring buffer** — O(1) both ends, fixed memory, and you must decide what happens
 when it is full. The right answer for high throughput and for anything embedded.
@@ -365,8 +430,9 @@ The recognition rule that does most of the work: *most recent unmatched thing* �
 :::
 
 :::checkpoint
-1. Why is `queue.shift()` in a loop O(n²), and why does it pass a small test?
-2. In bracket matching, why is the final `stack.length === 0` check necessary?
+1. `process(queue.shift) until queue.empty?` is fine in Ruby and quadratic in JavaScript. Why?
+   And what *is* the equivalent quiet quadratic in Ruby?
+2. In bracket matching, why is the final `stack.empty?` check necessary?
 3. One dequeue from a two-stack queue can be O(n). Why is the amortised cost O(1)?
 4. Why is `head === tail` an inadequate emptiness test for a ring buffer?
 5. You push a node's children onto a stack in order and traverse left-to-right. What actually
@@ -388,11 +454,14 @@ it can be implemented as two instructions, which is why the call stack is a stac
 
 The implementation question has a specific right answer worth knowing:
 
-*"For a queue I would not use `Array#shift` — it reindexes everything, so n dequeues is O(n²),
-and it passes a ten-element test because V8 optimises the small case. A ring buffer gives O(1)
-at both ends in fixed memory. Two stacks is the elegant version: push onto an inbox, and when
-the outbox empties, pour the inbox in — which reverses it, giving FIFO. One dequeue can be O(n),
-but each element moves between stacks exactly once in its lifetime, so it is O(1) amortised."*
+*"In Ruby, an Array: `push` and `shift`, both O(1), because MRI keeps a start offset rather
+than moving elements. I would say that explicitly, because the standard advice — never use an
+array as a queue — is imported from JavaScript, where `shift` really is O(n). The reasons to
+reach for something else here are about memory and concurrency rather than time: a ring buffer
+is O(1) in *fixed* memory, and `Thread::Queue` is what you want when producers and consumers
+are separate threads. Two stacks is still worth knowing for the amortisation argument — each
+element crosses between stacks exactly once, so it is O(1) amortised even though a single
+dequeue can be O(n)."*
 
 And the recognition rule, which is what makes this useful rather than trivia:
 
@@ -409,7 +478,8 @@ into breadth-first, which is the cheapest useful fact in this area."*
   perfectly.
 - Nesting problems need a stack because only the most recent unmatched item can match.
 - Bracket matching needs a final emptiness check, or unclosed openers pass.
-- `Array#shift` is O(n); a queue built on it is O(n²) and will pass small tests.
+- `Array#shift` is O(1) in MRI, so an Array is a queue, a stack and a deque. The JavaScript
+  warning against it does not transfer; `Array#include?` in a loop is Ruby's quiet quadratic.
 - A two-stack queue is O(1) amortised because each element crosses once.
 - A ring buffer is O(1) in fixed memory; track a count, since `head === tail` is ambiguous.
 - Clear dequeued ring-buffer slots or they retain references.

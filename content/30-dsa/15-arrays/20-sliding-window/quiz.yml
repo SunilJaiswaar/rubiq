@@ -130,16 +130,19 @@ questions:
       - Shrink from the left by dropping timestamps older than now minus the window
       - Reject if the remaining count is at or above the limit
       - Each timestamp enters once and leaves once, so it is O(1) amortised
-      - Array#shift is O(n), so use a ring buffer or deque
+      - Array#shift is O(1) in MRI, so an Array is already a fine queue
       - Memory is proportional to the limit, not to traffic, since excess requests are rejected
     model: >-
-      Keep the timestamps of accepted requests and treat the window as the last N milliseconds. On
-      each request, first drop every timestamp older than `now - windowMs` from the front, then
-      compare the remaining count against the limit and either reject or append the new timestamp.
-      It is O(1) amortised by the same argument as any sliding window: each timestamp is added once
-      and removed once, so although the cleanup loop may remove many entries on one call, those
-      removals are permanently spent. The detail that matters in practice is the structure —
-      `Array#shift` is O(n) in most implementations, so the naive version quietly reintroduces
-      quadratic behaviour under load. A ring buffer sized to the limit, or a deque, keeps both ends
-      O(1), and memory stays proportional to the limit rather than to incoming traffic because
-      requests over the limit are never stored.
+      Keep the timestamps of accepted requests and treat the window as the last N seconds. On each
+      request, drop every timestamp older than `now - window` from the front, compare the remaining
+      count against the limit, and either reject or append the new timestamp. It is O(1) amortised
+      by the same argument as any sliding window: each timestamp is added once and removed once, so
+      although one call's cleanup loop may remove many entries, those removals are permanently
+      spent. The structural detail is the one most often got wrong, and it is language-specific:
+      `Array#shift` is O(1) in MRI, because an Array keeps a start offset and shifting advances it
+      rather than moving every remaining element — so a plain Array is already a correct queue here
+      and a ring buffer would be unnecessary complexity. That is worth knowing precisely because
+      the opposite is true in JavaScript, where `shift` is O(n) and the naive version is quadratic
+      under load; the algorithm ports cleanly and the data-structure assumption does not. Memory
+      stays proportional to the limit rather than to incoming traffic, since requests over the
+      limit are never stored.

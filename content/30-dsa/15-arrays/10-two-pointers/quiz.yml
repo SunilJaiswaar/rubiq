@@ -26,24 +26,26 @@ questions:
   - id: unsorted
     kind: choice
     concept: sorted-input
-    prompt: "`twoSum([7, 2, 24, 11], 9)` with two pointers returns null, though 7 + 2 = 9. Why?"
+    prompt: "`two_sum([1, 3, 2], 4)` returns `nil`, though 1 + 3 = 4. Why?"
     options:
       - text: "The array is unsorted, so the rule for which pointer to move eliminates valid candidates"
         correct: true
         feedback: >-
           On unsorted data the technique is incorrect, not merely slower.
-      - text: The target is smaller than the first element, which the loop cannot handle
+      - text: The array is too short for two pointers to converge
         feedback: >-
-          The target is larger than nums[1]; the problem is the ordering assumption.
+          Three elements is plenty; the same failure happens at any size.
       - text: Two pointers only works on arrays of even length
         feedback: >-
           Length parity is irrelevant.
     explanation: >-
-      Each move assumes that values to the left are smaller and to the right are larger. Here 24
-      sits in the middle, so "sum too large, move `hi` left" discards 2 — a value that was part of
-      the answer. The loop then terminates with the pointers crossed. This is the most important
-      correctness point about the technique: the precondition is not an optimisation detail, it is
-      what makes the result right.
+      Every move assumes values to the left are smaller and values to the right are larger. Trace
+      it: lo=0, hi=2 gives 1 + 2 = 3, which is under the target, so `lo` advances past index 0 —
+      discarding the 1 that was half the answer. lo=1, hi=2 gives 3 + 2 = 5, over the target, so
+      `hi` retreats to 1, the pointers meet and the loop ends having never compared indices 0 and
+      1. On unsorted input "the sum is too small" does not imply "no larger partner exists to the
+      left", so the elimination step throws away a real candidate. The precondition is not an
+      optimisation detail — it is what makes the answer correct.
 
   - id: three-sum-complexity
     kind: choice
@@ -93,7 +95,7 @@ questions:
     concept: two-pointers
     prompt: >-
       Two sorted lists of a million ids, and you need the added and removed sets. Two pointers or
-      two hash sets?
+      two `Set`s?
     options:
       - text: "Two pointers — both are O(n + m) in time, but the pointer version needs no extra allocation beyond the output"
         correct: true
@@ -107,7 +109,7 @@ questions:
           The asymptotics match; the difference is space and constant factors.
     explanation: >-
       Both approaches are linear in the combined length, so the choice comes down to space and
-      constants. Building two hash sets allocates two million entries and pays hashing costs; the
+      constants. Building two `Set`s allocates two million entries and pays hashing costs; the
       two-pointer merge walks both lists once with a constant amount of state and better cache
       behaviour, since it reads both arrays sequentially. It also works on streams that do not fit
       in memory, which is why external sort, log merging, LSM compaction and index merge joins are
@@ -127,13 +129,13 @@ questions:
       - Two pointers wins when input is already sorted or space is constrained
       - And when the question is about ordering — closest sum, ranges — rather than exact equality
     model: >-
-      A hash map, scanning once and storing each value against its index while checking for the
+      A `Hash`, scanning once and storing each value against its index while checking for the
       complement. That is O(n) time, O(n) space, and crucially it never reorders the array, so the
       indices I return are the ones that were asked for. Two pointers would require sorting first,
       which both destroys the original positions and raises the complexity to O(n log n). I could
       sort `[value, index]` pairs and carry the positions through, but that is more code for a
       worse bound. Two pointers would be the better choice under different conditions: if the input
       arrived sorted, if I needed O(1) extra space, or if the question were about ordering rather
-      than exact equality — a hash map cannot answer "the pair whose sum is closest to the target"
+      than exact equality — a Hash cannot answer "the pair whose sum is closest to the target"
       in one pass, because it can only test for a specific value, whereas the ordering lets two
       pointers converge on the nearest.

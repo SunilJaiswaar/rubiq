@@ -49,23 +49,21 @@ resources:
 
 ## The structure
 
-```js
-class Node {
-  constructor(value, next = null) { this.value = value; this.next = next; }
-}
+```ruby
+Node = Struct.new(:value, :next)
 
-// 1 → 2 → 3 → null
-const list = new Node(1, new Node(2, new Node(3)));
+# 1 → 2 → 3 → nil
+list = Node.new(1, Node.new(2, Node.new(3, nil)))
 
-// Insert after a node you already hold: three assignments, no shifting.
-function insertAfter(node, value) {
-  node.next = new Node(value, node.next);
-}
+# Insert after a node you already hold: two assignments, no shifting.
+def insert_after(node, value)
+  node.next = Node.new(value, node.next)
+end
 
-// Delete the node after one you hold: one assignment.
-function deleteAfter(node) {
-  if (node.next) node.next = node.next.next;
-}
+# Delete the node after one you hold: one assignment.
+def delete_after(node)
+  node.next = node.next.next if node.next
+end
 ```
 
 :::what
@@ -151,98 +149,115 @@ LRU caches, allocator free lists, the chains in a hash table — not as a defaul
 :::
 
 :::example
-```js
-// 1. Reverse, iteratively. O(n) time, O(1) space.
-function reverse(head) {
-  let prev = null, curr = head;
-  while (curr) {
-    const next = curr.next;   // save before overwriting
-    curr.next = prev;
-    prev = curr;
-    curr = next;
-  }
-  return prev;
-}
+```ruby
+# 1. Reverse, iteratively. O(n) time, O(1) space.
+def reverse(head)
+  prev = nil
+  curr = head
+  while curr
+    following = curr.next    # save before overwriting
+    curr.next = prev
+    prev = curr
+    curr = following
+  end
+  prev
+end
 
-// 2. Reverse, recursively. O(n) time, O(n) stack — which is the
-//    reason to prefer the iterative form on long lists.
-function reverseRec(head) {
-  if (!head || !head.next) return head;
-  const newHead = reverseRec(head.next);
-  head.next.next = head;
-  head.next = null;
-  return newHead;
-}
+# 2. Reverse, recursively. O(n) time, O(n) stack — which is the
+#    reason to prefer the iterative form on long lists.
+def reverse_rec(head)
+  return head if head.nil? || head.next.nil?
 
-// 3. Floyd's cycle detection, and finding the entry.
-function detectCycle(head) {
-  let slow = head, fast = head;
-  while (fast && fast.next) {
-    slow = slow.next;
-    fast = fast.next.next;
-    if (slow === fast) {
-      slow = head;
-      while (slow !== fast) { slow = slow.next; fast = fast.next; }
-      return slow;                 // the node where the cycle begins
-    }
-  }
-  return null;
-}
+  new_head = reverse_rec(head.next)
+  head.next.next = head
+  head.next = nil
+  new_head
+end
 
-// 4. Middle node in one pass — the same two-speed trick.
-function middle(head) {
-  let slow = head, fast = head;
-  while (fast && fast.next) { slow = slow.next; fast = fast.next.next; }
-  return slow;    // for even length, the second of the two middles
-}
+# 3. Floyd's cycle detection, and finding the entry.
+def detect_cycle(head)
+  slow = fast = head
+  while fast&.next                 # &. so a nil tail ends the loop
+    slow = slow.next
+    fast = fast.next.next
+    next unless slow.equal?(fast)  # equal? is identity, not ==
+
+    slow = head
+    until slow.equal?(fast)
+      slow = slow.next
+      fast = fast.next
+    end
+    return slow                    # the node where the cycle begins
+  end
+  nil
+end
+
+# 4. Middle node in one pass — the same two-speed trick.
+def middle(head)
+  slow = fast = head
+  while fast&.next
+    slow = slow.next
+    fast = fast.next.next
+  end
+  slow                             # for even length, the second middle
+end
 ```
+
+Two Ruby details worth noticing. `fast&.next` replaces JavaScript's `fast && fast.next`,
+so the guard that stops an even-length list walking off the end is one character. And the
+comparison is `equal?`, not `==`: `equal?` asks "the same object", which is the question
+cycle detection means. A `Struct` defines `==` by *value*, so two distinct nodes holding
+the same number would compare equal and the loop would stop at the wrong place.
 :::
 
 :::failure
 **Overwriting `next` before saving it.**
 
-```js
-while (curr) {
-  curr.next = prev;      // the rest of the list is now unreachable
-  prev = curr;
-  curr = curr.next;      // this is `prev` — infinite loop on one node
-}
+```ruby
+while curr
+  curr.next = prev    # the rest of the list is now unreachable
+  prev = curr
+  curr = curr.next    # this is `prev` — loops forever on one node
+end
 ```
 
 **Losing the head.** Any operation that may change the first node needs either a returned new
 head or a sentinel:
 
-```js
-// A dummy head removes the "is it the first node" special case entirely.
-function removeAll(head, target) {
-  const dummy = new Node(null, head);
-  let node = dummy;
-  while (node.next) {
-    if (node.next.value === target) node.next = node.next.next;
-    else node = node.next;
-  }
-  return dummy.next;      // the real head, which may have changed
-}
-// Without the dummy you need a separate branch for removing the head,
-// and that branch is where the bugs are.
+```ruby
+# A dummy head removes the "is it the first node" special case entirely.
+def remove_all(head, target)
+  dummy = Node.new(nil, head)
+  node = dummy
+  while node.next
+    if node.next.value == target
+      node.next = node.next.next
+    else
+      node = node.next
+    end
+  end
+  dummy.next              # the real head, which may have changed
+end
+# Without the dummy you need a separate branch for removing the head,
+# and that branch is where the bugs are.
 ```
 
 **Advancing after deleting.**
 
-```js
-while (node.next) {
-  if (node.next.value === target) node.next = node.next.next;
-  node = node.next;       // skips the node that just moved into place
-}
-// Two consecutive targets: the second survives. Only advance in the
-// `else` branch.
+```ruby
+while node.next
+  node.next = node.next.next if node.next.value == target
+  node = node.next      # skips the node that just moved into place
+end
+# Two consecutive targets: the second survives. Only advance in the
+# `else` branch.
 ```
 
 **Not checking `fast.next` before `fast.next.next`.**
 
-```js
-while (fast) { fast = fast.next.next; }    // TypeError on an even-length list
-while (fast && fast.next) { ... }          // correct
+```ruby
+while fast then fast = fast.next.next end   # NoMethodError on nil
+while fast&.next                            # correct
 ```
 
 **Assuming a cycle means the list is circular.** The cycle can begin anywhere. `detectCycle`
@@ -258,51 +273,44 @@ mistake as `string += x` in a loop.
 :::
 
 :::realworld
-```js
-// 1. An LRU cache — doubly linked list plus hash map. This is the one
-//    place a linked list is unambiguously the right choice, and it is
-//    worth understanding why.
-class LRU {
-  #map = new Map();          // key → node, for O(1) lookup
-  #head = { };               // sentinels remove all the null checks
-  #tail = { };
-  #capacity;
+```ruby
+# 1. An LRU cache. The classic implementation is a doubly linked list
+#    plus a hash: the list gives O(1) move-to-front, the hash gives
+#    O(1) lookup, and neither can do both alone. An Array cannot
+#    move-to-front without shifting the rest; a hash has no ordering.
+#
+#    In Ruby you get the combination for free, because Hash is
+#    insertion-ordered and `delete` followed by re-insert moves a key
+#    to the end. So this is a complete LRU:
+class LRU
+  def initialize(capacity)
+    @capacity = capacity
+    @store = {}
+  end
 
-  constructor(capacity) {
-    this.#capacity = capacity;
-    this.#head.next = this.#tail;
-    this.#tail.prev = this.#head;
-  }
+  def get(key)
+    return nil unless @store.key?(key)
 
-  #remove(n) { n.prev.next = n.next; n.next.prev = n.prev; }
-  #addFront(n) {
-    n.next = this.#head.next; n.prev = this.#head;
-    this.#head.next.prev = n; this.#head.next = n;
-  }
+    @store[key] = @store.delete(key)   # delete + re-insert = move to end
+  end
 
-  get(key) {
-    const n = this.#map.get(key);
-    if (!n) return undefined;
-    this.#remove(n); this.#addFront(n);     // O(1) — the point of the list
-    return n.value;
-  }
-
-  set(key, value) {
-    if (this.#map.has(key)) this.#remove(this.#map.get(key));
-    const n = { key, value };
-    this.#addFront(n);
-    this.#map.set(key, n);
-    if (this.#map.size > this.#capacity) {
-      const lru = this.#tail.prev;
-      this.#remove(lru);
-      this.#map.delete(lru.key);
-    }
-  }
-}
-// The list gives O(1) move-to-front; the map gives O(1) lookup.
-// An array could not do the move-to-front without shifting, and a
-// map alone has no ordering. This is why the combination exists —
-// and it is what Redis, Memcached and your CPU's cache all use.
+  def set(key, value)
+    @store.delete(key)                 # so an update also refreshes position
+    @store[key] = value
+    @store.delete(@store.first.first) if @store.size > @capacity
+    value
+  end
+end
+# `@store.first.first` is the oldest key, because the oldest entry is
+# the first one in insertion order.
+#
+# Worth being clear about what this does and does not demonstrate. It
+# is a real LRU and it is the right thing to write in Ruby. But the
+# linked list has not gone away — it moved into MRI's Hash, which
+# maintains insertion order internally. Knowing the structure is still
+# what lets you reason about the cost, and it is what you would
+# implement in a language whose hash is unordered. This is also what
+# Redis, Memcached and your CPU's cache do underneath.
 ```
 
 ```text
@@ -378,8 +386,8 @@ wanting one, check whether you are really about to index into it — if so, you 
 5. What does a dummy head node eliminate?
 6. `while (node.next) { if (match) node.next = node.next.next; node = node.next; }` — what
    input breaks this?
-7. Why is a doubly linked list necessary for an LRU cache, and why is the hash map necessary
-   too?
+7. An LRU needs O(1) lookup *and* O(1) move-to-front. Which structure gives each, and which
+   Ruby feature lets a single `Hash` supply both?
 :::
 
 :::interview

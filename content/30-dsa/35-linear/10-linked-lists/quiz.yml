@@ -142,24 +142,30 @@ questions:
     kind: recall
     concept: linked-lists
     prompt: >-
-      Explain why an LRU cache needs both a doubly linked list and a hash map, and why neither alone
-      is enough.
+      An LRU needs O(1) lookup and O(1) move-to-front. Explain which structure classically
+      supplies each, and why a single Ruby `Hash` can supply both.
     key_points:
-      - The map gives O(1) lookup by key
-      - The list gives O(1) move-to-front and O(1) eviction from the tail
-      - A map alone has no usable recency ordering
-      - An array alone would need O(n) shifting for move-to-front
-      - Doubly linked, because splicing a node out requires its predecessor
-      - Sentinel head and tail nodes remove the null checks
+      - Lookup by key is the hash's job; recency ordering is the list's
+      - An Array alone needs O(n) shifting for move-to-front
+      - A hash with no ordering gives nothing to evict by
+      - Classically doubly linked, because splicing a node out needs its predecessor
+      - Ruby's Hash is insertion-ordered, and delete-then-reinsert moves a key to the end
+      - So @store.delete(k) then @store[k] = v is an O(1) move-to-front
+      - The oldest key is @store.first.first
+      - The list did not disappear — it moved inside MRI's Hash
     model: >-
-      The two structures answer two different questions and the cache needs both in O(1). The hash
-      map maps a key to its node, which is what makes `get` constant time — without it you would
-      scan the list. The doubly linked list maintains recency order, which is what makes
-      move-to-front and eviction constant time: on a hit you splice the node out and reattach it at
-      the front, and on overflow you drop the node before the tail sentinel. A map alone gives no
-      ordering you can evict from — insertion order exists in some languages but you cannot move an
-      entry to the front without deleting and reinserting, and that is both awkward and not
-      guaranteed. An array alone gives ordering but move-to-front costs O(n) shifting per access,
-      which defeats the purpose. The list must be doubly linked because splicing a node out needs
-      its predecessor, and the map only hands you the node itself. Sentinel nodes at both ends are
-      worth adding, since they remove every null check from the splice code.
+      Two different questions, both of which must be O(1). Lookup by key is a hash's job —
+      without one, finding an entry means scanning. Recency ordering is classically a doubly
+      linked list's job: on a hit you splice the node out and reattach it at the front, and on
+      overflow you drop the node before the tail, both in constant time. It has to be *doubly*
+      linked because splicing a node out requires its predecessor and the hash only hands you the
+      node itself. An Array cannot substitute, because move-to-front costs O(n) shifting per
+      access, which defeats the entire purpose. A hash with no ordering cannot substitute either,
+      because there is nothing to evict by. In Ruby the two collapse into one structure, and
+      legitimately so: `Hash` has been documented as insertion-ordered since 1.9, and `delete`
+      followed by re-insertion moves a key to the end — so `@store[key] = @store.delete(key)` is
+      a constant-time move-to-front, and `@store.first.first` is the oldest key. That is the right
+      thing to write in Ruby rather than a shortcut. What is worth being clear about is that the
+      linked list has not gone away; it moved into MRI's Hash implementation, which maintains the
+      order internally. Knowing the structure is still what lets you reason about the cost, and it
+      is what you would have to build in a language whose hash is unordered.
