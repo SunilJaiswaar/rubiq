@@ -1,0 +1,166 @@
+id: ruby-deep-freeze
+language: ruby
+title: Freeze a structure for real
+brief: >-
+  `freeze` protects one object, not a tree. Implement `deep_freeze(object)` so that nothing
+  reachable from the result can be mutated — and `frozen_deeply?(object)` to check it.
+
+
+  The interesting cases are the ones `freeze` alone misses: nested collections, Hash keys,
+  and a structure that contains itself. A cycle will make a naive recursive freeze loop
+  forever, and the fix is not the same as the one for deep copying — think about what is
+  already true of an object you have just frozen.
+starter: |
+  def deep_freeze(object)
+    # Your code here. Freeze the object and everything reachable from it.
+    #
+    #   - A Hash: freeze the keys and the values, then the Hash.
+    #   - An Array: freeze every element, then the Array.
+    #   - Anything else: just freeze it.
+    #
+    # Return the object, so callers can write `CONFIG = deep_freeze(...)`.
+    #
+    # A structure containing itself must not loop forever. You do not need a
+    # `seen` set for this one — there is something simpler you can check.
+  end
+
+  def frozen_deeply?(object)
+    # True only if the object AND everything reachable from it is frozen.
+  end
+
+  # Scratch space — click Run.
+  config = deep_freeze({ timeout: { read: 5000 }, hosts: %w[a b] })
+
+  p config.frozen?
+  p config[:timeout].frozen?
+  begin
+    config[:timeout][:read] = 1
+  rescue FrozenError => e
+    puts "#{e.class}: #{e.message}"
+  end
+  p frozen_deeply?(config)
+solution: |
+  def deep_freeze(object)
+    # The termination condition for a cycle: an object we have already frozen
+    # has nothing left to do, so returning early both avoids the infinite
+    # recursion and avoids redundant work. No `seen` set needed, because
+    # `frozen?` IS the record of what we have visited.
+    return object if object.frozen?
+
+    case object
+    when Hash
+      object.freeze                               # freeze first, so a cycle terminates
+      object.each { |k, v| deep_freeze(k); deep_freeze(v) }
+    when Array
+      object.freeze
+      object.each { |item| deep_freeze(item) }
+    else
+      object.freeze
+    end
+
+    object
+  end
+
+  def frozen_deeply?(object)
+    return false unless object.frozen?
+
+    case object
+    when Hash
+      object.all? { |k, v| frozen_deeply?(k) && frozen_deeply?(v) }
+    when Array
+      object.all? { |item| frozen_deeply?(item) }
+    else
+      true
+    end
+  end
+hints:
+  - >-
+    Start with the shape: for a Hash, freeze each key and each value and then the Hash
+    itself; for an Array, freeze each element and then the Array; otherwise just freeze.
+  - >-
+    Return the object at the end. That is what lets a caller write
+    `CONFIG = deep_freeze({ ... })`, which is the whole point of the method.
+  - >-
+    For the cycle, you do not need to track what you have seen. Ask what is already true of
+    an object you froze a moment ago — and make that your early return.
+  - >-
+    Freeze the collection *before* recursing into it. Then when the recursion comes back
+    round to the same object, the `frozen?` check is already true and it stops.
+  - >-
+    Integers, Symbols, `nil` and `true` are already frozen, so the early return handles them
+    for free rather than needing a list of immutable types.
+  - >-
+    For `frozen_deeply?`, remember that a frozen Array of unfrozen Hashes is a real state —
+    so checking the container alone is not enough.
+tests:
+  - id: freezes-top
+    name: The top-level object is frozen
+    call: "deep_freeze({ a: 1 }).frozen?"
+    expect: true
+  - id: freezes-nested-hash
+    name: A nested Hash is frozen
+    call: "deep_freeze({ a: { b: 1 } })[:a].frozen?"
+    expect: true
+  - id: freezes-nested-array
+    name: A nested Array is frozen
+    call: "deep_freeze({ a: [1] })[:a].frozen?"
+    expect: true
+  - id: freezes-deeply
+    name: Freezing reaches the bottom
+    call: "deep_freeze({ a: { b: { c: [1] } } })[:a][:b][:c].frozen?"
+    expect: true
+  - id: mutation-raises
+    name: Mutating a nested collection raises
+    call: "c = deep_freeze({ a: { b: 1 } }); begin; c[:a][:b] = 2; 'no raise'; rescue FrozenError; 'FrozenError'; end"
+    expect: FrozenError
+  - id: array-push-raises
+    name: Pushing to a nested Array raises
+    call: "c = deep_freeze({ a: [1] }); begin; c[:a] << 2; 'no raise'; rescue FrozenError; 'FrozenError'; end"
+    expect: FrozenError
+  - id: returns-object
+    name: It returns the object, so it can be used in an assignment
+    call: "o = { a: 1 }; deep_freeze(o).equal?(o)"
+    expect: true
+  - id: freezes-strings
+    name: String values are frozen
+    hidden: true
+    call: "deep_freeze({ s: +'abc' })[:s].frozen?"
+    expect: true
+  - id: freezes-keys
+    name: Mutable Hash keys are frozen
+    hidden: true
+    call: "deep_freeze({ [1, 2] => :v }).keys.first.frozen?"
+    expect: true
+  - id: cycle-terminates
+    name: A structure containing itself does not loop forever
+    hidden: true
+    call: "o = { n: 1 }; o[:self] = o; deep_freeze(o); o.frozen?"
+    expect: true
+  - id: array-cycle
+    name: A cycle through an Array also terminates
+    hidden: true
+    call: "a = [1]; a << a; deep_freeze(a); a.frozen?"
+    expect: true
+  - id: already-frozen
+    name: An already-frozen object is handled
+    hidden: true
+    call: "deep_freeze({ a: 1 }.freeze).frozen?"
+    expect: true
+  - id: deeply-frozen-true
+    name: frozen_deeply? is true for a deep-frozen structure
+    call: "frozen_deeply?(deep_freeze({ a: { b: [1, 'x'] } }))"
+    expect: true
+  - id: deeply-frozen-false
+    name: frozen_deeply? is false when only the container is frozen
+    call: "frozen_deeply?({ a: { b: 1 } }.freeze)"
+    expect: false
+  - id: deeply-frozen-array
+    name: frozen_deeply? sees through an Array of Hashes
+    hidden: true
+    call: "frozen_deeply?([{ a: 1 }].freeze)"
+    expect: false
+  - id: immutables-are-frozen
+    name: Integers and Symbols count as frozen already
+    hidden: true
+    call: "[frozen_deeply?(42), frozen_deeply?(:sym), frozen_deeply?(nil)]"
+    expect: [true, true, true]

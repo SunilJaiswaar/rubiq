@@ -1,0 +1,186 @@
+id: ruby-define-method-dsl
+language: ruby
+title: Build the attribute DSL that Rails is made of
+brief: >-
+  Write a `Fields` module that gives any class a `field` class method. `field :name` should
+  generate a reader, a writer, and a `name?` predicate — and `Model.fields` should list what
+  has been declared.
+
+
+  This is `attr_accessor`, `belongs_to`, `validates` and `enum` in miniature: a class method
+  that runs at class-definition time and defines instance methods. The tests cover the parts
+  people get wrong — inherited declarations, keeping each class's list separate, and
+  generating methods that actually close over their field name.
+
+
+  Use `define_method`, not `class_eval` with a string. The exercise is about closures.
+starter: |
+  module Fields
+    def self.included(base)
+      # Hook: called when a class does `include Fields`.
+      # You need to put the `field` method on the CLASS, not on instances.
+    end
+
+    module ClassMethods
+      def fields
+        # Return this class's declared field names, including any inherited.
+      end
+
+      def field(name)
+        # 1. Record the name.
+        # 2. Define a reader returning the instance variable.
+        # 3. Define a writer setting it.
+        # 4. Define a `name?` predicate — true when the value is present.
+        #
+        # Use define_method, so the generated methods close over `name`.
+      end
+    end
+  end
+
+  # Scratch space — click Run.
+  class User
+    include Fields
+    field :name
+    field :email
+  end
+
+  u = User.new
+  u.name = 'Asha'
+  p User.fields
+  p u.name
+  p u.name?
+  p u.email?
+solution: |
+  module Fields
+    # `included` fires when a class includes the module. `extend ClassMethods`
+    # is what puts `field` and `fields` on the class itself rather than on its
+    # instances — the standard shape for any module that adds a DSL.
+    def self.included(base)
+      base.extend(ClassMethods)
+    end
+
+    module ClassMethods
+      def fields
+        # Walk up to the superclass so a subclass sees inherited declarations,
+        # but keep each class's own list separate. Reading the superclass
+        # lazily like this is what makes inheritance work without copying.
+        inherited = superclass.respond_to?(:fields) ? superclass.fields : []
+        inherited + own_fields
+      end
+
+      def field(name)
+        own_fields << name unless own_fields.include?(name)
+
+        # define_method closes over `name`, which a plain `def` could not do.
+        # That closure is the entire reason this works.
+        define_method(name) { instance_variable_get("@#{name}") }
+        define_method("#{name}=") { |value| instance_variable_set("@#{name}", value) }
+        define_method("#{name}?") do
+          value = instance_variable_get("@#{name}")
+          # "present" rather than merely non-nil: an empty string is not a value.
+          !value.nil? && !(value.respond_to?(:empty?) && value.empty?)
+        end
+
+        name
+      end
+
+      # Each class gets its own array, created on demand. Without the `||=` per
+      # class, every class would share one list.
+      def own_fields
+        @own_fields ||= []
+      end
+    end
+  end
+hints:
+  - >-
+    `include` puts a module's methods on *instances*. You want `field` on the class, so use
+    the `self.included(base)` hook and call `base.extend(ClassMethods)` inside it.
+  - >-
+    `define_method(name) { ... }` defines an instance method whose body is a block — and
+    unlike `def`, that block closes over the local `name`. That capture is why you can
+    generate a method per field at all.
+  - >-
+    Read and write the value with `instance_variable_get("@#{name}")` and
+    `instance_variable_set`. The string interpolation happens once, when the method is
+    defined, not on every call.
+  - >-
+    For the list: `@own_fields ||= []` inside the class method gives each class its own
+    array, because `@own_fields` there is an instance variable *of the class object*. A
+    constant or a module-level variable would be shared by every class that includes you.
+  - >-
+    For inheritance, have `fields` ask the superclass for its fields and concatenate. Guard
+    with `superclass.respond_to?(:fields)` so you stop at the first class that does not
+    include the module.
+  - >-
+    The predicate should treat an empty string as absent, not just `nil` — that is what makes
+    it useful. `value.respond_to?(:empty?) && value.empty?` covers String, Array and Hash
+    without checking types.
+tests:
+  - id: reader-writer
+    name: Generates a reader and a writer
+    call: "c = Class.new { include Fields; field :name }; o = c.new; o.name = 'Asha'; o.name"
+    expect: Asha
+  - id: reader-default-nil
+    name: The reader returns nil before anything is set
+    call: "c = Class.new { include Fields; field :name }; c.new.name.inspect"
+    expect: "nil"
+  - id: predicate-true
+    name: The predicate is true when a value is set
+    call: "c = Class.new { include Fields; field :name }; o = c.new; o.name = 'x'; o.name?"
+    expect: true
+  - id: predicate-false-nil
+    name: The predicate is false when nothing is set
+    call: "c = Class.new { include Fields; field :name }; c.new.name?"
+    expect: false
+  - id: predicate-false-empty
+    name: The predicate treats an empty string as absent
+    call: "c = Class.new { include Fields; field :name }; o = c.new; o.name = ''; o.name?"
+    expect: false
+  - id: fields-list
+    name: The class reports its declared fields
+    call: "c = Class.new { include Fields; field :a; field :b }; c.fields"
+    expect: [a, b]
+  - id: multiple-fields-independent
+    name: Two fields do not share a value
+    call: "c = Class.new { include Fields; field :a; field :b }; o = c.new; o.a = 1; o.b = 2; [o.a, o.b]"
+    expect: [1, 2]
+  - id: classes-independent
+    name: Two classes keep separate field lists
+    hidden: true
+    call: "a = Class.new { include Fields; field :x }; b = Class.new { include Fields; field :y }; [a.fields, b.fields]"
+    expect: [[x], [y]]
+  - id: instances-independent
+    name: Two instances do not share values
+    hidden: true
+    call: "c = Class.new { include Fields; field :n }; p1 = c.new; p2 = c.new; p1.n = 1; p2.n = 2; [p1.n, p2.n]"
+    expect: [1, 2]
+  - id: inherited-fields
+    name: A subclass inherits its parent's fields
+    hidden: true
+    call: "parent = Class.new { include Fields; field :a }; child = Class.new(parent) { field :b }; child.fields"
+    expect: [a, b]
+  - id: parent-unaffected
+    name: A subclass declaring a field does not add it to the parent
+    hidden: true
+    call: "parent = Class.new { include Fields; field :a }; Class.new(parent) { field :b }; parent.fields"
+    expect: [a]
+  - id: inherited-methods-work
+    name: An inherited field's generated methods work on the subclass
+    hidden: true
+    call: "parent = Class.new { include Fields; field :a }; child = Class.new(parent); o = child.new; o.a = 'v'; [o.a, o.a?]"
+    expect: [v, true]
+  - id: methods-defined-not-missing
+    name: The methods are really defined, not caught by method_missing
+    hidden: true
+    call: "c = Class.new { include Fields; field :name }; o = c.new; [o.respond_to?(:name), o.respond_to?(:name=), o.respond_to?(:name?)]"
+    expect: [true, true, true]
+  - id: field-returns-name
+    name: field returns the name it declared
+    hidden: true
+    call: "c = Class.new { include Fields }; c.field(:thing)"
+    expect: thing
+  - id: no-duplicate-declarations
+    name: Declaring the same field twice does not duplicate it
+    hidden: true
+    call: "c = Class.new { include Fields; field :a; field :a }; c.fields"
+    expect: [a]

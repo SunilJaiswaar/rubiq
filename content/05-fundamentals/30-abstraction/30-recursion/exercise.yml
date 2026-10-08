@@ -1,0 +1,149 @@
+id: fundamentals-bounded-walk
+language: ruby
+title: Walk untrusted nested data without losing your stack
+brief: >-
+  Implement `walk(data, max_depth:)`, which collects every leaf value in a nested structure
+  of Hashes and Arrays — and raises `TooDeep` rather than overflowing when the nesting
+  exceeds `max_depth`.
+
+
+  Ruby gives you about ten thousand stack frames, and `SystemStackError` descends from
+  `Exception` rather than `StandardError`, so your usual `rescue` will not catch it. A
+  deeply nested payload is therefore a few kilobytes that costs you a worker — which makes a
+  depth bound a security control, not a nicety.
+
+
+  Use an explicit stack or a depth counter; either is fine, as long as the bound is checked
+  before the recursion gets deep enough to matter. The last test is 50,000 levels deep.
+starter: |
+  class TooDeep < StandardError; end
+
+  def walk(data, max_depth: 100)
+    # Your code here. Return an Array of every leaf value, left to right.
+    #
+    #   - A Hash: walk its values. (Keys are not leaves.)
+    #   - An Array: walk its elements.
+    #   - Anything else: it is a leaf.
+    #
+    # Raise TooDeep if the structure is nested deeper than max_depth.
+    #
+    # The catch: the last test nests 50,000 levels deep, which is far past
+    # Ruby's stack. So the depth check has to happen before you recurse — or
+    # you have to not recurse at all.
+  end
+
+  # Scratch space — click Run.
+  p walk({ a: 1, b: [2, 3], c: { d: 4 } })
+  p walk([1, [2, [3, [4]]]])
+
+  deep = (1..200).reduce(0) { |acc, _| [acc] }
+  begin
+    walk(deep, max_depth: 50)
+  rescue TooDeep => e
+    puts "#{e.class}: #{e.message}"
+  end
+solution: |
+  class TooDeep < StandardError; end
+
+  def walk(data, max_depth: 100)
+    leaves = []
+    # An explicit stack of [node, depth] pairs. The frames live on the heap,
+    # which is large, so depth is bounded by max_depth rather than by Ruby's
+    # ~10,000 call frames. This is the whole reason to do it iteratively.
+    stack = [[data, 0]]
+
+    until stack.empty?
+      node, depth = stack.pop
+      raise TooDeep, "nesting exceeded #{max_depth}" if depth > max_depth
+
+      case node
+      when Hash
+        # Reverse so that popping yields the original left-to-right order.
+        node.values.reverse_each { |v| stack << [v, depth + 1] }
+      when Array
+        node.reverse_each { |v| stack << [v, depth + 1] }
+      else
+        leaves << node
+      end
+    end
+
+    leaves
+  end
+hints:
+  - >-
+    Write the recursive version first, with a `depth` parameter that increments and a check
+    at the top. Get the leaf order right, then worry about the depth.
+  - >-
+    The recursive version cannot pass the 50,000-level test, because the check happens inside
+    a call that is already 10,000 frames deep. Moving the pending work to an explicit stack
+    puts those frames on the heap instead.
+  - >-
+    An explicit stack holds pairs: the node and the depth it was found at. Pop a pair, check
+    the depth, and push the children with `depth + 1`.
+  - >-
+    A stack is last-in-first-out, so pushing children in order yields them reversed. Push
+    them with `reverse_each` to get left-to-right output.
+  - >-
+    For a Hash, only the values are walked — `{ a: 1 }` has one leaf, not two. `node.values`
+    is what you want.
+  - >-
+    Check the depth when you *pop*, before looking at the node. That way a node pushed at an
+    illegal depth is rejected without ever being expanded.
+tests:
+  - id: flat-hash
+    name: Collects the values of a flat Hash
+    call: "walk({ a: 1, b: 2 })"
+    expect: [1, 2]
+  - id: flat-array
+    name: Collects the elements of a flat Array
+    call: "walk([1, 2, 3])"
+    expect: [1, 2, 3]
+  - id: mixed-nesting
+    name: Walks Hashes and Arrays together, in order
+    call: "walk({ a: 1, b: [2, 3], c: { d: 4 } })"
+    expect: [1, 2, 3, 4]
+  - id: deep-nesting-order
+    name: Preserves left-to-right order at depth
+    call: "walk([1, [2, [3, [4]]]])"
+    expect: [1, 2, 3, 4]
+  - id: scalar
+    name: A bare value is a single leaf
+    call: "walk(42)"
+    expect: [42]
+  - id: empty
+    name: Empty collections contribute no leaves
+    call: "walk({ a: {}, b: [], c: 1 })"
+    expect: [1]
+  - id: keys-not-leaves
+    name: Hash keys are not leaves
+    call: "walk({ a: 1 }).size"
+    expect: 1
+  - id: nil-is-a-leaf
+    name: nil is a value, not an absence
+    hidden: true
+    call: "walk({ a: nil, b: 1 })"
+    expect: [null, 1]
+  - id: raises-too-deep
+    name: Raises TooDeep past the bound
+    call: "d = (1..200).reduce(0) { |a, _| [a] }; begin; walk(d, max_depth: 50); 'no raise'; rescue TooDeep; 'TooDeep'; end"
+    expect: TooDeep
+  - id: allows-at-the-bound
+    name: Does not raise at exactly the bound
+    hidden: true
+    call: "d = (1..10).reduce(0) { |a, _| [a] }; walk(d, max_depth: 10)"
+    expect: [0]
+  - id: default-bound
+    name: The default bound is 100
+    hidden: true
+    call: "d = (1..150).reduce(0) { |a, _| [a] }; begin; walk(d); 'no raise'; rescue TooDeep; 'TooDeep'; end"
+    expect: TooDeep
+  - id: survives-extreme-depth
+    name: 50,000 levels deep raises TooDeep rather than SystemStackError
+    hidden: true
+    call: "d = (1..50_000).reduce(0) { |a, _| [a] }; begin; walk(d, max_depth: 100); 'no raise'; rescue TooDeep; 'TooDeep'; rescue SystemStackError; 'SystemStackError'; end"
+    expect: TooDeep
+  - id: wide-not-deep
+    name: A wide-but-shallow structure is fine
+    hidden: true
+    call: "walk({ items: (1..5_000).to_a }, max_depth: 10).size"
+    expect: 5000

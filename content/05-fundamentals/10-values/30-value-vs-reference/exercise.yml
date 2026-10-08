@@ -1,0 +1,160 @@
+id: fundamentals-deep-dup
+language: ruby
+title: Write deep_dup, and find out where it stops
+brief: >-
+  Implement `deep_dup(object)`: a copy with no shared mutable structure at any depth, so
+  mutating the copy can never be observed through the original.
+
+
+  Then handle the three cases that make this harder than a recursive `dup`. Immutable values
+  like Integers and Symbols cannot be `dup`'d meaningfully and should be returned as they
+  are. Hash *keys* need copying too, not just values. And a structure containing itself must
+  not loop forever.
+
+
+  Rails ships this as `Object#deep_dup`. Writing it once is how you learn where its edges are.
+starter: |
+  def deep_dup(object, seen = {})
+    # Your code here.
+    #
+    # Work through the cases in this order:
+    #   1. Which objects should be returned unchanged rather than copied?
+    #      (Integer, Symbol, nil, true, false, and anything frozen.)
+    #   2. A Hash: copy keys AND values, recursively.
+    #   3. An Array: copy every element, recursively.
+    #   4. Anything else: `dup` it.
+    #
+    # Then the hard one: a structure that contains itself. `seen` is there to
+    # let you remember what you have already copied — keyed by object identity,
+    # not by value.
+  end
+
+  # Scratch space — click Run.
+  original = { name: 'Asha', tags: %w[admin beta], meta: { scores: [1, 2] } }
+  copy = deep_dup(original)
+  original[:meta][:scores] << 99
+
+  p original[:meta][:scores]
+  p copy[:meta][:scores]
+  p deep_dup(42)
+
+  cyclic = { name: 'a' }
+  cyclic[:self] = cyclic
+  c = deep_dup(cyclic)
+  p c[:self].equal?(c)
+solution: |
+  # Objects with no meaningful copy: they are immutable, so sharing them is safe
+  # and `dup` on an Integer or Symbol is either a no-op or an error.
+  IMMUTABLE = [Integer, Float, Symbol, NilClass, TrueClass, FalseClass].freeze
+
+  def deep_dup(object, seen = {})
+    return object if IMMUTABLE.any? { |klass| object.is_a?(klass) }
+    return object if object.frozen? && !object.is_a?(Hash) && !object.is_a?(Array)
+
+    # Identity, not value: two equal-but-distinct arrays must be copied
+    # separately, while the SAME array seen twice must map to one copy. That is
+    # also what terminates on a cycle — the second visit finds the copy already
+    # in progress.
+    key = object.object_id
+    return seen[key] if seen.key?(key)
+
+    case object
+    when Hash
+      copy = {}
+      seen[key] = copy                      # register BEFORE recursing
+      object.each { |k, v| copy[deep_dup(k, seen)] = deep_dup(v, seen) }
+      copy
+    when Array
+      copy = []
+      seen[key] = copy                      # register BEFORE recursing
+      object.each { |item| copy << deep_dup(item, seen) }
+      copy
+    else
+      begin
+        object.dup
+      rescue TypeError
+        object                              # some objects genuinely cannot be dup'd
+      end
+    end
+  end
+hints:
+  - >-
+    Start with the easy shape: if it is a Hash, build a new Hash and recurse on each value.
+    If it is an Array, build a new Array and recurse on each element. Otherwise `dup` it.
+  - >-
+    `42.dup` works in modern Ruby but returns the same object, and `:sym.dup` returns the
+    same symbol — they are immutable, so there is nothing to copy. Return those unchanged
+    rather than special-casing them later.
+  - >-
+    Hash keys are objects too. `{ [1, 2] => :v }` has a mutable key, and copying only the
+    values leaves it shared. Recurse on the key as well.
+  - >-
+    For the cycle: before you recurse into a Hash or Array, put the new empty copy into
+    `seen` keyed by the *original's* `object_id`. When the recursion comes back round to the
+    same object, it finds the copy already there and stops.
+  - >-
+    Registering the copy *before* recursing is what makes it work. Register after, and the
+    recursion reaches the same object again before the entry exists, and loops forever.
+  - >-
+    Using `object_id` rather than the object itself as the `seen` key matters: two equal
+    arrays must get separate copies, so you need identity, not equality.
+tests:
+  - id: nested-isolated
+    name: A nested array is copied, not shared
+    call: "o = { a: { b: [1] } }; c = deep_dup(o); o[:a][:b] << 2; c[:a][:b]"
+    expect: [1]
+  - id: original-unaffected
+    name: Mutating the copy does not reach the original
+    call: "o = { a: [1] }; c = deep_dup(o); c[:a] << 2; o[:a]"
+    expect: [1]
+  - id: values-preserved
+    name: The copy holds the same values
+    call: "deep_dup({ name: 'Asha', n: 1 })"
+    expect: { name: Asha, n: 1 }
+  - id: immutables-passthrough
+    name: Integers, Symbols, nil and booleans come back as they are
+    call: "[deep_dup(42), deep_dup(:sym), deep_dup(nil), deep_dup(true)]"
+    expect: [42, sym, null, true]
+  - id: deep-nesting
+    name: Works at depth
+    call: "o = { a: { b: { c: { d: [1] } } } }; c = deep_dup(o); o[:a][:b][:c][:d] << 2; c[:a][:b][:c][:d]"
+    expect: [1]
+  - id: array-of-hashes
+    name: An array of hashes is copied element by element
+    call: "o = [{ n: 1 }, { n: 2 }]; c = deep_dup(o); o[0][:n] = 99; c[0][:n]"
+    expect: 1
+  - id: string-copied
+    name: A String value is copied, not shared
+    hidden: true
+    call: "o = { s: +'abc' }; c = deep_dup(o); o[:s] << 'd'; c[:s]"
+    expect: abc
+  - id: hash-keys-copied
+    name: A mutable Hash key is copied too
+    hidden: true
+    call: "k = [1, 2]; o = { k => :v }; c = deep_dup(o); c.keys.first.equal?(k)"
+    expect: false
+  - id: distinct-objects
+    name: Two equal-but-distinct arrays get separate copies
+    hidden: true
+    call: "a = [1]; b = [1]; c = deep_dup([a, b]); c[0] << 2; c[1]"
+    expect: [1]
+  - id: shared-reference-preserved
+    name: The same object appearing twice maps to one copy
+    hidden: true
+    call: "shared = [1]; c = deep_dup({ x: shared, y: shared }); c[:x].equal?(c[:y])"
+    expect: true
+  - id: cycle-terminates
+    name: A structure containing itself does not loop forever
+    hidden: true
+    call: "o = { name: 'a' }; o[:self] = o; c = deep_dup(o); c[:self].equal?(c)"
+    expect: true
+  - id: cycle-through-array
+    name: A cycle through an array also terminates
+    hidden: true
+    call: "a = [1]; a << a; c = deep_dup(a); [c.size, c[1].equal?(c)]"
+    expect: [2, true]
+  - id: empty-structures
+    name: Empty collections work
+    hidden: true
+    call: "[deep_dup({}), deep_dup([])]"
+    expect: [{}, []]
