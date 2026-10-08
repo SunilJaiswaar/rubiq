@@ -163,6 +163,22 @@ like a file being read or an API being paged.
 That line in the example is not decoration. It is what makes an enumerable composable.
 
 ```ruby runnable
+# Self-contained, so this fence runs on its own: the same Playlist as above,
+# trimmed to what this example needs.
+class Playlist
+  include Enumerable
+
+  def initialize(*tracks)
+    @tracks = tracks
+  end
+
+  def each
+    return to_enum(:each) unless block_given?
+    @tracks.each { |t| yield t }
+    self
+  end
+end
+
 list = Playlist.new({ title: "A" }, { title: "B" }, { title: "C" })
 
 # With a block: iterate.

@@ -36,6 +36,19 @@ jobs:
       - name: Compile content
         run: npm run content:build
 
+      # A `runnable` fence promises the learner that clicking Run produces the
+      # output the prose claims. Each fence executes on its own in a fresh VM,
+      # so one that depends on a helper defined in an earlier fence works while
+      # the lesson is being written and raises NameError for the first reader.
+      # Nothing else in the pipeline can catch that: the validator checks
+      # structure, and the Ruby otherwise only runs in a browser.
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+
+      - name: Execute every runnable Ruby fence
+        run: npm run content:fences
+
   app:
     name: Types, lint and tests
     runs-on: ubuntu-latest

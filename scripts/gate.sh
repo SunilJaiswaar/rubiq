@@ -28,6 +28,7 @@ run() {
 run "yaml guard"     node scripts/lib/yamlguard.mjs
 run "content valid"  node scripts/validate-content.mjs
 run "content build"  npm run content:build
+run "ruby fences"     node scripts/check-ruby-fences.mjs
 run "typecheck"      npx tsc -b
 run "lint"           npx eslint .
 run "tests"          npx vitest run
