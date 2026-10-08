@@ -41,7 +41,7 @@ Three things are wrong for this audience, measured rather than asserted:
 
 | Problem | Evidence | Severity |
 |---|---|---|
-| Fundamentals teaches a Ruby audience in JavaScript | 75 JS code fences, 0 Ruby | High — it is the entry track |
+| ~~Fundamentals teaches a Ruby audience in JavaScript~~ | resolved: 0 JS fences, 114 Ruby | ✅ |
 | DSA teaches algorithms in JavaScript | 91 JS fences vs 27 Ruby | High — DSA is where a Rails dev is weakest |
 | The only runnable exercises are JavaScript | 2 of 2 exercises | High — practice is not in their language |
 | No OOP/SOLID or Design Patterns track | — | High — the highest-value material for a mid Rails dev |
@@ -69,7 +69,7 @@ The brief's twenty phases, reordered by what unblocks a Rails engineer soonest. 
 
 | Phase | Subject | State | Why here |
 |---|---|---|---|
-| 1 | Programming foundations, **in Ruby** | ◐ rewrite | Entry track currently in JS |
+| 1 | Programming foundations, **in Ruby** | ✅ | 8 lessons, converted and verified |
 | 2 | Ruby — object model to GVL | ✅ | 11 lessons, already deep |
 | 3 | **OOP + SOLID** | ○ | *The* highest-value gap for a mid Rails dev |
 | 4 | **Design Patterns in Ruby and Rails** | ○ | Follows directly from phase 3 |
@@ -511,8 +511,8 @@ Ordered by value per lesson written, each step shipping something complete.
 |---|---|---|
 | 1 | ~~**Ruby runner** (`ruby+stdlib.wasm`)~~ ✅ | Done. Real CRuby 3.4 in the browser, 4 browser checks, playground defaults to Ruby. |
 | 2 | ~~**Rewrite DSA in Ruby**~~ ✅ | Done. All 15 lessons + both exercises; 0 JS fences left in the track. Every snippet verified against ruby 3.4.5 first — 432 assertions (354 across the trees/graphs/sorting/DP/tries/retry files, 57 for the arrays and linear-structures lessons, 21 evaluating each exercise's declared tests against its declared solution). This caught 9 wrong claims in the existing content — see below. |
-| 3 | **Rewrite Fundamentals in Ruby** ← next | Entry track; keep the cross-language comparisons, which are genuinely valuable |
-| 4 | **Ruby exercises throughout** | 2 across 96 lessons is the clearest imbalance in the platform |
+| 3 | ~~**Rewrite Fundamentals in Ruby**~~ ✅ | Done. All 8 lessons; 75 JS fences → 114 Ruby fences, cross-language comparisons kept where they teach something. Added `scripts/check-ruby-fences.mjs`, which executes every `runnable` fence in the gate and in CI — it caught a shipped-broken fence in the Ruby track on its first run. |
+| 4 | **Ruby exercises throughout** ← next | 2 across 96 lessons is the clearest imbalance in the platform |
 | 5 | **OOP + SOLID track** | Highest-value new content for a mid Rails dev |
 | 6 | **Design Patterns in Ruby/Rails** | Follows 5; each pattern with the Rails-native idiom |
 | 7 | **Debug Mode** | Same runner, new content shape; high value per unit of work |
@@ -544,6 +544,27 @@ Two further corrections were to advice rather than fact: "use the language's sor
 advice a Rubyist cannot take (no ordered map, no heap, no priority queue; `SortedSet` left the
 stdlib in 3.0), and the blocks exercise claimed it had to be JavaScript "where it runs in your
 browser", which stopped being true when ruby.wasm shipped.
+
+### And what it caught in the Fundamentals rewrite
+
+Same workflow, a different class of finding — mostly places where Ruby's semantics *delete* a
+bug the lesson existed to teach, so the lesson had to be re-aimed rather than translated.
+
+| The lesson taught | Ruby's answer |
+|---|---|
+| JavaScript's 8 falsy values, and the falsy-zero bug | Only `nil` and `false` are falsy, so the bug cannot occur. Re-aimed at the narrower one: a deliberate `false` is indistinguishable from absent, so `h[:k] \|\| default` discards it. `fetch` is the fix |
+| The coercion table (`"5" - 2` is 3) | Every case is a TypeError, NoMethodError or plain `false`. Re-aimed at `to_i` being lenient — `"abc".to_i` is 0, silently — against strict `Integer()` |
+| `1 < age < 10` evaluates to `true` | Raises NoMethodError: `true` has no `<` |
+| `this` binding in callbacks | Blocks inherit `self` lexically; the bug class does not exist. Re-aimed at `instance_eval`, which changes `self` on purpose, and is how every Ruby DSL works |
+| `var`-in-a-loop closure capture | Blocks give a fresh binding per iteration. The bug belongs to `for` alone — verified `[3, 3, 3]` against `[1, 2, 3]` |
+| Nested functions close over their scope | `def` does **not**. Verified: NameError. This is the single biggest scoping difference, and the reason `define_method` exists |
+| Hand-written loops beat declarative ones | Backwards in Ruby. Summing 2M integers: `while` 120ms, `each` 178ms, `reduce { }` 315ms — and `sum` 6ms, because specificity buys a C implementation |
+| (not taught) | `Array#sum` uses compensated summation, so `([0.1]*10).sum` is exactly `1.0` where `inject(:+)` gives `0.9999999999999999` — the idiomatic method is both faster and more accurate |
+
+The fence checker was written because of a bug I introduced and then found a pre-existing one: a
+`runnable` fence that depended on a helper defined in an earlier fence. Each fence executes
+alone, so it worked while the lesson was being written and raised NameError for the first reader.
+The Enumerable lesson in the Ruby track had shipped with exactly that defect.
 
 Known gaps recorded honestly: pre-rendered lesson HTML for crawlers (deep links return a 404
 status with correct SPA body), lazy-chunk size reporting, a resource link checker, and four
