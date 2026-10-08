@@ -28,7 +28,7 @@ questions:
     concept: tries
     prompt: "One million keys, a 3-character prefix, 10 matches. Compare trie and hash map."
     options:
-      - text: "Trie: 3 hops plus 10 results. Hash map: one million startsWith comparisons."
+      - text: "Trie: 3 hops plus 10 results. Hash map: one million start_with? comparisons."
         correct: true
         feedback: >-
           And the trie's cost does not grow with the dictionary.
@@ -48,7 +48,7 @@ questions:
   - id: isword
     kind: choice
     concept: tries
-    prompt: "Why is an `isWord` flag necessary? Give the failure without it."
+    prompt: "Why is a `terminal` flag necessary? Give the failure without it."
     options:
       - text: "Without it, a successful walk cannot distinguish a stored key from a prefix of one — inserting \"cart\" would make `has(\"car\")` return true"
         correct: true

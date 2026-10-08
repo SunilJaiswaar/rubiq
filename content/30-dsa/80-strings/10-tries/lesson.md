@@ -52,47 +52,76 @@ resources:
 
 ## The structure
 
-```js
-class Trie {
-  #root = { children: new Map(), isWord: false };
+```ruby
+class Trie
+  def self.node = { children: {}, terminal: false }
 
-  insert(word) {
-    let node = this.#root;
-    for (const ch of word) {
-      if (!node.children.has(ch)) node.children.set(ch, { children: new Map(), isWord: false });
-      node = node.children.get(ch);
-    }
-    node.isWord = true;
-  }
+  def initialize
+    @root = self.class.node
+  end
 
-  has(word) {
-    const node = this.#walk(word);
-    return node !== null && node.isWord;
-  }
+  attr_reader :root
 
-  // The operation that justifies the structure.
-  startsWith(prefix) {
-    const node = this.#walk(prefix);
-    if (!node) return [];
-    const out = [];
-    const collect = (n, acc) => {
-      if (n.isWord) out.push(acc);
-      for (const [ch, child] of n.children) collect(child, acc + ch);
-    };
-    collect(node, prefix);
-    return out;
-  }
+  def insert(word)
+    current = @root
+    word.each_char { |ch| current = (current[:children][ch] ||= self.class.node) }
+    current[:terminal] = true
+    self                                  # so inserts can chain
+  end
 
-  #walk(s) {
-    let node = this.#root;
-    for (const ch of s) {
-      node = node.children.get(ch);
-      if (!node) return null;
-    }
-    return node;
-  }
-}
+  def include?(word)
+    node = walk(word)
+    !node.nil? && node[:terminal]
+  end
+
+  # The operation that justifies the structure.
+  def starts_with(prefix)
+    node = walk(prefix)
+    return [] unless node
+    out = []
+    collect = lambda do |n, acc|
+      out << acc if n[:terminal]
+      n[:children].each { |ch, child| collect.call(child, acc + ch) }
+    end
+    collect.call(node, prefix)
+    out
+  end
+
+  private
+
+  def walk(str)
+    node = @root
+    str.each_char do |ch|
+      node = node[:children][ch]
+      return nil unless node
+    end
+    node
+  end
+end
+
+trie = Trie.new
+%w[car cart cat dog do].each { |w| trie.insert(w) }
+
+trie.include?('car')       # => true
+trie.include?('ca')        # => false — a prefix is not a word
+trie.starts_with('ca')     # => ["car", "cart", "cat"]
+trie.starts_with('')       # => all five words
 ```
+
+The line carrying the most weight is `current[:children][ch] ||= self.class.node`. It replaces
+the check-then-insert dance — "does this child exist, if not create it, now fetch it" — with one
+expression that also evaluates to the node you want, so the walk and the insert are the same
+statement. This is the single most useful Ruby idiom for building any tree incrementally.
+
+A plain Hash for the node, rather than a Struct or a class, is a deliberate choice at this size:
+there are two fields, both are mutated constantly, and a node is never passed anywhere that cares
+about its type. If a third field appears — a score, a count, a parent pointer — promote it to a
+Struct before the Hash keys become a guessing game.
+
+Naming matters more than usual here. `include?` rather than `has`, because that is what every
+other Ruby collection calls the question, and a `Trie` that answers `include?` can be used
+wherever duck typing expects a collection. The `?` suffix tells you it returns a boolean without
+reading the body.
 
 ```text
   insert "car", "cat", "cart", "dog"
@@ -105,7 +134,7 @@ class Trie {
       / \     │
      r   t*   g*
      │   
-     t*        * = isWord
+     t*        * = terminal
 
   "car" and "cart" and "cat" share the "ca" path. The sharing is
   the point: storage is proportional to distinct prefixes, not to
@@ -156,11 +185,11 @@ questions about it.
 
   PREFIX QUERY
 
-    startsWith("ca")  → 2 hops to locate, then traverse the subtree.
+    starts_with("ca")  → 2 hops to locate, then traverse the subtree.
                         O(|prefix| + |results|).
 
     Hash map equivalent: iterate ALL keys, test each with
-    startsWith. O(number of keys × key length).
+    starts_with. O(number of keys × key length).
 
     On 1,000,000 keys and a 3-character prefix with 10 matches:
       trie:     3 hops + 10 results
@@ -215,69 +244,128 @@ questions about it.
 :::
 
 :::example
-```js
-// 1. Autocomplete with ranking, which is what you would actually ship.
-class Autocomplete {
-  #root = { children: new Map(), best: [] };     // top suggestions per node
+```ruby
+# 1. Autocomplete with ranking, which is what you would actually ship.
+class Autocomplete
+  K = 10
 
-  insert(word, score) {
-    let node = this.#root;
-    this.#record(node, word, score);
-    for (const ch of word) {
-      if (!node.children.has(ch)) {
-        node.children.set(ch, { children: new Map(), best: [] });
-      }
-      node = node.children.get(ch);
-      this.#record(node, word, score);
-    }
-  }
+  def initialize
+    @root = { children: {}, best: [] }   # top suggestions per node
+  end
 
-  // Keep only the top K at each node, so a query is O(|prefix|).
-  #record(node, word, score) {
-    node.best.push([score, word]);
-    node.best.sort((a, b) => b[0] - a[0]);
-    if (node.best.length > 10) node.best.length = 10;
-  }
+  def insert(word, score)
+    current = @root
+    record(current, word, score)
+    word.each_char do |ch|
+      current = (current[:children][ch] ||= { children: {}, best: [] })
+      record(current, word, score)
+    end
+    self
+  end
 
-  suggest(prefix) {
-    let node = this.#root;
-    for (const ch of prefix) {
-      node = node.children.get(ch);
-      if (!node) return [];
-    }
-    return node.best.map(([, w]) => w);
-  }
-}
-// Precomputing the top K per node is the production trick: the query
-// becomes a walk with no subtree traversal at all, at the cost of
-// K entries per node and a more expensive insert. Autocomplete is
-// read-heavy by an enormous margin, so that is the right direction
-// to trade.
+  def suggest(prefix)
+    current = @root
+    prefix.each_char do |ch|
+      current = current[:children][ch]
+      return [] unless current
+    end
+    current[:best].map { |_score, word| word }
+  end
 
-// 2. Word search over a board — where a trie prunes an exponential
-//    search, which is its other main use.
-function findWords(board, words) {
-  const trie = new Trie();
-  for (const w of words) trie.insert(w);
-  const found = new Set();
-  // DFS the board, walking the trie in parallel. The moment the
-  // current path is not a trie prefix, the whole branch is abandoned.
-  // Without the trie you would test every path against every word.
-  // This is the pruning that makes the search feasible.
-  return [...found];
-}
+  private
 
-// 3. Longest prefix match, as a router does it.
-function longestPrefixMatch(trie, bits) {
-  let node = trie.root, best = null;
-  for (const bit of bits) {
-    node = node.children.get(bit);
-    if (!node) break;
-    if (node.route) best = node.route;    // remember the deepest hit
-  }
-  return best;
-}
+  # Keep only the top K at each node, so a query is O(|prefix|).
+  def record(node, word, score)
+    node[:best] << [score, word]
+    node[:best].sort_by! { |score_, word_| [-score_, word_] }
+    node[:best].slice!(K..)
+  end
+end
+
+ac = Autocomplete.new
+ac.insert('ruby', 100).insert('rails', 90).insert('rake', 50).insert('rust', 80)
+
+ac.suggest('r')    # => ["ruby", "rails", "rust", "rake"]
+ac.suggest('ru')   # => ["ruby", "rust"]
+ac.suggest('x')    # => []
 ```
+
+Precomputing the top K per node is the production trick: the query becomes a walk with no subtree
+traversal at all, at the cost of K entries per node and a more expensive insert. Autocomplete is
+read-heavy by an enormous margin, so that is the right direction to trade.
+
+Two details. `sort_by! { [-score, word] }` sorts descending by score and then *ascending by word*
+as a tie-break — necessary, not decorative, because Ruby's sort is not stable, so without the
+second key two words with equal scores would swap places between runs and the suggestion list
+would flicker. And `slice!(K..)` truncates to K with no length check: on an array already shorter
+than K it returns `nil` and leaves the array alone, which is exactly the behaviour you want and
+the reason it needs no guard.
+
+```ruby
+# 2. Word search over a board — where a trie prunes an exponential
+#    search, which is its other main use.
+require 'set'
+
+def find_words(board, words)
+  trie = Trie.new
+  words.each { |w| trie.insert(w) }
+  rows = board.size
+  cols = board[0].size
+  found = Set.new
+
+  visit = lambda do |r, c, node, acc, seen|
+    child = node[:children][board[r][c]]
+    return unless child            # not a prefix: abandon the whole branch
+    word = acc + board[r][c]
+    found << word if child[:terminal]
+
+    seen << [r, c]
+    [[-1, 0], [1, 0], [0, -1], [0, 1]].each do |dr, dc|
+      nr = r + dr
+      nc = c + dc
+      next if nr.negative? || nc.negative? || nr >= rows || nc >= cols
+      next if seen.include?([nr, nc])
+      visit.call(nr, nc, child, word, seen)
+    end
+    seen.delete([r, c])            # un-mark on the way out: other paths may use it
+  end
+
+  rows.times { |r| cols.times { |c| visit.call(r, c, trie.root, '', Set.new) } }
+  found.to_a
+end
+
+board = [%w[o a a n], %w[e t a e], %w[i h k r], %w[i f l v]]
+find_words(board, %w[oath pea eat rain])   # => ["oath", "eat"]
+```
+
+The trie is doing the pruning: the moment the current path is not a trie prefix, the entire
+branch is abandoned. Without it you would test every path on the board against every word, which
+is exponential in the path length and multiplied by the dictionary size.
+
+The detail that makes this correct rather than merely fast is `seen.delete([r, c])` after the
+loop. A cell is off-limits only for the path currently using it, not for every path — forgetting
+to un-mark gives you a search that finds the first word and then mysteriously misses later ones.
+That is depth-first backtracking rather than graph traversal, and the distinction is exactly the
+mark-on-enqueue discussion from the graph lesson read in reverse.
+
+```ruby
+# 3. Longest prefix match, as a router does it.
+def longest_prefix_match(trie, bits)
+  node = trie
+  best = node[:route]              # a default route, if one is registered at the root
+  bits.each_char do |bit|
+    node = node[:children][bit]
+    break unless node
+    best = node[:route] if node[:route]   # remember the deepest hit
+  end
+  best
+end
+```
+
+`best` is carried rather than returned at the point of failure, which is the whole algorithm:
+you want the most specific match that exists, so you keep overwriting as you descend and return
+whatever you were last holding when the walk ran out. Starting `best` from the root's route is
+how a default route falls out of the same code path instead of needing a special case.
 :::
 
 :::failure
@@ -285,23 +373,56 @@ function longestPrefixMatch(trie, bits) {
 Unicode code points is not. A `Map` or a small sorted array costs a few nanoseconds per hop and
 saves orders of magnitude of memory.
 
-**Forgetting `isWord`.** Without it you cannot distinguish a stored key from a prefix of one:
+**Forgetting `terminal`.** Without it you cannot distinguish a stored key from a prefix of one:
 
-```js
-trie.insert("cart");
-trie.has("car");    // must be false. Without isWord, the walk
-                    // succeeds and you return true.
+```ruby
+trie = Trie.new.insert('cart')
+trie.include?('car')      # must be false
+trie.starts_with('car')   # => ["cart"]  — the walk DOES succeed
 ```
+
+Without the `terminal` flag there is nothing to distinguish "this node exists because a word ends
+here" from "this node exists because it is on the way to one", so `include?('car')` returns true
+and your spell-checker accepts every prefix of every word in the dictionary.
 
 **Treating a string as an array of bytes when it is Unicode.**
 
-```js
-for (const ch of "café") { ... }     // 4 iterations — code points
-for (let i = 0; i < s.length; i++)   // UTF-16 code units: "😀".length === 2
-// Splitting a surrogate pair puts half a character in the trie, and
-// the key becomes unreachable by any sane query. Use iteration over
-// code points, or over grapheme clusters if users will type them.
+Ruby spares you the worst version of this. Strings are sequences of codepoints, not UTF-16 code
+units, so `each_char` can never split a character in half:
+
+```ruby
+'😀'.size              # => 1      (JavaScript: "😀".length === 2)
+'😀'.each_char.to_a    # => ["😀"]
 ```
+
+So the surrogate-pair bug — half a character stored in the trie, the key unreachable by any sane
+query — simply does not arise. What *does* still arise is that a codepoint is not what a user
+thinks of as a character:
+
+```ruby
+'👨‍👩‍👧'.size                            # => 5 codepoints (three people, two joiners)
+'👨‍👩‍👧'.each_grapheme_cluster.to_a.size   # => 1
+'🇮🇳'.size                            # => 2 codepoints, 1 grapheme
+```
+
+Inserting a family emoji walks five levels of the trie. That is usually harmless — the word is
+still findable, because lookup splits it the same way — but it breaks the moment you do anything
+positional, like "delete the last character" on a backspace, which would leave a dangling joiner.
+
+The failure that actually bites is normalisation, because the two spellings look identical:
+
+```ruby
+trie = Trie.new.insert("cafe\u0301")   # e + combining acute
+trie.include?('café')                  # => false   precomposed é
+trie.include?("cafe\u0301")            # => true
+trie.include?('café'.unicode_normalize(:nfd))   # => true
+```
+
+Two byte sequences, one appearance, two different keys. A user who types the word on a Mac and a
+user who pastes it from a web page can disagree about whether it is in your dictionary. Normalise
+on the way in and on the way out — pick one form, `:nfc` is the usual choice for storage — and do
+it at the boundary so the trie only ever sees one spelling. The same reasoning applies to
+`downcase` for case-insensitive search: normalise once at the edge, not at every comparison.
 
 **Building a trie to replace exact lookups.** A hash map is smaller and faster. The trie is
 justified by prefix queries, not by lookups.
@@ -377,7 +498,7 @@ unnecessary cost.
 :::mistakes
 **Fixed child arrays over a large alphabet.** Use a Map or sorted array.
 
-**No `isWord` flag.** Prefixes become false positives.
+**No `terminal` flag.** Prefixes become false positives.
 
 **Byte or UTF-16 indexing on Unicode text.** Split surrogate pairs, unreachable keys.
 
@@ -425,7 +546,7 @@ substrings → suffix structure, and think hard first.**
    unable to?
 2. On a million keys with a 3-character prefix and 10 matches, compare the trie and hash-map
    costs.
-3. Why is `isWord` necessary? Give a concrete false positive without it.
+3. Why is the `terminal` flag necessary? Give a concrete false positive without it.
 4. Why is a 26-pointer child array a memory problem, and what are the two fixes?
 5. What does a radix tree compress, and why is that effective on real vocabularies?
 6. Why can `LIKE 'auto%'` use a B-tree index while `LIKE '%auto'` cannot?
@@ -469,7 +590,7 @@ with a range scan, which is usually better than maintaining a second copy in mem
 - It answers prefix queries in O(|prefix| + |results|), independent of the key count.
 - Hashing structurally cannot do this: it scatters similar keys by design.
 - Longest-prefix match — the IP routing operation — needs a trie and cannot be hashed.
-- `isWord` is required, or every prefix is reported as a stored key.
+- `terminal` is required, or every prefix is reported as a stored key.
 - Fixed child arrays waste most of their space; use a Map or sorted array.
 - A radix tree collapses single-child chains, removing most nodes in real vocabularies.
 - Precomputing the top K per node makes ranked autocomplete a pure walk.
@@ -480,3 +601,13 @@ with a range scan, which is usually better than maintaining a second copy in mem
 - `LIKE 'auto%'` uses an index because shared prefixes are adjacent in sorted order; `'%auto'`
   cannot.
 - Suffix or substring queries need a suffix tree, not a trie.
+- `node[:children][ch] ||= new_node` is the walk and the insert in one expression.
+- A prefix is not a word: without a `terminal` flag every prefix tests as present.
+- Ruby strings are codepoint-indexed, so `each_char` cannot split a character — the UTF-16
+  surrogate bug does not exist here.
+- But a codepoint is not a grapheme: a family emoji is 5 codepoints and 1 character.
+- Normalisation is the real Unicode trap — `"cafe\u0301"` and `"café"` are different keys.
+  Normalise at the boundary, not at each comparison.
+- Per-node top-K needs an explicit tie-break, because Ruby's sort is not stable.
+- `slice!(K..)` truncates safely on an array already shorter than K.
+- Backtracking must un-mark cells on the way out; a cell is blocked only for the current path.

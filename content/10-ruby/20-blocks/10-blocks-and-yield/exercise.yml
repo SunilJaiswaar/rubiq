@@ -1,86 +1,122 @@
 id: ruby-blocks-retry
-language: javascript
+language: ruby
 title: Build the retry wrapper
 brief: >-
-  The lesson's checkpoint asks for a `retry_up_to` method. Build it here in JavaScript,
-  where it runs in your browser — the structure is identical, and the point is the
-  pattern, not the syntax.
+  Write `retry_up_to(times)`. It takes a block and calls it. If the block raises, it tries
+  again, up to `times` attempts in total. If the last attempt still raises, let that error
+  escape unchanged. On success, return whatever the block returned.
 
 
-  Write `retryUpTo(times, fn)`. It calls `fn()`. If `fn` throws, it tries again, up to
-  `times` attempts in total. If the last attempt still throws, let that error escape. On
-  success, return whatever `fn` returned.
+  This is the same inversion of responsibility as `File.open`: the caller supplies the work
+  and your method owns the policy around it. The caller writes
+  `retry_up_to(3) { charge_card! }` and never writes a loop.
 
 
-  This is the same inversion of responsibility as `File.open`: the caller supplies the
-  work, and your function owns the policy around it.
+  Two decisions to make deliberately rather than by accident. Which exceptions should you
+  catch — and what should `times` of zero do?
 starter: |
-  function retryUpTo(times, fn) {
-    // Your code here.
-    //
-    // Hints:
-    //   - You need a loop that can both return a value and remember the last error.
-    //   - "up to `times` attempts in total" means times === 1 is a single try.
-    //   - On the final failure, the original error must escape unchanged.
-  }
+  def retry_up_to(times)
+    # Your code here. The block is invoked with `yield`.
+    #
+    # Hints:
+    #   - `begin ... rescue ... end` is an expression, and Ruby has a keyword
+    #     specifically for "run that block again". Find it.
+    #   - "up to `times` attempts in total" means times == 1 is a single try.
+    #   - On the final failure the original error must escape, with its class
+    #     and backtrace intact.
+  end
 
-  // A little harness so you can see it work. Click Run.
-  let attempts = 0;
-  const flaky = () => {
-    attempts += 1;
-    if (attempts < 3) throw new Error(`attempt ${attempts} failed`);
-    return `succeeded on attempt ${attempts}`;
-  };
+  # A little harness so you can see it work. Click Run.
+  attempts = 0
+  result = retry_up_to(5) do
+    attempts += 1
+    raise "attempt #{attempts} failed" if attempts < 3
+    "succeeded on attempt #{attempts}"
+  end
 
-  console.log(retryUpTo(5, flaky));
+  puts result
 solution: |
-  function retryUpTo(times, fn) {
-    let lastError;
-    for (let attempt = 1; attempt <= times; attempt++) {
-      try {
-        return fn();
-      } catch (err) {
-        lastError = err;
-      }
-    }
-    throw lastError;
-  }
+  def retry_up_to(times)
+    # Decide the degenerate case explicitly. Returning nil for `times <= 0`
+    # would look like success and silently skip the work.
+    raise ArgumentError, 'times must be at least 1' if times < 1
+
+    attempt = 0
+    begin
+      attempt += 1
+      yield
+    rescue StandardError
+      # `retry` re-runs the whole `begin` body — which is why the counter is
+      # incremented inside it rather than outside.
+      retry if attempt < times
+
+      # A bare `raise` inside a rescue re-raises the *same* exception object,
+      # preserving its class, message and backtrace. `raise $!` is equivalent
+      # but noisier; `raise err.message` would throw away the class and the
+      # backtrace, which is what the caller needs to diagnose the cause.
+      raise
+    end
+  end
 hints:
   - >-
-    Start with the success path only: a loop that calls `fn()` and returns the result.
-    Then add the try/catch around it.
+    Start with the success path only: `begin; yield; end`. Then add the `rescue` and ask
+    what you want to happen inside it.
   - >-
-    You need somewhere to keep the error between iterations, because you only throw it
-    after the loop has finished failing. A variable declared outside the loop.
+    Ruby has a keyword for exactly this, and it is not a loop. Inside a `rescue`, `retry`
+    jumps back to the start of the `begin` body and runs it again.
   - >-
-    "Up to `times` attempts in total" — so `retryUpTo(1, fn)` calls `fn` exactly once.
-    Check your loop bounds against that case.
+    Because `retry` re-runs the whole `begin` body, anything you put in there runs again
+    too. Put the attempt counter inside the body and increment it before `yield`, then
+    compare against `times` in the rescue.
   - >-
-    After the loop ends without returning, every attempt failed. Throw the error you
-    saved, not a new one — the caller wants the real cause.
+    "Up to `times` attempts in total" — so `retry_up_to(1) { ... }` calls the block exactly
+    once and lets the first failure through. Check your condition against that case.
+  - >-
+    Rescue `StandardError`, not `Exception`. A bare `rescue` already means `StandardError`,
+    which is what you want: retrying on `Interrupt` ignores the user's Ctrl-C, and retrying
+    on `SystemStackError` or `NoMemoryError` runs the failing work again on a machine that
+    has already run out of room.
+  - >-
+    For the final failure, use a bare `raise` with no arguments. Inside a rescue that
+    re-raises the same exception object — class, message and backtrace intact. Building a
+    new error throws away the cause the caller needs.
+  - >-
+    What should `retry_up_to(0) { ... }` do? Falling out of the method returns `nil`, which
+    the caller cannot distinguish from a block that legitimately returned `nil` — so the
+    work is skipped and nothing says so. Raising `ArgumentError` is the honest answer.
 tests:
   - id: returns-value
-    name: Returns the value when the function succeeds first time
-    call: retryUpTo(3, () => 42)
+    name: Returns the value when the block succeeds first time
+    call: "retry_up_to(3) { 42 }"
     expect: 42
   - id: single-attempt
-    name: times = 1 calls the function exactly once
-    call: "(() => { let n = 0; try { retryUpTo(1, () => { n++; throw new Error('x') }) } catch (e) {} return n })()"
+    name: times = 1 calls the block exactly once
+    call: "n = 0; begin; retry_up_to(1) { n += 1; raise 'x' }; rescue StandardError; end; n"
     expect: 1
   - id: retries-until-success
-    name: Retries until the function stops throwing
-    call: "(() => { let n = 0; return retryUpTo(5, () => { n++; if (n < 3) throw new Error('x'); return n }) })()"
+    name: Retries until the block stops raising
+    call: "n = 0; retry_up_to(5) { n += 1; raise 'x' if n < 3; n }"
     expect: 3
   - id: stops-at-limit
     name: Makes no more than `times` attempts
-    call: "(() => { let n = 0; try { retryUpTo(4, () => { n++; throw new Error('x') }) } catch (e) {} return n })()"
+    call: "n = 0; begin; retry_up_to(4) { n += 1; raise 'x' }; rescue StandardError; end; n"
     expect: 4
   - id: rethrows-last-error
     name: Lets the final error escape, with its original message
-    call: "(() => { try { retryUpTo(2, () => { throw new Error('still broken') }) } catch (e) { return e.message } return 'no error thrown' })()"
+    call: "begin; retry_up_to(2) { raise 'still broken' }; rescue StandardError => e; e.message; end"
     expect: still broken
-  - id: no-swallow-on-zero
-    name: Does not silently succeed when given zero attempts
+  - id: preserves-error-class
+    name: Re-raises the original exception class, not a generic one
     hidden: true
-    call: "(() => { try { const r = retryUpTo(0, () => 1); return r === undefined ? 'undefined' : r } catch (e) { return 'threw' } })()"
-    expect: threw
+    call: "begin; retry_up_to(2) { raise KeyError, 'nope' }; rescue StandardError => e; e.class.name; end"
+    expect: KeyError
+  - id: no-swallow-on-zero
+    name: Does not silently skip the work when given zero attempts
+    hidden: true
+    call: "begin; retry_up_to(0) { 1 }; rescue ArgumentError; 'ArgumentError'; end"
+    expect: ArgumentError
+  - id: does-not-retry-non-standard-errors
+    name: Does not retry errors outside StandardError
+    hidden: true
+    call: "n = 0; begin; retry_up_to(3) { n += 1; raise SystemStackError, 'deep' }; rescue SystemStackError; end; n"
+    expect: 1
