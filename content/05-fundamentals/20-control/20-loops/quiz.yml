@@ -23,98 +23,120 @@ questions:
       the name. `for` permits everything, so it communicates nothing, which is exactly why
       it is the right tool when you need to break early or produce a different shape.
 
-  - id: splice-while-iterating
+  - id: delete-while-iterating
     kind: choice
     concept: loops
     prompt: |
-      ```javascript
-      const nums = [1, 2, 3, 4];
-      for (let i = 0; i < nums.length; i++) {
-        if (nums[i] % 2 === 0) nums.splice(i, 1);
-      }
+      ```ruby
+      nums = [2, 4, 6]
+      nums.each { |n| nums.delete(n) if n.even? }
+      p nums
       ```
-      Why does `4` survive?
+      This prints `[4]` rather than `[]`. Why — and why is that worse than it looks?
     options:
-      - text: "Removing index `i` shifts the next element into `i`, and then `i++` steps over it"
+      - text: "Deleting shifts the later elements left, so the iterator's next position steps over one — and whether the answer is wrong depends on the input"
         correct: true
         feedback: >-
-          Right. The fix is not to adjust the index — it is `filter`, which builds a new
-          array.
-      - text: "`splice` cannot remove the last element"
-        feedback: "`splice` removes it fine. The problem is the index moving under the loop."
-      - text: "`4` is not even"
-        feedback: It is even — it is simply never examined.
+          On `[1, 2, 3, 4]` the same loop is accidentally correct. That is why the bug
+          survives a test suite.
+      - text: "`delete` cannot remove the last element"
+        feedback: "`delete` removes it fine. The problem is the array shifting under the iterator."
+      - text: "`each` caches the array, so later deletions are not seen"
+        feedback: >-
+          It does not cache — it tracks an index into the live array, which is exactly why
+          the shift matters.
     explanation: >-
-      After removing `2` at index 1, `3` moves to index 1 and `4` to index 2. The loop then
-      increments to 2, skipping the `3` that is now at 1 — and the same shift happens again.
-      Mutating a collection while indexing through it is unreliable in every language. Build
-      a new collection instead: `nums.filter(n => n % 2 !== 0)`.
+      `each` walks an index into the live array. Deleting `2` moves `4` into its place, so
+      the next index lands on `6`, and deleting `6` leaves `4` never examined. The dangerous
+      part is not the mechanism but the inconsistency: run the same loop over `[1, 2, 3, 4]`
+      and it returns `[1, 3]`, which is exactly right, because the skipped element happened
+      to be one that needed no action. So a test written against one input passes and the bug
+      ships. Never do it by hand — `reject` builds a new array, and `delete_if` or `reject!`
+      mutate safely because they are implemented to account for the shifting.
 
-  - id: foreach-async
+  - id: query-in-a-loop
     kind: choice
     concept: iteration
-    prompt: "`items.forEach(async (i) => { await save(i) })` — what is wrong?"
+    prompt: >-
+      `User.limit(50).includes(:posts).each { |u| puts u.posts.count }` — why is this still
+      51 queries?
     options:
-      - text: "`forEach` ignores the returned promises, so it returns before any save completes"
+      - text: "`count` asks the database to count regardless of what was preloaded; `size` uses the loaded collection"
         correct: true
         feedback: >-
-          Use `for...of` with `await` for sequential, or `Promise.all(items.map(...))` for
-          concurrent — and pick deliberately.
-      - text: "`async` callbacks are not allowed in `forEach`"
-        feedback: They are allowed. The problem is that nothing awaits them.
-      - text: It runs the saves sequentially instead of in parallel
-        feedback: >-
-          It starts them all without waiting for any — neither sequential nor awaited.
+          `includes` loaded the posts and `count` ignored them. Use `size` when the
+          association may already be loaded.
+      - text: "`includes` does not preload `has_many` associations"
+        feedback: It does. The preload happened and then `count` bypassed it.
+      - text: "`each` forces a reload of each association"
+        feedback: "`each` just iterates; the extra query comes from `count`."
     explanation: >-
-      `forEach` calls the callback and discards its return value, so the promises are
-      created and abandoned. The function returns immediately, before any save has
-      finished — and an error inside becomes an unhandled rejection. `for...of` with `await`
-      gives you sequential execution; `Promise.all(items.map(fn))` gives you concurrent.
-      Those are different behaviours, so choose rather than defaulting.
+      `count` always issues a `SELECT COUNT(*)`, which is correct when you want the database
+      to count without loading rows — and wasteful when the rows are already in memory.
+      `size` returns the loaded collection's length if it is loaded and falls back to a count
+      if it is not, which makes it the right default whenever preloading is involved. This is
+      the loop bug that costs Rails applications the most time, and it is invisible at the
+      call site: the loop body looks like arithmetic and is actually a round trip, so the cost
+      scales with your data rather than your code and a seeded test database of three users
+      never shows it. The related failure is memory rather than queries — `User.all.each`
+      instantiates every row before the first iteration, where `find_each` batches.
 
-  - id: forin-array
+  - id: for-vs-each
     kind: choice
     concept: loops
-    prompt: "Why is `for...in` the wrong tool for an array?"
+    prompt: "Why does Ruby code essentially never use `for ... in`?"
     options:
-      - text: It enumerates keys as strings, including inherited and non-index properties
+      - text: "It does not create a scope — the variable leaks out, and closures made inside it all share one binding"
         correct: true
         feedback: >-
-          So `"0"` not `0`, and any added property shows up. `for...of` yields the values.
-      - text: It is slower
-        feedback: Speed is not the issue — correctness is.
-      - text: It does not work on arrays at all
-        feedback: It works, which is what makes it dangerous.
+          `[1, 2, 3].each { |n| procs << -> { n } }` gives `[1, 2, 3]`; the same loop with
+          `for` gives `[3, 3, 3]`.
+      - text: It is slower than `each`
+        feedback: >-
+          It is slightly slower in practice, but that is not the reason — correctness and
+          scoping are.
+      - text: It does not work on Hashes or Ranges
+        feedback: It works on anything with `each`, which is part of why it looks harmless.
     explanation: >-
-      `for...in` is for enumerating an object's keys. Over an array it gives you `"0"`,
-      `"1"` as *strings*, plus any other enumerable property anyone has attached, plus
-      inherited ones. `for...of` yields values and `.entries()` yields index/value pairs —
-      both are what you actually wanted.
+      `for` is defined in terms of `each` but does not introduce a new scope, so the loop
+      variable is an ordinary local in the enclosing scope: it survives the loop, and every
+      closure created inside the body captures the same binding rather than one per
+      iteration. That is structurally identical to JavaScript's `var`-in-a-loop bug, which
+      `let` was introduced to fix — and in Ruby it belongs to `for` alone, because every
+      block-based iterator gives each iteration a fresh binding. The convention against `for`
+      is strong enough that using it reads as a signal the author came from another language.
 
   - id: perf-cost
     kind: choice
     concept: iteration
-    prompt: "In a chain like `data.map(f).filter(g).reduce(h)` over five million rows, where is the real cost?"
+    prompt: "In a chain like `data.map(&f).select(&g).reduce(&h)` over five million rows, where is the real cost?"
     options:
-      - text: The intermediate arrays each stage allocates, not the per-element function calls
+      - text: "Two intermediate arrays, plus a Ruby-level block call per element per stage — and the block calls are the part a hand-written loop does not fix"
         correct: true
         feedback: >-
-          Which is why collapsing into one `reduce` or going lazy helps far more than
-          switching to an index loop.
-      - text: The function call overhead, which dominates everything
+          `filter_map` removes a stage and an array; `lazy` removes both intermediates; and a
+          C-implemented method like `sum` removes the block calls entirely.
+      - text: Only the intermediate arrays; the block calls are free
         feedback: >-
-          Real, but usually small and often inlined by the JIT. Allocation is what shows up
-          in profiles.
-      - text: There is no meaningful cost; the engine fuses the chain automatically
+          Block invocation is the dominant cost in Ruby. Summing two million integers takes
+          315ms with `reduce { }` and 6ms with `sum`.
+      - text: There is no meaningful cost; Ruby fuses the chain automatically
         feedback: >-
-          JavaScript engines do not fuse array method chains. Each stage materialises a new
-          array.
+          Ruby does not fuse Enumerable chains. Each stage materialises a new array unless
+          you call `lazy`.
     explanation: >-
-      Each stage builds a complete new array, so a three-stage chain over five million rows
-      allocates roughly three five-million-element arrays and gives two of them straight to
-      the garbage collector. Per-call overhead is comparatively minor. So the optimisation
-      is to remove the intermediates — one combined `reduce`, a lazy pipeline, or a single
-      pass — rather than to abandon declarative style for an index loop.
+      Two things cost, and the Ruby answer differs from the JavaScript one. Each stage builds
+      a complete new array, so a three-stage chain over five million rows allocates two
+      five-million-element intermediates and hands them to the garbage collector. On top of
+      that, every element of every stage pays for a Ruby-level block invocation, and in Ruby
+      that is the larger term — measured over two million integers, `reduce { |s, n| s + n }`
+      takes 315ms where `sum` takes 6ms, because `sum` does the whole loop in C and never
+      calls back into Ruby. So rewriting the chain as a hand-written `while` loop is the wrong
+      fix: it was 120ms, still twenty times slower than `sum`. The right moves are to remove
+      stages (`filter_map` instead of `select` then `map`), to remove the intermediates
+      (`lazy`, which also lets the pipeline short-circuit), and above all to reach for the
+      most specific built-in method available, because specificity is what buys you a C
+      implementation.
 
   - id: explain-loop-choice
     kind: recall
@@ -127,16 +149,19 @@ questions:
       - Push back if it is not one output per input — building a lookup, grouping, or a different length
       - Push back for a measured hot path where the allocation matters
       - Accept if it is a straightforward one-to-one transformation
-      - "\"I need the index\" is not a reason — `entries()` and `map`'s second argument provide one"
-      - Note that `find`, `some` and `filter` cover most early-exit cases declaratively anyway
+      - "\"I need the index\" is not a reason — `each_with_index` supplies one"
+      - Note that `find`, `any?` and `select` cover most early-exit cases declaratively anyway
     model: >-
       I would accept it if the loop is a straightforward one-to-one transformation, because
-      `map` then says something the `for` does not: the output has exactly one element per
-      input and nothing exits early. I would push back in three cases. First, if the loop
-      breaks early — `map` and `forEach` cannot stop, so rewriting it either does unnecessary
-      work or quietly changes behaviour; `find` or `some` is usually the right declarative
-      answer there. Second, if it is not one-to-one — building a lookup object, grouping, or
-      producing a different length is a `reduce` or `Object.fromEntries`, not a `map`. Third,
-      if it is a hot path I have actually measured, where the intermediate array matters. What
-      I would not push back with is "I need the index", because `entries()` and `map`'s second
-      argument both supply one.
+      `map` then says something `each` does not: the output has exactly one element per input
+      and nothing exits early. I would push back in three cases. First, if the loop breaks
+      early — `map` cannot stop, so rewriting it either does unnecessary work or quietly
+      changes behaviour; `find` or `any?` is usually the right declarative answer there,
+      though `break` does work inside a Ruby block, so `each` with a `break` is legitimate
+      where JavaScript's `forEach` would force a `for` loop. Second, if it is not one-to-one —
+      building a lookup, grouping, or producing a different length is `each_with_object`,
+      `to_h`, `group_by` or `filter_map`, not a `map`. Third, if it is a hot path I have
+      actually measured, where the intermediate array matters — though measurement in Ruby
+      usually points the other way, since `sum` and `inject(:+)` beat a hand-written loop by
+      twenty times by staying in C. What I would not push back with is "I need the index",
+      because `each_with_index` supplies one.

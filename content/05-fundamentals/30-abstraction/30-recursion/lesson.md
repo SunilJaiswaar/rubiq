@@ -37,29 +37,42 @@ resources:
 
 Sum every number in a nested structure of unknown shape.
 
-```javascript runnable
-const data = [1, [2, 3, [4, [5]]], 6, [[7]]];
+```ruby runnable
+data = [1, [2, 3, [4, [5]]], 6, [[7]]]
 
-// Iteratively: you have to maintain the pending work yourself.
-function sumIterative(input) {
-  let total = 0;
-  const pending = [input];              // an explicit stack
-  while (pending.length > 0) {
-    const item = pending.pop();
-    if (Array.isArray(item)) pending.push(...item);
-    else total += item;
-  }
-  return total;
-}
+# Iteratively: you have to maintain the pending work yourself.
+def sum_iterative(input)
+  total = 0
+  pending = [input]                     # an explicit stack
+  until pending.empty?
+    item = pending.pop
+    if item.is_a?(Array)
+      pending.concat(item)
+    else
+      total += item
+    end
+  end
+  total
+end
 
-// Recursively: the shape of the code is the shape of the data.
-function sumRecursive(input) {
-  if (!Array.isArray(input)) return input;              // base case
-  return input.reduce((acc, item) => acc + sumRecursive(item), 0);
-}
+# Recursively: the shape of the code is the shape of the data.
+def sum_recursive(input)
+  return input unless input.is_a?(Array)      # base case
+  input.sum { |item| sum_recursive(item) }
+end
 
-console.log(sumIterative(data), sumRecursive(data));
+p [sum_iterative(data), sum_recursive(data)]
+
+# And the Ruby answer, which is neither: the standard library already did it.
+p data.flatten.sum
+p data.flatten(1)       # one level only, when you want control
 ```
+
+Worth noticing that `flatten` exists before you write either version. A surprising amount of
+hand-rolled recursion in Ruby codebases is reimplementing `flatten`, `dig`, `deep_merge`,
+`each_with_object` or `Enumerable#sum`. Reach for recursion when the *structure* is genuinely
+yours — a comment tree, a category hierarchy, a directory walk, a parsed document — not when it
+is a nested array.
 
 :::problem
 The iterative version works, and it required inventing a stack, pushing to it, popping
@@ -88,18 +101,35 @@ where the bugs go.
 
 ## What a call actually costs
 
-```javascript runnable
-function three() { return "done"; }
-function two()   { return three(); }
-function one()   { return two(); }
-console.log(one());
+```ruby runnable
+def three = 'done'
+def two = three
+def one = two
+p one
 
-// The stack is visible in any error:
-function deep(n) { if (n === 0) throw new Error("bottom"); return deep(n - 1); }
-try { deep(3); } catch (e) {
-  console.log(e.stack.split("\n").slice(0, 5).join("\n"));
-}
+# The stack is visible in any error:
+def deep(n)
+  raise 'bottom' if n.zero?
+  deep(n - 1)
+end
+
+begin
+  deep(3)
+rescue StandardError => e
+  puts e.backtrace.first(5).join("\n")
+end
+
+# And `caller` gives you the stack without raising anything:
+def show_stack = puts(caller.first(3).join("\n"))
+def middle = show_stack
+def outermost = middle
+outermost
 ```
+
+`caller` returning the stack as an array of strings, at any point, with no exception involved, is
+genuinely useful for debugging — "who called this?" answered in one line. `caller_locations` gives
+the same information as objects with `path`, `lineno` and `label` readers, which is what you want
+if you are doing anything with it other than printing.
 
 :::internals
 ```text
@@ -122,16 +152,56 @@ try { deep(3); } catch (e) {
 The stack is a fixed, small region — typically about 1 MB, set when the thread is created.
 A frame is tens of bytes, so the limit lands in the thousands:
 
-```javascript runnable
-function depth(n = 1) {
-  try { return depth(n + 1); } catch { return n; }
-}
-console.log("max depth here:", depth().toLocaleString());
+```ruby runnable
+def probe_depth(n = 1)
+  probe_depth(n + 1)
+rescue SystemStackError
+  n
+end
 
-// And what hitting it looks like:
-function noBaseCase(n) { return noBaseCase(n + 1); }
-try { noBaseCase(0); } catch (e) { console.log(e.constructor.name + ":", e.message); }
+puts "max depth here: #{probe_depth}"
+
+# And what hitting it looks like:
+def no_base_case(n) = no_base_case(n + 1)
+begin
+  no_base_case(0)
+rescue SystemStackError => e
+  puts "#{e.class}: #{e.message}"
+end
 ```
+
+Measured on ruby 3.4.5 with the default stack, a trivial self-recursive method reaches about
+**10,000 frames**. A method whose frame holds more — several locals, a block — reaches fewer; the
+recursive BST insert from the DSA track dies at around 9,400. "Roughly ten thousand, and fewer as
+the frame grows" is the number to carry.
+
+Two Ruby-specific facts about that limit, both of which matter more than the number:
+
+**`SystemStackError` descends from `Exception`, not `StandardError`.** So a bare `rescue`, a
+`rescue => e`, and the `rescue_from StandardError` in your `ApplicationController` all miss it.
+You have to name it:
+
+```ruby runnable
+def boom(n) = boom(n + 1)
+
+begin
+  begin
+    boom(0)
+  rescue => e                       # bare rescue == rescue StandardError
+    puts "this never runs"
+  end
+rescue SystemStackError
+  puts 'only an explicit `rescue SystemStackError` catches it'
+end
+```
+
+And catching it is a poor plan anyway: the stack is already exhausted, so the handler itself has
+very little room to run in. Bound the depth instead.
+
+**The limit is configurable**, which is worth knowing and almost never worth doing.
+`RUBY_THREAD_VM_STACK_SIZE` raises it for threads, and a `Thread` can be given its own larger
+stack. Reaching for that is a sign the recursion should be iterative — you are buying a larger
+cliff, not removing it.
 
 This matters because **the limit is on nesting, not on work**. An iterative loop can run a
 billion times; a recursive function cannot nest ten thousand deep. Those are different
@@ -141,66 +211,101 @@ resources.
 :::mistakes
 **No base case, or a base case the input can skip past.**
 
-```javascript runnable
-// Looks fine. Overflows for an odd input, because it never equals 0.
-function halveToZero(n) {
-  if (n === 0) return "done";
-  return halveToZero(n - 2);
-}
-try { halveToZero(7); } catch (e) { console.log("odd input:", e.constructor.name); }
+```ruby runnable
+# Looks fine. Overflows for an odd input, because it never equals 0.
+def count_down(n)
+  return 'done' if n.zero?
+  count_down(n - 2)
+end
 
-// Fixed: test a condition the input must eventually satisfy.
-function halveToZeroFixed(n) {
-  if (n <= 0) return "done";
-  return halveToZeroFixed(n - 2);
-}
-console.log("fixed:", halveToZeroFixed(7));
+begin
+  count_down(7)
+rescue SystemStackError => e
+  puts "odd input: #{e.class}"
+end
+
+# Fixed: test a condition the input must eventually satisfy.
+def count_down_fixed(n)
+  return 'done' if n <= 0
+  count_down_fixed(n - 2)
+end
+
+p count_down_fixed(7)
+p count_down_fixed(8)
 ```
+
+The lesson generalises past this one bug: **a base case that tests for equality is a bug waiting
+for an input that steps over it.** `== 0` assumes every path lands exactly on zero. `<= 0` is
+true for everything beyond it, so no input can slip past. The same reasoning applies to
+`n == target` in a search, `index == size` in a walk, and `balance == 0` in anything financial.
 
 Prefer `<=` over `===` for a numeric base case. Equality assumes the input lands exactly on
 your value; an inequality does not.
 
 **The input not actually getting smaller.**
 
-```javascript runnable
-function broken(list) {
-  if (list.length === 0) return 0;
-  return list[0] + broken(list);     // passes the SAME list — never shrinks
-}
-try { broken([1, 2]); } catch (e) { console.log("no progress:", e.constructor.name); }
+```ruby runnable
+def broken(list)
+  return 0 if list.empty?
+  list.first + broken(list)          # passes the SAME list — never shrinks
+end
 
-function fixed(list) {
-  if (list.length === 0) return 0;
-  return list[0] + fixed(list.slice(1));
-}
-console.log("fixed:", fixed([1, 2, 3]));
+begin
+  broken([1, 2])
+rescue SystemStackError => e
+  puts "no progress: #{e.class}"
+end
+
+def fixed(list)
+  return 0 if list.empty?
+  list.first + fixed(list[1..])      # a smaller list each time
+end
+
+p fixed([1, 2, 3])
 ```
+
+`list[1..]` is Ruby's "everything after the first element", and it returns `[]` rather than `nil`
+when the list has one element — so the base case is reached rather than skipped. (`list[1..]` on
+an *empty* array gives `nil`, but the `empty?` guard runs first, so it never happens here. That
+ordering is load-bearing.)
+
+Note also that this version allocates a new array per call, so summing a 10,000-element list
+copies about 50 million elements in total. That is the usual price of the elegant recursive form
+on a sequence, and it is a second reason — beyond stack depth — that `sum` or `reduce` is the
+right tool for a flat list. Recursion earns its cost on *branching* structures, where there is no
+flat iteration to reach for.
 
 Two things must be true and people check only the first: there *is* a base case, and every
 recursive call moves measurably towards it.
 
 **Exponential blowup from recomputing the same subproblem.**
 
-```javascript runnable
-let naiveCalls = 0;
-function fibNaive(n) {
-  naiveCalls++;
-  return n <= 1 ? n : fibNaive(n - 1) + fibNaive(n - 2);
-}
+```ruby runnable
+$naive_calls = 0
+def fib_naive(n)
+  $naive_calls += 1
+  n <= 1 ? n : fib_naive(n - 1) + fib_naive(n - 2)
+end
 
-let memoCalls = 0;
-function fibMemo(n, cache = new Map()) {
-  memoCalls++;
-  if (n <= 1) return n;
-  if (cache.has(n)) return cache.get(n);
-  const result = fibMemo(n - 1, cache) + fibMemo(n - 2, cache);
-  cache.set(n, result);
-  return result;
-}
+$memo_calls = 0
+def fib_memo(n, cache = {})
+  $memo_calls += 1
+  return n if n <= 1
+  cache.fetch(n) { cache[n] = fib_memo(n - 1, cache) + fib_memo(n - 2, cache) }
+end
 
-console.log("fib(30) =", fibNaive(30), "in", naiveCalls.toLocaleString(), "calls");
-console.log("fib(30) =", fibMemo(30),  "in", memoCalls.toLocaleString(), "calls");
+puts "fib(30) = #{fib_naive(30)} in #{$naive_calls} calls"
+puts "fib(30) = #{fib_memo(30)} in #{$memo_calls} calls"
 ```
+
+The gap is 2,692,537 calls against 59 — and the memoised version also returns an exact answer for
+`fib(200)`, because Ruby Integers are arbitrary precision. A language using 64-bit doubles gives a
+silently wrong answer from `fib(79)` onward, which is the first Fibonacci number above 2^53.
+
+`cache.fetch(n) { ... }` rather than `cache[n] ||= ...` for the reason the memoisation lesson
+gives: `||=` cannot distinguish "not computed" from "computed, and the answer is `false` or
+`nil`". It happens not to matter for Fibonacci, where every answer is a non-zero Integer, and it
+matters enormously the first time you memoise a predicate.
 
 :::
 
@@ -229,45 +334,86 @@ bottom-up is the same insight written as a loop.
 **Deep but legitimate recursion.** The base case is correct, the input shrinks, and it
 still overflows — because the data is genuinely deep.
 
-```javascript runnable
-// A 50,000-node linked list. Nothing is wrong with the recursion.
-let list = null;
-for (let i = 0; i < 50_000; i++) list = { value: i, next: list };
+```ruby runnable
+# A 50,000-node linked list. Nothing is wrong with the recursion.
+Node = Struct.new(:value, :next_node)
 
-function lengthRecursive(node) {
-  return node === null ? 0 : 1 + lengthRecursive(node.next);
-}
-try { lengthRecursive(list); } catch (e) { console.log("legitimate depth:", e.constructor.name); }
+list = nil
+50_000.times { |i| list = Node.new(i, list) }
 
-// An explicit stack moves the frames to the heap, which is large.
-function lengthIterative(node) {
-  let n = 0;
-  while (node !== null) { n++; node = node.next; }
-  return n;
-}
-console.log("iterative:", lengthIterative(list).toLocaleString());
+def length_recursive(node)
+  node.nil? ? 0 : 1 + length_recursive(node.next_node)
+end
+
+begin
+  length_recursive(list)
+rescue SystemStackError => e
+  puts "legitimate depth: #{e.class}"
+end
+
+# Iteration keeps the state in one frame, on the heap, which is large.
+def length_iterative(node)
+  count = 0
+  until node.nil?
+    count += 1
+    node = node.next_node
+  end
+  count
+end
+
+p length_iterative(list)
 ```
+
+This is the honest case against recursion, and it is not about style. The recursion is correct,
+clear and matches the data's definition — and it cannot run, because the data is 50,000 deep and
+the stack holds about 10,000 frames. No amount of good taste fixes that.
+
+The rule that follows: **recursion is fine when the depth is bounded by something you control, and
+a bug when the depth is bounded by your data.** A balanced tree of a million nodes is 20 deep and
+recursion is ideal. A linked list, a linear chain, a degenerate tree, or anything whose depth
+scales with input size needs iteration or an explicit stack.
 
 **The rule for production code: if the depth depends on input you do not control, do not
 use the call stack.** A JSON parser, a directory walker, a comment-tree renderer — all of
 these have been the cause of real outages when someone submitted deeply nested input.
 Converting to an explicit stack is the fix, and it is also a denial-of-service mitigation.
 
-```javascript runnable
-// Walking arbitrary nested data safely: explicit stack, bounded depth.
-function walkSafely(root, maxDepth = 1000) {
-  const out = [];
-  const stack = [[root, 0]];
-  while (stack.length) {
-    const [node, depth] = stack.pop();
-    if (depth > maxDepth) throw new Error(`Nesting exceeded ${maxDepth}`);
-    if (Array.isArray(node)) { for (const c of node) stack.push([c, depth + 1]); }
-    else out.push(node);
-  }
-  return out;
-}
-console.log(walkSafely([1, [2, [3, [4]]]]));
+```ruby runnable
+# Walking arbitrary nested data safely: explicit stack, bounded depth.
+def walk_safely(root, max_depth: 1000)
+  out = []
+  stack = [[root, 0]]
+  until stack.empty?
+    node, depth = stack.pop
+    raise ArgumentError, "nesting exceeded #{max_depth}" if depth > max_depth
+
+    if node.is_a?(Array)
+      node.each { |child| stack << [child, depth + 1] }
+    else
+      out << node
+    end
+  end
+  out
+end
+
+p walk_safely([1, [2, [3, [4]]]])
+
+begin
+  deep = (1..2000).reduce(0) { |acc, _| [acc] }   # 2,000 levels of nesting
+  walk_safely(deep, max_depth: 100)
+rescue ArgumentError => e
+  puts "#{e.class}: #{e.message}"
+end
 ```
+
+Two properties make this safe rather than merely iterative. The stack lives on the heap, so depth
+is limited by memory rather than by 10,000 frames. And the depth is *bounded explicitly*, which
+matters whenever the structure came from outside: a deeply nested JSON payload is a few kilobytes
+that costs an unbounded recursive walker its entire stack.
+
+For JSON specifically Ruby already does this — `JSON.parse` enforces `max_nesting: 100` and raises
+`JSON::NestingError` — but `params`, YAML and your own recursive validators are not covered, so
+the bound belongs in your walker.
 :::
 
 :::internals
@@ -277,18 +423,74 @@ A *tail call* is a recursive call that is the very last thing the function does 
 is waiting on its result. In principle the engine can reuse the current frame rather than
 pushing a new one, turning the recursion into a loop with no depth limit.
 
-```javascript runnable
-// NOT a tail call: the multiplication happens after the call returns.
-const factNotTail = (n) => (n <= 1 ? 1 : n * factNotTail(n - 1));
+```ruby runnable
+# NOT a tail call: the multiplication happens after the call returns, so the
+# frame has to stay alive to do it.
+def fact_not_tail(n) = n <= 1 ? 1 : n * fact_not_tail(n - 1)
 
-// A tail call: the recursive call is the entire return expression.
-const factTail = (n, acc = 1) => (n <= 1 ? acc : factTail(n - 1, n * acc));
+# A tail call: the recursive call is the entire return expression, so this
+# frame has nothing left to do.
+def fact_tail(n, acc = 1) = n <= 1 ? acc : fact_tail(n - 1, n * acc)
 
-console.log(factNotTail(10), factTail(10));
+p [fact_not_tail(10), fact_tail(10)]
 
-// But in JavaScript both still overflow — TCO is specified and not implemented.
-try { factTail(200_000); } catch (e) { console.log("tail call, still:", e.constructor.name); }
+# By default Ruby does NOT optimise tail calls, so both still overflow:
+begin
+  fact_tail(100_000)
+rescue SystemStackError => e
+  puts "tail call, still: #{e.class}"
+end
 ```
+
+Ruby does have tail-call optimisation. It is off by default, and switching it on is a compile
+option rather than a runtime flag — so it applies to code compiled with it, not to code already
+loaded:
+
+```ruby runnable
+source = <<~RUBY
+  def fact_tail(n, acc = 1)
+    return acc if n <= 1
+    fact_tail(n - 1, n * acc)
+  end
+  fact_tail(100_000).to_s.size
+RUBY
+
+iseq = RubyVM::InstructionSequence.compile(
+  source, nil, nil, 1,
+  tailcall_optimization: true,
+  trace_instruction: false,
+)
+
+puts "digits in 100,000! = #{iseq.eval}"
+```
+
+That runs 100,000 frames deep and returns the number of digits in 100,000 factorial — 456,574 of
+them — where the same code without the option raises `SystemStackError`.
+
+It is a genuinely interesting capability and you should almost certainly not use it. It is not
+widely exercised, it makes backtraces unhelpful by removing the frames they would have named, it
+applies per compilation unit so reasoning about what is optimised is awkward, and nothing in the
+ecosystem assumes it. Know it exists so you can answer the question; write a loop in production.
+
+The transferable part is recognising a tail call at all. `fact_tail` keeps a running accumulator
+so the frame has no work left after the recursive call — and that rewrite is exactly what turns
+the recursion into a loop by hand:
+
+```ruby runnable
+def fact_loop(n)
+  acc = 1
+  while n > 1
+    acc *= n
+    n -= 1
+  end
+  acc
+end
+
+p fact_loop(100_000).to_s.size      # 456574, no stack growth at all
+```
+
+An accumulator parameter and a loop variable are the same idea. If you can write the tail-call
+version, you can write the loop — and in Ruby that is the version to ship.
 
 Tail-call optimisation is in the ES2015 specification and, apart from Safari, no major
 engine implements it. So **writing tail-recursively in JavaScript buys you nothing**.
@@ -317,26 +519,41 @@ because a crash is not an acceptable response to a deeply nested payload.
 :::
 
 :::realworld
-```javascript runnable
-// Recursion is the natural fit here — a comment tree of unknown depth.
-const thread = {
-  id: 1, text: "root",
+```ruby runnable
+# Recursion is the natural fit here — a comment tree of unknown depth.
+thread = {
+  id: 1, text: 'root',
   replies: [
-    { id: 2, text: "a", replies: [{ id: 4, text: "a.1", replies: [] }] },
-    { id: 3, text: "b", replies: [] },
+    { id: 2, text: 'a', replies: [{ id: 4, text: 'a.1', replies: [] }] },
+    { id: 3, text: 'b', replies: [] },
   ],
-};
-
-function countComments(node) {
-  return 1 + node.replies.reduce((n, r) => n + countComments(r), 0);
-}
-function flatten(node, depth = 0) {
-  return [{ id: node.id, depth }, ...node.replies.flatMap((r) => flatten(r, depth + 1))];
 }
 
-console.log("total:", countComments(thread));
-console.log(flatten(thread).map((c) => "  ".repeat(c.depth) + c.id).join("\n"));
+def count_comments(node) = 1 + node[:replies].sum { |r| count_comments(r) }
+
+def flatten_thread(node, depth = 0)
+  [{ id: node[:id], depth: depth }] +
+    node[:replies].flat_map { |r| flatten_thread(r, depth + 1) }
+end
+
+puts "total: #{count_comments(thread)}"
+puts flatten_thread(thread).map { |c| ('  ' * c[:depth]) + c[:id].to_s }.join("\n")
 ```
+
+This is the shape worth recognising, because it is the one you will actually meet: a comment
+thread, a category tree, a file tree, a nested menu, an org chart, a parsed document. The depth is
+unknown, it is small in practice, and the recursive version is three lines where an iterative one
+is fifteen.
+
+The Rails note that makes it real: fetching that tree with recursion means a query per level,
+which is the N+1 problem with a variable N. The usual answers are to denormalise the structure so
+one query returns it all — a `path` column of ancestor ids, a nested-set `lft`/`rgt` pair, or what
+the `ancestry` and `closure_tree` gems provide — or to let PostgreSQL walk it with a recursive
+CTE. Recursion in Ruby over data already in memory is cheap; recursion that issues a query per
+step is the expensive kind, and no amount of elegance in the Ruby fixes it.
+
+And bound the depth anyway if the structure is user-generated. A comment thread 20,000 replies
+deep is a valid thing for someone to construct, and it will take your stack with it.
 
 Where you will meet recursion in real systems: JSON and HTML parsing, directory traversal,
 tree and graph algorithms, query planners, template rendering, diffing algorithms

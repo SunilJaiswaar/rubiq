@@ -41,30 +41,35 @@ questions:
     explanation: >-
       A cache answers "what did this return for these arguments last time?" That is only a
       valid substitute for calling again if the function promises the same output for the
-      same input. Memoising `(amount) => amount * currentRate` would pin the first rate
+      same input. Memoising `def tax(amount) = amount * $current_rate` would pin the first rate
       forever and the bug would be invisible at the call site.
 
-  - id: default-param-python
+  - id: default-param-evaluation
     kind: choice
     concept: functions
-    prompt: "`def add(item, lst=[]): lst.append(item); return lst` in Python. Calling `add('a')` then `add('b')` gives?"
+    prompt: "`def add(item, list = []) = list << item` in Ruby. Calling `add('a')` then `add('b')` gives?"
     options:
-      - text: "`['a']` then `['a', 'b']` — the default is evaluated once, at definition time"
+      - text: "`['a']` then `['b']` — the default expression is evaluated on every call"
         correct: true
         feedback: >-
-          The classic Python mutable-default trap. The fix is `lst=None` and
-          `lst = [] if lst is None else lst`.
-      - text: "`['a']` then `['b']` — a fresh list each call"
+          Each call builds a fresh array. Ruby evaluates the default in the method's own
+          scope, which is also why a default can refer to a parameter to its left.
+      - text: "`['a']` then `['a', 'b']` — the default is evaluated once, at definition time"
         feedback: >-
-          That is JavaScript's behaviour. Python evaluates the default once and reuses that
-          object.
+          That is Python's behaviour, and its most famous gotcha. Ruby re-evaluates the
+          default on each call, so the identical-looking code is safe here.
       - text: It raises an error on the second call
-        feedback: No error — it silently accumulates, which is what makes it hard to spot.
+        feedback: No error, and nothing accumulates — each call gets its own array.
     explanation: >-
-      Python evaluates default arguments once, when the function is defined, so a mutable
-      default is shared across every call for the lifetime of the program. JavaScript
-      re-evaluates the default on each call, so the identical-looking code is safe there.
-      Same syntax, opposite semantics — worth knowing which language you are in.
+      Ruby evaluates a default argument expression every time the method is called, in the
+      method's own scope. So a mutable default is created fresh per call and cannot leak
+      between them, and a default can reference parameters declared before it —
+      `def page(number, per_page = 20, offset = (number - 1) * per_page)` works. Python
+      evaluates defaults once, when the function object is created, so the same syntax
+      shares one list across every call for the lifetime of the program and is the single
+      most-reported Python surprise. JavaScript behaves like Ruby here. Same syntax, three
+      languages, two different semantics — worth knowing which one you are in, especially
+      if you move between Ruby and Python for ML work.
 
   - id: and-in-name
     kind: choice
@@ -90,10 +95,10 @@ questions:
     kind: choice
     concept: side-effects
     prompt: >-
-      `const isExpired = (token) => token.expiresAt < Date.now()`. What is the cheapest
-      change that makes it testable?
+      `def expired?(token) = token[:expires_at] < Time.now`. What is the cheapest change
+      that makes it testable?
     options:
-      - text: "Add a defaulted parameter: `(token, now = Date.now())`"
+      - text: "Add a defaulted keyword argument: `def expired?(token, now: Time.now)`"
         correct: true
         feedback: >-
           Existing callers are unaffected and tests can pass a fixed time. The smallest

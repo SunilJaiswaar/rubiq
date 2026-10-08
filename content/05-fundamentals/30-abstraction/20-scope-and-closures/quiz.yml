@@ -4,147 +4,228 @@ questions:
     kind: choice
     concept: lexical-scoping
     prompt: |
-      ```javascript
-      const name = "global";
-      function whoAmI() { return name }
-      function caller() { const name = "caller"; return whoAmI() }
-      console.log(caller());
+      ```ruby
+      message = 'defined here'
+      show = -> { message }
+
+      def elsewhere(callable)
+        message = 'called here'
+        callable.call
+      end
+
+      p elsewhere(show)
       ```
       What prints, and why?
     options:
-      - text: '`"global"` — names resolve through the enclosing text, not the call stack'
+      - text: '`"defined here"` — names resolve through the enclosing text, not the call stack'
         correct: true
         feedback: >-
-          That is lexical scoping, and it is what makes a function readable without knowing
-          its callers.
-      - text: '`"caller"` — the nearest value on the call stack wins'
+          That is lexical scoping, and it is what makes a lambda readable without knowing
+          who calls it.
+      - text: '`"called here"` — the nearest value on the call stack wins'
         feedback: >-
           That would be *dynamic* scoping. Bash has it; almost no modern language does,
           precisely because it makes functions unreadable in isolation.
-      - text: "`undefined`"
-        feedback: "`name` is found — just the one that textually encloses `whoAmI`."
+      - text: "`nil`"
+        feedback: "`message` is found — just the one that textually encloses the lambda."
     explanation: >-
-      JavaScript resolves names lexically: outward through the blocks that enclose the code
-      where the function was *written*. `caller`'s local `name` does not enclose `whoAmI`, so
-      it is never consulted. The alternative — resolving through the call stack — means a
-      function's behaviour depends on who called it, which is why it was abandoned.
+      Ruby resolves names lexically: outward through the scopes that enclose the place the
+      code was *written*. `elsewhere`'s local `message` does not enclose the lambda, so it is
+      never consulted — and in fact `def elsewhere` opens a scope that cannot see the outer
+      `message` either, in both directions. The alternative, resolving through the call
+      stack, means a method's behaviour depends on who called it, which is why it was
+      abandoned. Ruby keeps two small pieces of dynamic scope — global variables and
+      `Thread.current` — and both are discouraged for exactly this reason.
 
-  - id: var-loop
-    kind: choice
-    concept: closures
-    prompt: "`for (var i = 0; i < 3; i++) fns.push(() => i)` — why do all three return 3?"
-    options:
-      - text: "`var` is function-scoped, so there is one binding; by the time the closures ran, it held 3"
-        correct: true
-        feedback: >-
-          `let` creates a fresh binding per iteration, which is specified behaviour, not a
-          side effect.
-      - text: Closures capture values at call time rather than definition time
-        feedback: >-
-          They capture the *binding*. With `let` the same code gives 0, 1, 2 — so capture
-          timing is not the difference.
-      - text: Arrow functions cannot capture loop variables
-        feedback: They capture fine; the question is how many bindings there were to capture.
-    explanation: >-
-      There is exactly one `i` for the whole function, so all three closures reference the
-      same box — and that box holds 3 once the loop exits. `let` is block-scoped and the
-      specification creates a new binding for each iteration, so each closure captures its
-      own. Before `let`, developers created the per-iteration scope by hand with an IIFE —
-      that is what all those wrapper functions in older code were doing.
-
-  - id: tdz
+  - id: def-no-closure
     kind: choice
     concept: scope
-    prompt: "What is the difference between `var` and `let` with respect to hoisting?"
+    prompt: |
+      ```ruby
+      def outer
+        secret = 'hidden'
+
+        def inner
+          secret
+        end
+
+        inner
+      end
+
+      outer
+      ```
+      What happens?
     options:
-      - text: Both are hoisted, but only `var` is initialised to `undefined` — reading a `let` before its declaration throws
+      - text: "`NameError` — `def` opens a fresh scope that cannot see the enclosing locals"
         correct: true
         feedback: >-
-          That gap is the temporal dead zone, and it turns a silent `undefined` into a loud
-          error.
-      - text: "`let` is not hoisted at all"
+          Use a lambda or `define_method` when you need to close over something. This is the
+          biggest scoping difference between Ruby and JavaScript or Python.
+      - text: "It returns `\"hidden\"` — nested definitions close over their enclosing scope"
         feedback: >-
-          It is hoisted — that is how the engine knows to throw rather than looking at an
-          outer scope.
-      - text: "`var` is not hoisted; `let` is"
-        feedback: Backwards. `var` hoisting initialised to `undefined` is the older behaviour.
+          That is what JavaScript and Python do. In Ruby only blocks, procs, lambdas and
+          `define_method` close over; `def` does not.
+      - text: "It returns `nil`, because `secret` is treated as an uninitialised local"
+        feedback: >-
+          Inside `inner` the name is not a known local at all, so Ruby treats it as a method
+          call and raises `NameError`.
     explanation: >-
-      Both declarations are hoisted to the top of their scope. `var` is initialised to
-      `undefined`, so reading it early is legal and silently gives you `undefined`. `let` and
-      `const` are left uninitialised, and reading one in that window throws a ReferenceError.
-      That window is the temporal dead zone, and it exists to convert a silent wrong value
-      into an immediate error.
+      `def` creates a scope with nothing inherited — no locals from around it, in either
+      direction. Blocks, procs, lambdas and `define_method` all capture their surroundings.
+      This is why `define_method` exists and is not merely a dynamic alternative to `def`: it
+      is the only way to define a *method* that closes over a value, which is how most of the
+      methods Rails generates capture their configuration. A nested `def` is also not scoped
+      to the outer method the way it looks — it defines the method on the enclosing class, so
+      calling `outer` twice redefines `inner` rather than creating two of them.
 
-  - id: arrow-this
+  - id: for-loop-binding
     kind: choice
     concept: closures
-    prompt: "Inside `obj.method()`, why does `arr.forEach(function() { this.count++ })` fail where `arr.forEach(() => { this.count++ })` works?"
+    prompt: "`fns = []; for i in [0, 1, 2]; fns << -> { i }; end` — why do all three lambdas return 2?"
     options:
-      - text: An arrow closes over `this` lexically; a regular function receives `this` from its own call site
+      - text: "`for` does not create a scope, so there is one binding for `i`, and it holds 2 once the loop ends"
         correct: true
         feedback: >-
-          `forEach` calls the regular callback with no receiver, so `this` is not `obj`. The
-          arrow keeps the enclosing `this`.
-      - text: Regular functions cannot access `this` at all
-        feedback: They can — it just is not the object you expected.
-      - text: "`forEach` deliberately strips `this`"
+          `[0, 1, 2].each { |i| fns << -> { i } }` gives `[0, 1, 2]`, because a block
+          parameter is a fresh binding per iteration.
+      - text: Closures capture values at call time rather than definition time
         feedback: >-
-          It simply calls the function without a receiver; the behaviour follows from how
-          regular functions bind `this`.
+          They capture the *binding*. With `each` the same code gives 0, 1, 2 — so capture
+          timing is not the difference.
+      - text: Lambdas cannot capture loop variables
+        feedback: They capture fine; the question is how many bindings there were to capture.
     explanation: >-
-      `this` is the one thing in JavaScript that is *not* lexically scoped in a regular
-      function — it is determined by how the function is called. `forEach` invokes the
-      callback with no receiver, so `this` is `undefined` in strict mode. An arrow function
-      has no `this` of its own and closes over the enclosing one, which is the main practical
-      reason to prefer arrows for callbacks.
+      There is exactly one `i` for the whole `for` loop, so all three lambdas reference the
+      same binding, and that binding holds 2 after the loop exits. It also leaks: `i` is
+      still defined afterwards. Every block-based iterator — `each`, `map`, `times`,
+      `each_with_index` — gives each iteration its own binding, so the bug cannot occur.
+      This is identical to JavaScript's `var`-in-a-loop problem, which `let` was introduced
+      to fix; in Ruby it belongs to `for` alone, and is the clearest single reason `for` has
+      effectively vanished from Ruby code.
+
+  - id: parse-time-locals
+    kind: choice
+    concept: scope
+    prompt: |
+      ```ruby
+      def maybe(flag)
+        if flag
+          answer = 'yes'
+        end
+        answer
+      end
+
+      p maybe(false)
+      ```
+      What does this print?
+    options:
+      - text: "`nil` — the parser created the local when it saw the assignment, even though it never ran"
+        correct: true
+        feedback: >-
+          Which is why `if`-assigned variables are a quiet source of `NoMethodError ... for
+          nil` later on. Make the `if` an expression and assign its value instead.
+      - text: "It raises `NameError`, because the assignment never executed"
+        feedback: >-
+          Ruby decides a name is a local at parse time, not run time. Referencing it
+          *before* the assignment appears in the source would raise; after it, you get nil.
+      - text: "`\"yes\"` — `if` creates a scope whose last value leaks out"
+        feedback: "`if` does not create a scope, and the branch did not run."
+    explanation: >-
+      Ruby marks a name as a local variable when the *parser* sees an assignment to it, not
+      when the assignment executes. So after that line appears in the source the name exists
+      and defaults to `nil`, whether or not the branch ran; before it appears, the same
+      reference raises `NameError`. That gives a useful diagnostic rule: a `NameError` for a
+      local means you referenced it above its assignment or misspelled it, while a surprising
+      `nil` means the assignment is below you and did not run. The idiomatic fix is to make
+      the conditional an expression — `answer = if flag then 'yes' else 'no' end` — so every
+      branch produces a value and a missing case is visible in the shape of the code.
+
+  - id: block-self
+    kind: choice
+    concept: closures
+    prompt: >-
+      Inside an instance method, `[1, 2].each { @count += 1 }` updates the right object. Inside
+      `other.instance_eval { @count += 1 }`, it updates `other`. Why?
+    options:
+      - text: A block inherits `self` from where it was written, and `instance_eval` deliberately re-points `self` at its receiver
+        correct: true
+        feedback: >-
+          That re-pointing is the mechanism behind `routes.draw`, RSpec's `describe`, a
+          Gemfile and every other Ruby DSL.
+      - text: Blocks have no `self`, so it is always the top-level `main`
+        feedback: >-
+          A block does have `self` — the one from its defining context, which is why
+          instance variables work inside blocks at all.
+      - text: "`each` strips `self` and `instance_eval` restores it"
+        feedback: >-
+          `each` does nothing to `self`. Only `instance_eval`, `instance_exec` and
+          `class_eval` change it.
+    explanation: >-
+      A closure captures `self` along with the local bindings, and it captures it lexically —
+      so a block inside an instance method sees that instance, and instance variables behave
+      as you would expect. There is no equivalent of JavaScript's regular-versus-arrow
+      function split, where `this` depends on how the function is called; that whole bug class
+      does not exist in Ruby. What does exist is the deliberate version: `instance_eval` and
+      `instance_exec` run a block with `self` set to the receiver, which is how Ruby DSLs turn
+      a block into a configuration language. The trade is real — inside such a block the
+      caller's own methods may be unreachable, which is confusing to debug — so `yield obj` is
+      the safer convention for an ordinary API and `instance_eval` is for when you are
+      deliberately building a DSL.
 
   - id: closure-leak
     kind: choice
     concept: closures
     prompt: >-
-      A function builds an 8 MB array, computes its length, and returns `() => length`. Why
-      might the 8 MB stay in memory?
+      A method builds an 8 MB array, computes its `size`, and returns `-> { size }`. Why might
+      the 8 MB stay in memory, and how would you prove it?
     options:
-      - text: The closure captures the whole enclosing scope, so the array remains reachable while the function does
+      - text: "The lambda captures the whole enclosing binding, so the array stays reachable — `lambda.binding.local_variables` lists it"
         correct: true
         feedback: >-
-          Compute in a narrower inner scope so the large value is never part of the captured
-          environment.
+          Compute the value in a separate method so the large object is never a local in the
+          capturing scope.
       - text: Arrays over a certain size are never garbage collected
         feedback: Size is irrelevant to collection — reachability is what matters.
-      - text: Returning a closure always leaks
+      - text: Returning a lambda always leaks
         feedback: >-
-          Only if the captured scope holds something large. A closure over a single number
+          Only if the captured binding holds something large. A closure over a single Integer
           is cheap.
     explanation: >-
-      A closure keeps its defining scope alive, not just the variables it visibly uses.
-      Engines sometimes optimise away unused captures, but you cannot rely on it — `eval` or
-      an attached debugger defeats the analysis. This is the most common JavaScript memory
-      leak: a long-lived handler or cache entry whose closure retains a scope containing
-      something big. The fix is structural: compute in an inner function so the large value
-      dies with it.
+      A closure keeps its defining scope alive, not just the variables it visibly uses, and
+      Ruby lets you see exactly what that is: `Proc#binding` returns the captured scope as an
+      object, and `binding.local_variables` names everything it is holding. So the leak is
+      provable rather than inferred, which is an advantage over the equivalent JavaScript
+      situation where engines may or may not optimise away unused captures. The fix is
+      structural — compute the value in another method, so the large object dies with that
+      frame — and the risk is concentrated in closures that outlive a request: a memoised
+      callback, an `around_action`, an `ActiveSupport::Notifications` subscriber, or anything
+      registered at boot. A closure created and dropped per request cannot hold much for long.
 
   - id: explain-stale-closure
     kind: recall
     concept: closures
     prompt: >-
-      A React colleague has a `setInterval` callback that keeps logging the initial value of
-      a state variable, not the current one. Explain the cause in closure terms.
+      A colleague registers a callback at boot that reads a setting, then changes the setting at
+      runtime and finds the callback still uses the old value. Explain the cause in closure
+      terms, and give two fixes.
     key_points:
-      - The effect ran once, so the callback closed over the binding from that render
-      - Each render creates new bindings; the interval still holds the first render's
-      - Closures capture bindings from where they were defined, not where they run
-      - It is the same mechanism as the `var` loop — one captured binding, read later
-      - Fix by adding the value to the dependency array so the effect re-subscribes
-      - Or use a ref, which is a stable box whose current value can be read
+      - The closure was created once and captured the binding as it was at that moment
+      - A closure captures the binding, so a *reassignment* elsewhere is not visible to it
+      - If it captured the object and the object were mutated, it WOULD see the change
+      - So the distinction is reassignment versus mutation, exactly as in the values lesson
+      - Fix by closing over something stable and reading through it at call time
+      - Or re-register the callback when the setting changes
     model: >-
-      The interval callback was created during one particular render and closed over that
-      render's bindings. Every render creates a fresh set, so the state variable the callback
-      can see is permanently the one from the render in which the effect ran — it has no way
-      to reach the newer binding, because lookup is lexical and resolved where the function
-      was written. It is structurally the same bug as `var` in a loop: a closure holding one
-      binding and being read long after the surrounding code moved on. The fixes follow from
-      that framing. Either add the value to the dependency array so the effect tears down and
-      re-subscribes with a callback closing over the new binding, or keep the value in a ref —
-      a stable object whose `.current` can be read at call time, so there is one box rather
-      than one per render.
+      The callback was built once, at boot, and captured the binding that existed then. The
+      important distinction is between reassignment and mutation. If the setting was later
+      replaced — a new object assigned to a different variable, or a fresh config object built
+      — the closure cannot see it, because it holds the old binding and lookup is lexical. If
+      instead the same object had been mutated in place, the closure would see the change,
+      because it captured a reference to that object rather than a copy. That is the same
+      reassignment-versus-mutation split as the names-and-values lesson, showing up a layer
+      out. The fixes follow from the framing. Either close over something stable and read
+      through it at call time — the config object itself, or a lambda that fetches the current
+      value, so the indirection happens on each call rather than once at capture — or treat
+      the callback as derived state and re-register it when the setting changes. The one thing
+      not to do is capture the value and hope, because nothing will report it: the callback
+      keeps working and keeps being wrong.

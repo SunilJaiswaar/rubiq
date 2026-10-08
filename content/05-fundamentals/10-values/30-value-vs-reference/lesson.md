@@ -92,7 +92,7 @@ have to know which one you are getting.
 
 :::how
 ```text
-  const config = { ...defaults }
+  config = defaults.dup
 
   defaults ──▶ ┌──────────────────────┐
                │ retries: 3           │

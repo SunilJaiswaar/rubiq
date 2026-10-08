@@ -39,22 +39,34 @@ resources:
 
 Not "reuse". Reuse is a happy consequence.
 
-```javascript runnable
-// Inline: the reader must work out what this computes before they can judge it.
-const subtotal = 100 * 3;
-const withTax = subtotal + subtotal * 0.18;
-const withShipping = withTax + (withTax > 500 ? 0 : 50);
-console.log(withShipping);
+```ruby runnable
+# Inline: the reader must work out what this computes before they can judge it.
+subtotal = 100 * 3
+with_tax = subtotal + (subtotal * 0.18)
+with_shipping = with_tax + (with_tax > 500 ? 0 : 50)
+p with_shipping
 ```
 
-```javascript runnable
-// Named: the reader can decide whether to look inside.
-const subtotal = (price, qty) => price * qty;
-const withTax = (amount, rate = 0.18) => amount + amount * rate;
-const withShipping = (amount, freeOver = 500) => amount + (amount > freeOver ? 0 : 50);
+```ruby runnable
+# Named: the reader can decide whether to look inside.
+def subtotal(price, qty) = price * qty
+def with_tax(amount, rate: 0.18) = amount + (amount * rate)
+def with_shipping(amount, free_over: 500) = amount + (amount > free_over ? 0 : 50)
 
-console.log(withShipping(withTax(subtotal(100, 3))));
+p with_shipping(with_tax(subtotal(100, 3)))
 ```
+
+Three Ruby things are already visible. The endless method definition `def name(args) = expr`,
+added in Ruby 3.0, is for exactly this case: a method whose whole body is one expression. It is
+not a lambda — it is a real method, with a name that appears in backtraces.
+
+The optional parameters are *keyword* arguments, not positional ones with defaults. That is
+Ruby's native answer to a problem the JavaScript version of this lesson had to solve by passing
+an options object, and it is covered properly below.
+
+And there is no `return`. A Ruby method returns its last expression, so an explicit `return` is
+reserved for leaving early. Writing `return` on the final line is harmless and reads, to a Ruby
+reader, as a small signal that the author is translating from somewhere else.
 
 :::problem
 A program of any size is too large to hold in your head at once. The only defence is to be
@@ -85,29 +97,43 @@ property real.
 
 ## Pure, and not
 
-```javascript runnable
-// Pure: input in, value out, nothing touched.
-const taxOn = (amount, rate) => amount * rate;
-console.log(taxOn(100, 0.18), taxOn(100, 0.18));   // identical, always
+```ruby runnable
+# Pure: input in, value out, nothing touched.
+def tax_on(amount, rate) = amount * rate
+p [tax_on(100, 0.18), tax_on(100, 0.18)]    # identical, always
 
-// Impure: reads mutable external state. Same arguments, different answers.
-let currentRate = 0.18;
-const taxOnImpure = (amount) => amount * currentRate;
-console.log(taxOnImpure(100));
-currentRate = 0.28;
-console.log(taxOnImpure(100));   // changed, and the call site looks the same
+# Impure: reads mutable external state. Same arguments, different answers.
+$current_rate = 0.18
+def tax_on_impure(amount) = amount * $current_rate
+p tax_on_impure(100)
+$current_rate = 0.28
+p tax_on_impure(100)    # changed, and the call site looks the same
 
-// Impure: mutates its argument. The caller's data is now different.
-const addTaxBad = (order) => { order.total *= 1.18; return order; };
-const myOrder = { total: 100 };
-addTaxBad(myOrder);
-console.log("caller's order was modified:", myOrder);
+# Impure: mutates its argument. The caller's data is now different.
+def add_tax_bad(order)
+  order[:total] *= 1.18
+  order
+end
+my_order = { total: 100 }
+add_tax_bad(my_order)
+p my_order              # the caller's hash was modified
 
-// Pure version: returns a new value.
-const addTaxGood = (order) => ({ ...order, total: order.total * 1.18 });
-const o = { total: 100 };
-console.log(addTaxGood(o), "original intact:", o);
+# Pure version: returns a new value.
+def add_tax_good(order) = order.merge(total: order[:total] * 1.18)
+o = { total: 100 }
+p add_tax_good(o)
+p o                     # original intact
 ```
+
+A global like `$current_rate` is deliberately ugly, and in Ruby it is rare. The realistic
+versions of the same impurity are much easier to write by accident: a class variable
+(`@@rate`), a constant that was never frozen, a `Thread.current[:tenant]`, a `Rails.cache`
+read, or `Time.now`. All of them make the function's answer depend on something the call site
+cannot see.
+
+The in-place version is worth one more look, because Ruby has a naming convention that would
+have warned the caller and this code did not use it. A method that mutates its argument and
+returns it should be `add_tax!`, and better still should not take someone else's hash at all.
 
 :::how
 Purity buys you specific, mechanical properties:
@@ -124,21 +150,37 @@ Purity buys you specific, mechanical properties:
 
 The caching one is worth seeing, because it only works for pure functions:
 
-```javascript runnable
-function memoize(fn) {
-  const cache = new Map();
-  return (...args) => {
-    const key = JSON.stringify(args);
-    if (!cache.has(key)) cache.set(key, fn(...args));
-    return cache.get(key);
-  };
-}
+```ruby runnable
+def memoize(&fn)
+  cache = {}
+  # `args` is an Array, and Ruby Arrays hash by value — so the argument list
+  # IS the cache key. No JSON.stringify, no string building.
+  ->(*args) { cache.fetch(args) { cache[args] = fn.call(*args) } }
+end
 
-let calls = 0;
-const slowSquare = (n) => { calls++; return n * n; };
-const fast = memoize(slowSquare);
+calls = 0
+fast = memoize { |n| calls += 1; n * n }
 
-console.log(fast(9), fast(9), fast(9), "— underlying calls:", calls);
+p [fast.call(9), fast.call(9), fast.call(9)]
+p calls                 # 1 — the underlying block ran once
+```
+
+`cache.fetch(args) { ... }` rather than `cache[args] ||= ...` is the important detail, and it is
+the same trap as in the memoisation lesson: `||=` treats a cached `false` or `nil` as a miss, so
+a memoised predicate would recompute every negative answer forever. `fetch` with a block only
+runs the block when the key is genuinely absent.
+
+```ruby runnable
+# The difference, demonstrated.
+calls = 0
+with_fetch = (cache = {}; ->(n) { cache.fetch(n) { cache[n] = (calls += 1; false) } })
+with_fetch.call(1); with_fetch.call(1); with_fetch.call(1)
+p calls      # 1 — cached correctly
+
+calls = 0
+with_or_eq = (cache = {}; ->(n) { cache[n] ||= (calls += 1; false) })
+with_or_eq.call(1); with_or_eq.call(1); with_or_eq.call(1)
+p calls      # 3 — the false is never treated as cached
 ```
 
 Memoising `taxOnImpure` would be a bug: it would return the old rate forever. The cache is
@@ -150,37 +192,50 @@ only correct because the function promised the same output for the same input.
 A program with no side effects does nothing. The goal is not to eliminate them but to
 **separate deciding from doing**.
 
-```javascript runnable
-// Everything tangled: decisions and effects in one function.
-function processOrderTangled(id) {
-  // (pretend) const order = db.find(id)
-  const order = { id, total: 100, country: "IN" };
-  const rate = order.country === "IN" ? 0.18 : 0.0;
-  order.total += order.total * rate;
-  // db.save(order); emailCustomer(order);
-  console.log("tangled → saved and emailed", order.total);
-}
+```ruby runnable
+# Everything tangled: decisions and effects in one method.
+def process_order_tangled(id)
+  order = { id: id, total: 100, country: 'IN' }   # pretend: Order.find(id)
+  rate = order[:country] == 'IN' ? 0.18 : 0.0
+  order[:total] += order[:total] * rate
+  # order.save!; OrderMailer.confirmation(order).deliver_later
+  puts "tangled → saved and emailed #{order[:total]}"
+end
 
-// Separated: a pure core that decides, a thin shell that acts.
-const rateFor = (country) => (country === "IN" ? 0.18 : 0);
-const priceOrder = (order) => ({ ...order, total: order.total * (1 + rateFor(order.country)) });
+# Separated: a pure core that decides, a thin shell that acts.
+def rate_for(country) = country == 'IN' ? 0.18 : 0
+def price_order(order) = order.merge(total: order[:total] * (1 + rate_for(order[:country])))
 
-function processOrderClean(order, save, notify) {
-  const priced = priceOrder(order);     // pure: all the thinking
-  save(priced);                         // effects: injected, so testable
-  notify(priced);
-  return priced;
-}
+def process_order_clean(order, save:, notify:)
+  priced = price_order(order)    # pure: all the thinking
+  save.call(priced)              # effects: injected, so testable
+  notify.call(priced)
+  priced
+end
 
-const saved = [];
-processOrderClean({ id: 1, total: 100, country: "IN" },
-  (o) => saved.push(o), () => {});
-console.log("clean → priced to", saved[0].total, "with no database in sight");
+saved = []
+process_order_clean(
+  { id: 1, total: 100, country: 'IN' },
+  save: ->(o) { saved << o },
+  notify: ->(_o) {},
+)
+p saved.first[:total]            # priced, with no database in sight
 
-// And the pure core needs no setup at all to test:
-console.log("rateFor('IN') =", rateFor("IN"), "| rateFor('US') =", rateFor("US"));
-console.log("priceOrder is pure:", JSON.stringify(priceOrder({ total: 100, country: "IN" })));
+# And the pure core needs no setup at all to test:
+p [rate_for('IN'), rate_for('US')]
+p price_order({ total: 100, country: 'IN' })
 ```
+
+The shape here — a pure core, a thin imperative shell — is the single most useful structural idea
+in this lesson, and it is what a Rails service object is for. `rate_for` and `price_order` need
+no database, no fixtures, no `ActiveRecord`, and no `travel_to`; they are tested by calling them.
+Everything that needs setup has been pushed into `save` and `notify`, which the test replaces
+with lambdas that record what happened.
+
+Worth naming the Rails-specific version, because the injected-lambda form above is a teaching
+device rather than what you would ship. In practice the shell is a method on a service object and
+the "effects" are collaborators passed to its constructor — same separation, more conventional
+packaging. What matters is that the pricing logic is a method you can call with a Hash.
 
 :::realworld
 This shape has names in several communities and they all describe the same move:
@@ -203,11 +258,27 @@ exactly half of it.
 **A default parameter evaluated once.** This is a famous trap in Python and it catches
 people in JavaScript for the opposite reason:
 
-```javascript runnable
-// JavaScript: the default is re-evaluated on every call. Usually what you want.
-function addJs(item, list = []) { list.push(item); return list; }
-console.log(addJs("a"), addJs("b"));        // ["a"] ["b"] — independent
+```ruby runnable
+# Ruby re-evaluates a default on every call, so each gets a fresh array.
+def add(item, list = [])
+  list << item
+end
+
+p add('a')      # ["a"]
+p add('b')      # ["b"] — independent, not ["a", "b"]
+
+# And because the default is an expression, it can refer to earlier parameters:
+def page(number, per_page = 20, offset = (number - 1) * per_page)
+  { number: number, per_page: per_page, offset: offset }
+end
+p page(3)
+p page(3, 50)
 ```
+
+This is the opposite of Python, where a mutable default is created once at definition time and
+shared across every call — the single most famous gotcha in that language. Ruby evaluates the
+default expression on each call, in the scope of the method, which is why it can reference
+parameters declared to its left.
 
 ```python
 # Python: the default is evaluated ONCE, at definition time. Shared forever.
@@ -225,16 +296,55 @@ Same-looking syntax, opposite semantics. Worth knowing which language you are in
 **Too many parameters.** Past three, callers start passing them in the wrong order and the
 compiler cannot help if the types match.
 
-```javascript runnable
-// Positional: what is `true, false, true`? The caller cannot tell and neither can you.
-function createUserBad(name, email, isAdmin, sendEmail, verified) { /* ... */ }
+```ruby runnable
+# Positional: what is `true, false, true`? The caller cannot tell, and in six
+# months neither can you.
+def create_user_bad(name, email, admin, send_email, verified) = nil
+# create_user_bad('Asha', 'a@b.c', true, false, true)
 
-// Named via an object: self-documenting, order-independent, extensible.
-function createUser({ name, email, isAdmin = false, sendEmail = true, verified = false }) {
-  return { name, email, isAdmin, sendEmail, verified };
-}
-console.log(createUser({ name: "Asha", email: "a@b.c", isAdmin: true }));
+# Keyword arguments: self-documenting, order-independent, extensible.
+def create_user(name:, email:, admin: false, send_email: true, verified: false)
+  { name: name, email: email, admin: admin, send_email: send_email, verified: verified }
+end
+
+p create_user(name: 'Asha', email: 'a@b.c', admin: true)
+p create_user(email: 'b@c.d', name: 'Bo')      # order does not matter
 ```
+
+Keyword arguments are a language feature in Ruby rather than a convention, and that buys you
+three things an options Hash does not:
+
+```ruby runnable
+def create_user(name:, email:, admin: false)
+  { name: name, email: email, admin: admin }
+end
+
+# 1. A missing required argument fails immediately, by name.
+begin
+  create_user(name: 'Asha')
+rescue ArgumentError => e
+  puts "#{e.class}: #{e.message}"       # missing keyword: :email
+end
+
+# 2. A typo fails immediately, by name.
+begin
+  create_user(name: 'Asha', email: 'a@b.c', admn: true)
+rescue ArgumentError => e
+  puts "#{e.class}: #{e.message}"       # unknown keyword: :admn
+end
+
+# 3. A Hash you already have can be splatted in with **.
+attrs = { name: 'Cal', email: 'c@d.e' }
+p create_user(**attrs)
+```
+
+That second one is the reason to prefer keywords over an options Hash even in Ruby: with
+`options = {}` and `options[:admin]`, a misspelled key is silently `nil` and you get the default
+behaviour with no complaint. With keyword arguments it is an `ArgumentError` naming the key.
+
+A rule that holds up well: **more than two positional parameters, or any boolean parameter, means
+use keywords.** A boolean positional argument is unreadable at the call site by construction —
+`create_user('Asha', 'a@b.c', true)` cannot be understood without opening the definition.
 
 **Boolean parameters that select behaviour.** `render(data, true)` — true what? If a flag
 chooses between two behaviours, that is usually two functions.
@@ -263,14 +373,28 @@ When a function misbehaves, purity tells you where to look:
 2. **Is it impure?** Then list what it reads and writes beyond its arguments — globals, a
    clock, a database, its own arguments. Each is a candidate.
 
-```javascript runnable
-// Making an impure function testable by injecting the impure part.
-const isExpiredHard = (token) => token.expiresAt < Date.now();   // reads the clock
-const isExpired = (token, now = Date.now()) => token.expiresAt < now;
+```ruby runnable
+# Impure: reads the clock, so its answer depends on when you ask.
+def expired_hard?(token) = token[:expires_at] < Time.now
 
-console.log(isExpired({ expiresAt: 1000 }, 999));    // deterministic
-console.log(isExpired({ expiresAt: 1000 }, 1001));
+# Pure, by injecting the clock as a keyword argument with a sensible default.
+def expired?(token, now: Time.now) = token[:expires_at] < now
+
+token = { expires_at: Time.at(1000) }
+p expired?(token, now: Time.at(999))     # false — deterministic
+p expired?(token, now: Time.at(1001))    # true
+
+# Production calls read naturally and get the real clock:
+p expired?({ expires_at: Time.now - 60 })
 ```
+
+The default argument is doing the real work: production callers write `expired?(token)` and never
+think about it, while a test passes an exact instant and gets a deterministic answer with no
+stubbing, no `travel_to`, and no dependency on how fast the test suite runs.
+
+The same move applies to every ambient input — the clock, randomness, the current user, a request
+id, `SecureRandom`, the environment. Each one is a parameter with a default, and the result is a
+method that can be reasoned about by reading its signature.
 
 A default argument for the clock is the cheapest testability change available: callers are
 unaffected, tests get determinism.
@@ -280,15 +404,19 @@ unaffected, tests get determinism.
 Classify each as pure or impure, and for the impure ones say what single change would make
 it pure:
 
-```javascript
-const a = (x, y) => x + y;
-const b = (list) => list.sort();
-const c = () => Date.now();
-const d = (user) => `Hello, ${user.name}`;
-const e = (n) => { console.log(n); return n * 2; };
-const f = (arr) => [...arr].sort();
-let total = 0;
-const g = (n) => { total += n; return total; };
+```ruby
+# Which of these are pure? For each impure one, name what makes it so.
+
+def a(x, y) = x + y
+def b(list) = list.sort!
+def c = Time.now
+def d(user) = "Hello, #{user[:name]}"
+def e(n) = (puts n; n * 2)
+def f(arr) = arr.sort
+def g(n) = ($total += n)
+def h(record) = record.update!(seen: true)
+def i(n) = n.times.map { rand }
+def j(hash) = hash.merge(seen: true)
 ```
 
 Then: one of these is pure but still a poor function to depend on in a test. Which, and
