@@ -54,19 +54,28 @@ resources:
 
 ## Shape 1: one sequence, take or skip
 
-```js
-// House robber: maximise the sum with no two adjacent elements.
-// State: i. "Best from index i onward."
-function rob(nums) {
-  let skip = 0, take = 0;          // best if we skip / take the current
-  for (let i = nums.length - 1; i >= 0; i--) {
-    [skip, take] = [Math.max(skip, take), nums[i] + skip];
-  }
-  return Math.max(skip, take);
-}
-// The recurrence: best(i) = max(best(i+1), nums[i] + best(i+2)).
-// Two scalars suffice because it looks back only two steps.
+```ruby
+# House robber: maximise the sum with no two adjacent elements.
+# State: i. "Best from index i onward."
+def rob(nums)
+  skip = 0
+  take = 0                         # best if we skip / take the current
+  (nums.size - 1).downto(0) do |i|
+    skip, take = [skip, take].max, nums[i] + skip
+  end
+  [skip, take].max
+end
+
+rob([2, 7, 9, 3, 1])   # => 12   (2 + 9 + 1)
+rob([])                # => 0
 ```
+
+The recurrence: `best(i) = max(best(i+1), nums[i] + best(i+2))`. Two scalars suffice because it
+looks back only two steps.
+
+The parallel assignment is doing load-bearing work: `take`'s new value needs `skip`'s *old*
+value, and the right-hand side is fully evaluated before either name is rebound. Split it into
+two lines and you get a silently wrong answer rather than an error.
 
 :::what
 A **DP shape** is a family of problems sharing the same state structure and therefore the same
@@ -140,111 +149,145 @@ made up front, is often enough to decide whether DP is viable at all.
 :::
 
 :::example
-```js
-// Shape 2: longest common subsequence. The basis of diff.
-function lcs(a, b) {
-  const t = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      t[i][j] = a[i - 1] === b[j - 1]
-        ? t[i - 1][j - 1] + 1                       // match: consume both
-        : Math.max(t[i - 1][j], t[i][j - 1]);       // skip one or the other
-    }
-  }
-  return t[a.length][b.length];
-}
-// Three choices at each state, which is all the recurrence is.
-// `git diff` is this, run over lines rather than characters.
+```ruby
+# Shape 2: longest common subsequence. The basis of diff.
+def lcs(a, b)
+  t = Array.new(a.size + 1) { Array.new(b.size + 1, 0) }
+  (1..a.size).each do |i|
+    (1..b.size).each do |j|
+      t[i][j] = if a[i - 1] == b[j - 1]
+                  t[i - 1][j - 1] + 1                  # match: consume both
+                else
+                  [t[i - 1][j], t[i][j - 1]].max       # skip one or the other
+                end
+    end
+  end
+  t[a.size][b.size]
+end
 
-// Shape 3: coin change — fewest coins to make an amount.
-function coinChange(coins, amount) {
-  const t = new Array(amount + 1).fill(Infinity);
-  t[0] = 0;
-  for (let a = 1; a <= amount; a++) {
-    for (const c of coins) {
-      if (c <= a && t[a - c] + 1 < t[a]) t[a] = t[a - c] + 1;
-    }
-  }
-  return t[amount] === Infinity ? -1 : t[amount];
-}
-// Note the loop order: amount outside, coins inside, means each coin
-// may be reused — unbounded. Swap them and iterate amount downwards
-// for the 0/1 version. Same observation as the knapsack row.
-
-// Shape 4: matrix chain. Where interval DP earns its place.
-function matrixChain(dims) {
-  // dims[i] × dims[i+1] is matrix i. n = dims.length - 1 matrices.
-  const n = dims.length - 1;
-  const t = Array.from({ length: n }, () => new Array(n).fill(0));
-
-  for (let len = 2; len <= n; len++) {               // by increasing range
-    for (let i = 0; i + len - 1 < n; i++) {
-      const j = i + len - 1;
-      t[i][j] = Infinity;
-      for (let k = i; k < j; k++) {                  // EVERY split point
-        const cost = t[i][k] + t[k + 1][j] + dims[i] * dims[k + 1] * dims[j + 1];
-        if (cost < t[i][j]) t[i][j] = cost;
-      }
-    }
-  }
-  return t[0][n - 1];
-}
-// Iterating by increasing LENGTH is the dependency order: a range's
-// answer depends only on strictly shorter ranges. That ordering is
-// the interval-DP analogue of "fill row i-1 before row i".
-//
-// Why not greedy: multiplying a 10x100 by a 100x5 then by 5x50 costs
-// 5,000 + 2,500 = 7,500, while the other grouping costs
-// 100*5*50 + 10*100*50 = 25,000 + 50,000 = 75,000. Ten times worse,
-// and nothing locally visible distinguishes them — you have to
-// evaluate the splits.
-
-// Shape 5: stock trading with a cooldown day after each sale.
-function maxProfitWithCooldown(prices) {
-  let hold = -Infinity, sold = 0, rest = 0;          // three modes
-  for (const p of prices) {
-    [hold, sold, rest] = [
-      Math.max(hold, rest - p),   // holding: kept, or bought from rest
-      hold + p,                   // just sold today
-      Math.max(rest, sold),       // resting: stayed, or cooled down
-    ];
-  }
-  return Math.max(sold, rest);
-}
-// Three modes, O(1) space. The simultaneous assignment matters: each
-// new value must be computed from the PREVIOUS day's modes, and
-// updating them one at a time would read today's values.
-
-// Shape 1, improved: LIS in O(n log n).
-function lis(nums) {
-  const tails = [];      // tails[i] = smallest tail of an increasing
-                         // subsequence of length i+1
-  for (const x of nums) {
-    let lo = 0, hi = tails.length;
-    while (lo < hi) {                    // first index with tails[i] >= x
-      const mid = (lo + hi) >> 1;
-      if (tails[mid] < x) lo = mid + 1; else hi = mid;
-    }
-    tails[lo] = x;                       // replace, or append at the end
-  }
-  return tails.length;
-}
-// `tails` is sorted by construction: a longer increasing subsequence
-// cannot have a smaller tail than a shorter one, or you could truncate
-// it and contradict minimality. That is what licenses the binary
-// search. Note `tails` is NOT the subsequence — reconstructing that
-// needs parent pointers.
+lcs('ABCBDAB', 'BDCABA')   # => 4
 ```
+
+Three choices at each state, which is all the recurrence is. `git diff` is this, run over lines
+rather than characters.
+
+```ruby
+# Shape 3: coin change — fewest coins to make an amount.
+def coin_change(coins, amount)
+  t = Array.new(amount + 1, Float::INFINITY)
+  t[0] = 0
+  (1..amount).each do |a|
+    coins.each do |c|
+      t[a] = t[a - c] + 1 if c <= a && t[a - c] + 1 < t[a]
+    end
+  end
+  t[amount].infinite? ? -1 : t[amount]
+end
+
+coin_change([1, 5, 10, 25], 63)   # => 6
+coin_change([1, 3, 4], 6)         # => 2   greedy would say 3 (4+1+1)
+coin_change([5], 3)               # => -1
+```
+
+Note the loop order: amount outside, coins inside, means each coin may be reused — unbounded.
+Swap them and iterate amount downwards for the 0/1 version. Same observation as the knapsack row.
+
+`Float::INFINITY` mixes freely with Integers in comparisons and arithmetic, so the sentinel needs
+no special casing. `t[amount].infinite?` returns `1`, `-1` or `nil` rather than a boolean, which
+is unusual enough to be worth knowing — it is truthy for an infinite value and `nil` otherwise, so
+it reads correctly in a condition but `== true` would fail.
+
+```ruby
+# Shape 4: matrix chain. Where interval DP earns its place.
+def matrix_chain(dims)
+  # dims[i] × dims[i+1] is matrix i. n = dims.size - 1 matrices.
+  n = dims.size - 1
+  t = Array.new(n) { Array.new(n, 0) }
+
+  (2..n).each do |len|                            # by increasing range
+    (0..(n - len)).each do |i|
+      j = i + len - 1
+      t[i][j] = Float::INFINITY
+      (i...j).each do |k|                         # EVERY split point
+        cost = t[i][k] + t[k + 1][j] + (dims[i] * dims[k + 1] * dims[j + 1])
+        t[i][j] = cost if cost < t[i][j]
+      end
+    end
+  end
+  t[0][n - 1]
+end
+
+matrix_chain([10, 100, 5, 50])   # => 7500
+```
+
+Iterating by increasing LENGTH is the dependency order: a range's answer depends only on strictly
+shorter ranges. That ordering is the interval-DP analogue of "fill row i-1 before row i".
+
+Why not greedy: multiplying a 10×100 by a 100×5 then by 5×50 costs 5,000 + 2,500 = 7,500, while
+the other grouping costs 100·5·50 + 10·100·50 = 25,000 + 50,000 = 75,000. Ten times worse, and
+nothing locally visible distinguishes them — you have to evaluate the splits.
+
+```ruby
+# Shape 5: stock trading with a cooldown day after each sale.
+def max_profit_with_cooldown(prices)
+  hold = -Float::INFINITY                         # three modes
+  sold = 0
+  rest = 0
+  prices.each do |p|
+    hold, sold, rest = [hold, rest - p].max,      # kept, or bought from rest
+                       hold + p,                  # just sold today
+                       [rest, sold].max           # stayed, or cooled down
+  end
+  [sold, rest].max
+end
+
+max_profit_with_cooldown([1, 2, 3, 0, 2])   # => 3
+```
+
+Three modes, O(1) space. The parallel assignment is the whole correctness argument: each new
+value must be computed from the *previous* day's modes. Updating them one at a time reads today's
+`hold` when computing `sold`, and on this input that returns 4 — it over-reports the profit,
+which is the worse direction for a bug in a trading calculation to fail in.
+
+```ruby
+# Shape 1, improved: LIS in O(n log n).
+def lis(nums)
+  tails = []    # tails[i] = smallest tail of an increasing
+                # subsequence of length i+1
+  nums.each do |x|
+    i = tails.bsearch_index { |t| t >= x }   # first index with tails[i] >= x
+    if i.nil?
+      tails << x                             # x extends the longest run
+    else
+      tails[i] = x                           # x is a better tail for that length
+    end
+  end
+  tails.size
+end
+
+lis([10, 9, 2, 5, 3, 7, 101, 18])   # => 4
+```
+
+`tails` is sorted by construction: a longer increasing subsequence cannot have a smaller tail
+than a shorter one, or you could truncate it and contradict minimality. That is what licenses the
+binary search — and in Ruby you do not have to write it. `Array#bsearch_index` in find-minimum
+mode takes a block returning true/false and gives the first index where it flips to true, which
+is exactly "lower bound". It returns `nil` when the block is false everywhere, which is precisely
+the append case, so the two branches fall out of the API rather than out of index arithmetic.
+
+Note that `tails` is NOT the subsequence — its contents are tails of different candidate runs,
+and only its *length* is meaningful. Reconstructing the actual subsequence needs parent pointers.
+This is the most common wrong answer about this algorithm.
 :::
 
 :::failure
 **Forcing a problem into the wrong shape.** The symptom is a recurrence you cannot justify:
 
-```js
-// "Longest palindromic substring" attempted as a 1D DP over i.
-// It fails because a palindrome is defined by a RANGE, not by a
-// position: whether s[i..j] is a palindrome depends on s[i+1..j-1].
-// That is shape 4, state (i, j).
+```ruby
+# "Longest palindromic substring" attempted as a 1D DP over i.
+# It fails because a palindrome is defined by a RANGE, not by a
+# position: whether s[i..j] is a palindrome depends on s[i+1..j-1].
+# That is shape 4, state (i, j).
 ```
 
 **Wrong loop order in interval DP.** A range's answer depends on shorter ranges, so iterating by
@@ -253,11 +296,20 @@ cells.
 
 **Sequential instead of simultaneous updates in a state machine.**
 
-```js
-hold = Math.max(hold, rest - p);
-sold = hold + p;                 // reads TODAY's hold. Wrong.
-// Use a simultaneous assignment, or copy the previous values first.
+```ruby
+hold = [hold, rest - p].max
+sold = hold + p                  # reads TODAY's hold. Wrong.
 ```
+
+Use parallel assignment, which evaluates the whole right-hand side first:
+
+```ruby
+hold, sold, rest = [hold, rest - p].max, hold + p, [rest, sold].max
+```
+
+Measured on `[1, 2, 3, 0, 2]`: the correct version returns 3 and the sequential one returns 4.
+No error, no warning, and the wrong answer is *larger* — a bug that inflates a projected profit
+is one nobody reports.
 
 **Loop order deciding bounded versus unbounded, accidentally.** Coin change with the amount loop
 outside allows reuse; the knapsack row direction forbids it. Both are correct code for
@@ -302,28 +354,46 @@ into it.
                      capture" constraints.
 ```
 
-```js
-// The one most worth being able to write: word break, which is the
-// shape of real tokenisation and segmentation.
-function wordBreak(s, dict) {
-  const words = new Set(dict);
-  const reachable = new Array(s.length + 1).fill(false);
-  reachable[0] = true;
-  const maxLen = Math.max(...dict.map((w) => w.length), 0);
+```ruby
+require 'set'
 
-  for (let i = 1; i <= s.length; i++) {
-    for (let j = Math.max(0, i - maxLen); j < i; j++) {
-      if (reachable[j] && words.has(s.slice(j, i))) { reachable[i] = true; break; }
-    }
-  }
-  return reachable[s.length];
-}
-// `maxLen` bounds the inner loop by the longest dictionary word
-// rather than by i, which is the difference between O(n²) and O(n·L)
-// — and on a long string with short words that is the whole cost.
-// This is roughly how Chinese and Japanese text is segmented, with
-// probabilities instead of booleans.
+# The one most worth being able to write: word break, which is the
+# shape of real tokenisation and segmentation.
+def word_break?(s, dict)
+  words = dict.to_set
+  reachable = Array.new(s.size + 1, false)
+  reachable[0] = true
+  max_len = dict.map(&:size).max || 0
+
+  (1..s.size).each do |i|
+    ([0, i - max_len].max...i).each do |j|
+      next unless reachable[j] && words.include?(s[j...i])
+      reachable[i] = true
+      break
+    end
+  end
+  reachable[s.size]
+end
+
+word_break?('leetcode', %w[leet code])   # => true
+word_break?('cars', %w[car ca rs])       # => true   needs the second split
+word_break?('leetcodex', %w[leet code])  # => false
 ```
+
+`max_len` bounds the inner loop by the longest dictionary word rather than by `i`, which is the
+difference between O(n²) and O(n·L) — and on a long string with short words that is the whole
+cost. This is roughly how Chinese and Japanese text is segmented, with probabilities instead of
+booleans.
+
+Three Ruby notes. `dict.map(&:size).max || 0` handles the empty dictionary, because `max` on an
+empty Array returns `nil` rather than raising or returning zero — a `|| 0` that is easy to omit
+and fails only on the empty-input path. `s[j...i]` is the exclusive range slice, matching
+JavaScript's `slice(j, i)`; `s.slice(j, i)` in Ruby would take a *length* and silently read the
+wrong substring. And this is the one place in the lesson where a memo of booleans appears, so it
+is worth connecting: written as a recursive `cache[i] ||= ...` this would recompute every `false`
+forever, because `||=` cannot distinguish "not yet computed" from "computed, and the answer is
+false". The tabulated form sidesteps the problem entirely, which is a real argument for tables
+over memoisation whenever the value type includes `nil` or `false`.
 
 ```text
 // Honest note on where this fits in real work.
@@ -451,3 +521,11 @@ the problem had no safe local choice."*
 - Estimate the state count before writing code; it often decides whether DP is viable.
 - For the classics, use a library — and the highest-value skill is spotting a greedy heuristic
   that should have been a DP.
+- `Array#bsearch_index` in find-minimum mode is the lower bound LIS needs, and its `nil` return
+  is exactly the append case.
+- `tails` in the O(n log n) LIS is not the subsequence — only its length means anything.
+- `Float::INFINITY` mixes with Integers freely; `.infinite?` returns `1`/`-1`/`nil`, not a boolean.
+- Updating the stock-mode scalars one at a time returns 4 instead of 3 on `[1, 2, 3, 0, 2]` — it
+  over-reports, which is the direction nobody reports.
+- `s[j...i]` is the exclusive slice; `s.slice(j, i)` takes a length and reads the wrong substring.
+- `[].max` is `nil`, so bounds derived from `map(&:size).max` need a `|| 0`.

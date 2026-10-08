@@ -53,30 +53,69 @@ resources:
 
 ## The same computation, three times
 
-```js
-// 1. Naive recursion: O(2^n). fib(40) is about a billion calls.
-function fib(n) {
-  if (n <= 1) return n;
-  return fib(n - 1) + fib(n - 2);
-}
+```ruby
+# 1. Naive recursion: O(2^n). fib(40) is about a billion calls.
+def fib(n) = n <= 1 ? n : fib(n - 1) + fib(n - 2)
 
-// 2. Memoised: O(n). Each value computed once.
-function fibMemo(n, cache = new Map()) {
-  if (n <= 1) return n;
-  if (cache.has(n)) return cache.get(n);
-  const result = fibMemo(n - 1, cache) + fibMemo(n - 2, cache);
-  cache.set(n, result);
-  return result;
-}
+# 2. Memoised: O(n). Each value computed once.
+def fib_memo(n, cache = {})
+  return n if n <= 1
+  cache[n] ||= fib_memo(n - 1, cache) + fib_memo(n - 2, cache)
+end
 
-// 3. Tabulated: O(n) time, and then O(1) space once you notice the
-//    recurrence only looks back two steps.
-function fibTable(n) {
-  let prev = 0, curr = 1;
-  for (let i = 2; i <= n; i++) [prev, curr] = [curr, prev + curr];
-  return n <= 1 ? n : curr;
-}
+# 3. Tabulated: O(n) time, and then O(1) space once you notice the
+#    recurrence only looks back two steps.
+def fib_table(n)
+  return n if n <= 1
+  prev = 0
+  curr = 1
+  (2..n).each { prev, curr = curr, prev + curr }
+  curr
+end
+
+fib_memo(40)    # => 102334155
+fib_table(40)   # => 102334155
 ```
+
+Four Ruby details, and the first two are the reason this is shorter than it looks.
+
+`cache[n] ||= ...` is the whole memoisation. It reads the cache, computes only on a miss, stores,
+and returns — the four lines of the explicit version collapsed into one. The caveat is that `||=`
+treats `nil` and `false` as misses, so it is wrong for any memo whose legitimate answer can be
+`false` or `nil`; there you need `cache.fetch(n) { cache[n] = ... }` or an explicit
+`cache.key?(n)` check. A memo of booleans written with `||=` recomputes every `false` forever,
+which turns an O(n) solution back into an exponential one with no visible symptom.
+
+`cache = {}` as a default argument is safe here, which is worth saying explicitly for anyone
+arriving from Python: Ruby evaluates default arguments on *every* call, so each top-level call
+gets a fresh Hash. Python's famous mutable-default-argument bug has no Ruby equivalent.
+
+`prev, curr = curr, prev + curr` is parallel assignment — the right-hand side is fully evaluated
+before anything is assigned, which is exactly what this recurrence needs. Writing it as two
+statements reads `prev`'s new value when computing `curr` and silently gives the wrong sequence.
+
+And the arithmetic is exact. Ruby Integers are arbitrary precision, so `fib(200)` is the true
+42-digit answer. In a language backed by 64-bit doubles the first wrong answer is `fib(79)` =
+14,472,334,024,676,221, which is the first Fibonacci number above 2^53 — and it is wrong
+*quietly*, returning a plausible integer that is simply not the right one. Here the only cost of
+large values is that the additions get slower.
+
+The idiomatic Ruby memo deserves its own look, because it is the version you will actually meet
+in other people's code:
+
+```ruby
+FIB = Hash.new { |h, n| h[n] = n <= 1 ? n : h[n - 1] + h[n - 2] }
+
+FIB[40]    # => 102334155
+FIB[200]   # => 280571172992510140037611932413038677189525
+```
+
+A Hash whose default block fills itself in, recursively. The recursion runs through the Hash
+rather than through a method, so the cache and the recurrence are the same object. It is lovely,
+and it has two sharp edges: the depth of that recursion is still the depth of the dependency
+chain, so `FIB[20_000]` raises `SystemStackError` where the iterative version does not — and
+because it is a constant, the cache lives for the life of the process, which is a memory leak if
+the key space is unbounded. Use it for small, fixed domains.
 
 The three versions differ by a cache and a loop. Nothing clever happened — the exponential
 version was simply recomputing.
@@ -168,77 +207,108 @@ the recurrence itself is wrong.
 :::
 
 :::example
-```js
-// A worked example end to end: 0/1 knapsack.
-// n items with weights and values, capacity W, each item used 0 or 1 times.
+```ruby
+# A worked example end to end: 0/1 knapsack.
+# n items with weights and values, capacity W, each used 0 or 1 times.
 
-// Step 1-3: state is (item index, remaining capacity).
-function knapsackMemo(weights, values, W) {
-  const cache = new Map();
-  function best(i, cap) {
-    if (i === weights.length || cap === 0) return 0;        // base
-    const key = i * (W + 1) + cap;                          // flat key
-    if (cache.has(key)) return cache.get(key);
+# Steps 1-3: state is (item index, remaining capacity).
+def knapsack_memo(weights, values, capacity)
+  cache = {}
+  best = lambda do |i, cap|
+    return 0 if i == weights.size || cap.zero?           # base
+    cache[[i, cap]] ||= begin                            # the state IS the key
+      result = best.call(i + 1, cap)                     # skip item i
+      if weights[i] <= cap                               # or take it
+        result = [result, values[i] + best.call(i + 1, cap - weights[i])].max
+      end
+      result
+    end
+  end
+  best.call(0, capacity)
+end
 
-    let result = best(i + 1, cap);                          // skip item i
-    if (weights[i] <= cap) {                                // or take it
-      result = Math.max(result, values[i] + best(i + 1, cap - weights[i]));
-    }
-    cache.set(key, result);
-    return result;
-  }
-  return best(0, W);
-}
-// States: n × (W+1). Work per state: O(1). → O(n·W).
-// Note this is NOT polynomial in the input SIZE — W is a value, and
-// writing it takes log W bits. Knapsack is NP-hard; O(n·W) is
-// "pseudo-polynomial", which is why it is fast for W = 1000 and
-// useless for W = 2^40.
-
-// Step 4 as a table.
-function knapsackTable(weights, values, W) {
-  const n = weights.length;
-  const t = Array.from({ length: n + 1 }, () => new Array(W + 1).fill(0));
-  for (let i = n - 1; i >= 0; i--) {
-    for (let cap = 0; cap <= W; cap++) {
-      t[i][cap] = t[i + 1][cap];
-      if (weights[i] <= cap) {
-        t[i][cap] = Math.max(t[i][cap], values[i] + t[i + 1][cap - weights[i]]);
-      }
-    }
-  }
-  return t[0][W];
-}
-
-// Space reduced to one row. The direction is the subtle part.
-function knapsackRow(weights, values, W) {
-  const t = new Array(W + 1).fill(0);
-  for (let i = 0; i < weights.length; i++) {
-    for (let cap = W; cap >= weights[i]; cap--) {       // DOWNWARD
-      t[cap] = Math.max(t[cap], values[i] + t[cap - weights[i]]);
-    }
-  }
-  return t[W];
-}
-// Downward because `t[cap - weights[i]]` must still hold the value
-// from BEFORE item i was considered. Iterating upward would read a
-// cell already updated with item i, allowing the item to be used
-// twice — which is a different problem (unbounded knapsack), and is
-// in fact exactly how you solve that one. One loop direction
-// distinguishes two problems.
+knapsack_memo([2, 3, 4, 5], [3, 4, 5, 6], 5)   # => 7
 ```
+
+`cache[[i, cap]]` is the detail worth stopping on. Ruby Arrays are valid Hash keys and hash *by
+value*, so the tuple of state variables is the cache key directly — no flat-index arithmetic like
+`i * (W + 1) + cap`, no string building, no risk of two different states colliding on one key.
+That flat-key trick exists in other languages only because their maps hash objects by identity.
+
+The one thing to know about it: a mutated key becomes unfindable.
+
+```ruby
+key = [1, 2]
+cache = { key => 'x' }
+key << 3
+cache[[1, 2, 3]]   # => nil     the stored hash code is stale
+cache[[1, 2]]      # => nil     and the old value no longer matches
+cache.rehash
+cache[[1, 2, 3]]   # => "x"     repaired
+```
+
+So build the key fresh each time, as above, and never hold a reference to a key you then mutate.
+`freeze` the array if you want the guarantee enforced.
+
+States: n × (W+1). Work per state: O(1). So O(n·W) — and note this is **not** polynomial in the
+input *size*. W is a value, and writing it takes log W bits. Knapsack is NP-hard; O(n·W) is
+"pseudo-polynomial", which is why it is fast for W = 1,000 and useless for W = 2^40.
+
+```ruby
+# Step 4 as a table.
+def knapsack_table(weights, values, capacity)
+  n = weights.size
+  # The BLOCK form. `Array.new(n + 1, Array.new(capacity + 1, 0))` would
+  # store the same row n+1 times, and every write would hit every row.
+  t = Array.new(n + 1) { Array.new(capacity + 1, 0) }
+  (n - 1).downto(0) do |i|
+    (0..capacity).each do |cap|
+      t[i][cap] = t[i + 1][cap]
+      next unless weights[i] <= cap
+      t[i][cap] = [t[i][cap], values[i] + t[i + 1][cap - weights[i]]].max
+    end
+  end
+  t[0][capacity]
+end
+
+# Space reduced to one row. The direction is the subtle part.
+def knapsack_row(weights, values, capacity)
+  t = Array.new(capacity + 1, 0)
+  weights.each_with_index do |w, i|
+    capacity.downto(w) do |cap|                 # DOWNWARD
+      t[cap] = [t[cap], values[i] + t[cap - w]].max
+    end
+  end
+  t[capacity]
+end
+```
+
+Downward because `t[cap - w]` must still hold the value from *before* item i was considered.
+Iterating upward reads a cell already updated with item i, which lets the item be used twice —
+a different problem entirely, and in fact exactly how you solve that one:
+
+```ruby
+knapsack_row([2], [3], 6)        # => 3   each item once
+knapsack_unbounded([2], [3], 6)  # => 9   the same item three times
+```
+
+One loop direction distinguishes two problems. `capacity.downto(w)` also encodes the lower bound
+in the iterator rather than in an `if`, which is both shorter and harder to get wrong than a
+C-style loop with a decrementing index.
 :::
 
 :::failure
 **A state that does not capture everything the answer depends on.** The most common real error,
 and it produces wrong answers rather than slow ones:
 
-```js
-// "Longest increasing subsequence" with state = index only.
-function lis(a, i) { ... }     // not enough: the answer depends on
-                               // what the previous chosen element was
-// Either add it to the state, or redefine the subproblem as
-// "LIS ending at i", which makes the previous element implicit.
+```ruby
+# "Longest increasing subsequence" with state = index only.
+def lis(a, i)
+  # Not enough: the answer depends on what the previous chosen
+  # element was, and `i` does not record it.
+end
+# Either add it to the state, or redefine the subproblem as
+# "LIS ending at i", which makes the previous element implicit.
 ```
 
 Redefining the subproblem is usually better than widening the state, and finding that
@@ -246,11 +316,17 @@ definition is most of the difficulty in DP.
 
 **Caching on a mutable key.** Same hazard as everywhere else:
 
-```js
-cache.set(arrayOfChoices, result);   // the array is mutated later
-// Use an immutable, canonical key: a string, a flat integer index,
-// or a tuple of primitives.
+```ruby
+choices = [1, 2]
+cache[choices] = result
+choices << 3            # the key's hash is now stale
+cache[choices]          # => nil, and the entry is unreachable
 ```
+
+Ruby hashes Arrays and Strings by value, which is what makes tuple keys work at all — and it is
+also why mutating one after storing it strands the entry. Build the key fresh from the state
+variables, or `freeze` it. `cache.rehash` repairs an already-broken Hash, but needing it means
+something is holding a reference it should not.
 
 **A cache key that misses part of the state.** Caching `best(i)` when the function also depends
 on `cap` returns a value computed for a different capacity. Silent, and completely wrong.
@@ -268,11 +344,15 @@ which is why the knapsack row goes downward.
 
 **Reducing space and then needing the choices.**
 
-```js
-// t[W] gives the best VALUE. Which items achieved it?
-// With only one row, you cannot tell — the history is gone.
-// Keep the full table and walk back through it, or store a parent
-// pointer per state.
+```ruby
+# t[capacity] gives the best VALUE. Which items achieved it?
+# With only one row, you cannot tell — the history is gone.
+# Keep the full table and walk back through it, or store a parent
+# pointer per state.
+#
+# This is the trade the space optimisation actually makes, and it is
+# usually the wrong one in application code: "the best total is 7" is
+# rarely the answer anyone wanted, and "take items 0 and 1" is.
 ```
 
 **Assuming optimal substructure.** The longest *simple* path in a graph has overlapping
@@ -311,26 +391,37 @@ and the problem is NP-hard.
                               auctions, and portfolio selection.
 ```
 
-```js
-// Edit distance, because it is the one you are most likely to need.
-function editDistance(a, b) {
-  // One row, because row i depends only on row i-1.
-  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    const curr = [i];
-    for (let j = 1; j <= b.length; j++) {
-      curr[j] = a[i - 1] === b[j - 1]
-        ? prev[j - 1]                                    // match: free
-        : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]); // sub, del, ins
-    }
-    prev = curr;
-  }
-  return prev[b.length];
-}
-// O(a·b) time, O(b) space. The three options in the min are the three
-// edit operations, which is the clearest case of a recurrence that is
-// just "enumerate the choices and take the best".
+```ruby
+# Edit distance, because it is the one you are most likely to need.
+def edit_distance(a, b)
+  # One row, because row i depends only on row i-1.
+  prev = (0..b.size).to_a
+  (1..a.size).each do |i|
+    curr = [i]
+    (1..b.size).each do |j|
+      curr[j] = if a[i - 1] == b[j - 1]
+                  prev[j - 1]                                  # match: free
+                else
+                  1 + [prev[j - 1], prev[j], curr[j - 1]].min  # sub, del, ins
+                end
+    end
+    prev = curr
+  end
+  prev[b.size]
+end
+
+edit_distance('kitten', 'sitting')   # => 3
 ```
+
+O(a·b) time, O(b) space. The three options in the `min` are the three edit operations, which is
+the clearest case of a recurrence that is just "enumerate the choices and take the best".
+
+`(0..b.size).to_a` builds the first row — `[0, 1, 2, ...]`, the cost of deleting j characters —
+in one expression, and `[x, y, z].min` takes three arguments where `Math.min` needs a spread.
+Note also that `a[i - 1]` on a Ruby String gives a one-character String, not a byte or a
+codepoint, so this compares characters and works on `"café"` as you would hope. It is still not
+grapheme-aware: `"e\u0301"` is two characters to Ruby and one to a reader, so edit distance over
+user-visible text wants `each_grapheme_cluster.to_a` rather than raw indexing.
 
 ```text
 // A production note worth having: DP is often the wrong answer
@@ -459,3 +550,15 @@ distinguishes two problems."*
 - Space reduction loses the ability to reconstruct the choices.
 - O(n·W) is pseudo-polynomial: W is a value, not an input size.
 - Check whether a greedy choice is safe before building a table.
+- `cache[n] ||= ...` is the whole memo — but it treats `nil` and `false` as misses, so a memo of
+  booleans recomputes every `false` forever. Use `fetch`/`key?`, or tabulate.
+- Ruby Arrays hash by value, so `cache[[i, cap]]` needs no flat-key arithmetic; mutating a stored
+  key strands the entry until `rehash`.
+- `Array.new(n) { [] }` builds n rows; `Array.new(n, [])` builds one row n times.
+- Default arguments are evaluated per call, so `cache = {}` is safe — unlike Python.
+- Parallel assignment evaluates the whole right-hand side first, which is what makes the
+  two-scalar recurrences correct.
+- Integers are arbitrary precision: `fib(200)` is exact, where 64-bit doubles go wrong silently
+  from `fib(79)` onward.
+- A self-referential `Hash.new { |h, n| h[n] = ... }` is an elegant memo, but it recurses as deep
+  as the dependency chain and never frees its cache.
