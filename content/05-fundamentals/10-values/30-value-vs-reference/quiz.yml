@@ -3,96 +3,116 @@ questions:
   - id: shallow-protects
     kind: choice
     concept: shallow-copy
-    prompt: "After `const copy = { ...original }`, which properties of `original` are protected from changes made through `copy`?"
+    prompt: "After `copy = original.dup`, which of `original`'s values are protected from changes made through `copy`?"
     options:
-      - text: Only those whose values are primitives — numbers, strings, booleans, null, undefined
+      - text: "Only the immediate values — reassigning `copy[:k]` is safe, but any nested Hash, Array or String is shared"
         correct: true
         feedback: >-
-          Right. Objects, arrays, Maps, Sets and Dates are shared, because copying a
-          reference gives you a second reference to one thing.
+          `dup` builds a new Hash holding the same value references. Integers and Symbols
+          are immutable so they cannot be changed anyway; everything else is one object
+          with two paths to it.
       - text: All of them — that is what a copy means
         feedback: >-
-          Only one level deep. `copy.nested.x = 1` reaches the original's nested object.
+          Only one level deep. `copy[:nested][:x] = 1` reaches the original's nested Hash.
       - text: None of them
         feedback: >-
-          The top level genuinely is independent: `copy.n = 2` does not affect
-          `original.n`.
+          The top level genuinely is independent: `copy[:n] = 2` does not affect
+          `original[:n]`.
     explanation: >-
-      A shallow copy builds a new container and copies each value in. For a primitive that
-      is a real copy; for an object the value *is* a reference, so you get a second
-      reference to the same object. Hence: primitives protected, everything nested shared.
+      `dup` builds a new container and copies each value in. For an Integer or Symbol that
+      is a real copy — and it does not matter, because those are immutable. For a Hash,
+      Array or mutable String the value *is* a reference, so you get a second reference to
+      the same object. Hence: reassignment at the top level is safe, mutation at any depth
+      is not. `merge` has exactly the same property, which is more surprising because it
+      reads like a functional operation.
 
   - id: json-lossy
     kind: multi
     concept: deep-copy
-    prompt: "What does `JSON.parse(JSON.stringify(obj))` do incorrectly?"
+    prompt: "What does `JSON.parse(JSON.generate(obj))` get wrong as a deep-copy technique in Ruby?"
     options:
-      - text: Turns a Date into a string
+      - text: Turns every Symbol into a String — as a key and as a value
         correct: true
-        feedback: The nastiest one — it works until something calls `.getTime()`.
-      - text: Drops keys whose value is `undefined`
+        feedback: >-
+          `symbolize_names: true` fixes the keys only, so `status: :pending` still comes
+          back as `"pending"` and your `case ... when :pending` stops matching.
+      - text: Turns a Time into a String
         correct: true
-        feedback: And drops functions entirely.
-      - text: Throws on a circular reference
+        feedback: The nastiest one — it works until something calls `.strftime`.
+      - text: Raises on a circular reference, and on NaN or Infinity
         correct: true
-        feedback: "`structuredClone` handles cycles correctly."
-      - text: Turns a Set into `{}` and NaN into `null`
+        feedback: Marshal handles cycles; NaN and Infinity raise rather than becoming null.
+      - text: Serialises an unsupported object to its `inspect` string
         correct: true
-        feedback: Sets, Maps and RegExps all collapse; NaN and Infinity become null.
+        feedback: >-
+          A Set becomes `"#<Set: {1, 2}>"` — data-shaped nonsense that survives the round
+          trip and breaks much later.
       - text: Fails to copy nested objects
         feedback: >-
           It does copy them — deeply. Isolation is the one thing it gets right; fidelity is
           what it loses.
     explanation: >-
-      The JSON round-trip achieves isolation and sacrifices fidelity. It is only defined
-      for what JSON can express, so Dates, `undefined`, functions, Sets, Maps, RegExps,
-      NaN, Infinity and BigInt are all changed, dropped or throw. `structuredClone` handles
-      all of those plus cycles, and is the right default now that it is widely available.
+      The JSON round-trip achieves isolation and sacrifices fidelity. It is defined only for
+      what JSON can express, so Symbols flatten to Strings, Time becomes a String, NaN and
+      Infinity raise, and anything with no `to_json` quietly becomes its `to_s` — which is
+      the worst case, because a Set arriving as `"#<Set: {1, 2}>"` looks like data and fails
+      somewhere else entirely. `Marshal.load(Marshal.dump(obj))` keeps Ruby types and
+      handles cycles, and in Rails `deep_dup` is nicer still. But never `Marshal.load`
+      anything from outside your own process — it can instantiate arbitrary objects and is a
+      remote code execution vector.
 
   - id: structured-clone-limits
     kind: choice
     concept: deep-copy
-    prompt: "What does `structuredClone` NOT do?"
+    prompt: "What does `Marshal.load(Marshal.dump(obj))` NOT do?"
     options:
-      - text: Preserve a class instance's prototype — you get a plain object without its methods
+      - text: Call `initialize` — it allocates and sets instance variables directly
         correct: true
         feedback: >-
-          So `clone instanceof User` is false and `clone.greet` is undefined. Class
-          instances need their own `clone()` method.
+          So any invariant, connection or registration your constructor performs is skipped,
+          and the object arrives with its state but without that side effect.
+      - text: Preserve the object's class
+        feedback: >-
+          It does — unlike JavaScript's `structuredClone`, which drops the prototype. The
+          copy is a real instance with all its methods.
       - text: Handle circular references
-        feedback: It handles cycles correctly — that is one of its advantages over JSON.
-      - text: Copy Dates and Maps
-        feedback: It copies both faithfully.
+        feedback: It handles cycles correctly, and preserves shared references too.
     explanation: >-
-      `structuredClone` copies data, not behaviour. It cannot clone functions, and a class
-      instance comes back as a plain object with the right fields and no prototype. If your
-      objects have methods or invariants, write an explicit `clone()` — the language cannot
-      guess what "a copy of this" means for your type.
+      Marshal records the class name and the instance variables, then rebuilds the object by
+      allocating it and setting the variables — `initialize` never runs. For a plain data
+      object that is exactly right and better than `structuredClone`, which loses the
+      prototype and gives you a method-less plain object. For an object whose constructor
+      establishes something — a validated invariant, an open connection, a registration in
+      some global list — the copy comes back with the data and without the effect. Classes
+      that care define `marshal_dump` and `marshal_load`. Marshal also refuses Procs, IO
+      objects and anything with singleton methods, raising `TypeError` rather than guessing.
 
   - id: structural-sharing
     kind: choice
     concept: immutability
     prompt: >-
-      In `const next = { ...state, user: { ...state.user, name: "Bo" } }`, what is true of
-      `next.posts`?
+      In `nxt = state.merge(user: state[:user].merge(name: 'Bo'))`, what is true of
+      `nxt[:posts]`?
     options:
-      - text: It is the same array as `state.posts` — unchanged subtrees are shared, not copied
+      - text: "It is the same Array as `state[:posts]` — `nxt[:posts].equal?(state[:posts])` is true"
         correct: true
         feedback: >-
-          Which is what makes "never mutate state" cheap, and what makes a `===` check on
-          props a valid way to skip a re-render.
-      - text: It is a deep copy of `state.posts`
+          Which is what makes "never mutate state" cheap, and what makes an `equal?` check a
+          valid way to decide nothing in `posts` changed.
+      - text: It is a deep copy of `state[:posts]`
         feedback: >-
-          Nothing copied it. The spread copies the reference, so both objects point at one
-          array.
-      - text: It is `undefined`
-        feedback: The spread carries every own enumerable property across, including `posts`.
+          Nothing copied it. `merge` copies the value, and the value is a reference, so both
+          Hashes point at one Array.
+      - text: It is `nil`
+        feedback: "`merge` carries every key across, overriding only the ones you supply."
     explanation: >-
-      This is structural sharing: only the path to the change is rebuilt, and every
-      untouched subtree is reused by reference. The cost is O(depth of the change) rather
-      than O(size of the state), which is why immutable updates are practical. It is also
-      why `prevProps.posts === nextProps.posts` is a sound signal that nothing in `posts`
-      changed.
+      This is structural sharing: only the path to the change is rebuilt, and every untouched
+      subtree is reused by reference. The cost is O(depth of the change) rather than O(size of
+      the state), which is why immutable updates are practical at all. The flip side is the
+      hazard from the rest of this lesson — that shared Array is shared, so mutating
+      `nxt[:posts]` changes `state[:posts]` too. Structural sharing is only safe in a codebase
+      that has committed to not mutating; `equal?` tells you about identity, never about
+      whether someone is about to write through it.
 
   - id: explain-copy-depth
     kind: recall

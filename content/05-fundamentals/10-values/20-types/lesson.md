@@ -71,20 +71,35 @@ operation runs.
 
 ## The two answers
 
-```javascript runnable
-// Dynamic: the VALUE carries its type, and the check happens at the operation.
-let x = 5;
-console.log(typeof x);     // "number"
-x = "now a string";
-console.log(typeof x);     // "string" — the name never had a type; the value does
+```ruby runnable
+# Dynamic: the VALUE carries its type, and the check happens at the operation.
+x = 5
+p x.class            # Integer
+x = 'now a string'
+p x.class            # String — the name never had a type; the value does
 
-// The error arrives when the operation runs, not before.
-try {
-  null.length;
-} catch (e) {
-  console.log(e.constructor.name + ":", e.message);
-}
+# The error arrives when the operation runs, not before.
+begin
+  nil.length
+rescue NoMethodError => e
+  puts "#{e.class}: #{e.message}"
+end
 ```
+
+Ruby takes this further than most dynamic languages: there is no `typeof` operator because
+asking an object its class is just a method call, and `nil` is an object too.
+
+```ruby runnable
+[5, 5.0, 'five', :five, nil, true, [5], { a: 5 }, (1..5)].each do |v|
+  puts format('%-12s %s', v.inspect, v.class)
+end
+```
+
+Note `nil.class` is `NilClass` and `nil` is a real object with methods. That is why the error
+above is `NoMethodError` — "this object does not respond to `length`" — rather than a special
+null-pointer failure. It is the same error you would get for a typo on any other object, which
+is both reassuring and the reason `NoMethodError ... for nil` is the error you will see most
+often in Ruby: it means something upstream returned nothing and you did not notice.
 
 ```typescript
 // Static: the NAME has a type, and the check happens before anything runs.
@@ -132,15 +147,76 @@ Types do three jobs, and the first is the one people underrate:
 
 ## Coercion: the part that bites
 
-```javascript runnable
-// JavaScript converts rather than complaining.
-console.log('"5" - 2   =', "5" - 2);        // 3    — string became a number
-console.log('"5" + 2   =', "5" + 2);        // "52" — number became a string
-console.log('[] + {}   =', [] + {});
-console.log('1 == "1"  =', 1 == "1");       // true  — coerces before comparing
-console.log('1 === "1" =', 1 === "1");      // false — compares type first
-console.log('[] == false =', [] == false);  // true  — via several conversions
+Here is the fork in the road, and it is the single biggest difference between Ruby and the
+language this section was originally written in. JavaScript converts rather than complaining:
+`"5" - 2` is `3`, `"5" + 2` is `"52"`, and `[] == false` is `true`. Ruby refuses:
+
+```ruby runnable
+checks = [
+  ['"5" - 2',   -> { '5' - 2 } ],
+  ['"5" + 2',   -> { '5' + 2 } ],
+  ['2 + "5"',   -> { 2 + '5' } ],
+  ['[] + {}',   -> { [] + {} } ],
+  ['"10" > 9',  -> { '10' > 9 } ],
+]
+
+checks.each do |label, attempt|
+  result = begin
+    attempt.call.inspect
+  rescue StandardError => e
+    "#{e.class}: #{e.message}"
+  end
+  puts format('%-10s → %s', label, result)
+end
+
+# And comparison does not coerce either — it just says no.
+p 1 == '1'          # false, with no conversion attempted
+p [] == false       # false
+p nil == false      # false — in Ruby these are different things
 ```
+
+Every one of those is an error or a plain `false`. There is no `===` to reach for, because `==`
+never coerced in the first place. That is a real reduction in the number of things you have to
+hold in your head, and it is why Ruby code rarely contains defensive type checks: the operation
+itself is the check.
+
+**Ruby's own silent conversion trap is elsewhere**, and it is worth more attention than the one
+you just escaped. The explicit converters are lenient:
+
+```ruby runnable
+p '5'.to_i        # 5
+p '5abc'.to_i     # 5     — stops at the first non-digit, says nothing
+p 'abc'.to_i      # 0     — no digits at all, and you get a valid-looking number
+p ''.to_i         # 0
+p nil.to_i        # 0
+p '0x1f'.to_i     # 0     — not hex unless you ask
+p '3.7'.to_i      # 3     — truncates
+p 'abc'.to_f      # 0.0
+```
+
+`"abc".to_i` returning `0` is the shape of a real bug: a malformed price becomes free, a
+malformed id becomes record zero, a malformed count becomes "none". Nothing raises, and `0` is a
+perfectly plausible number to find in a log.
+
+The strict converters are the `Kernel` methods with capital letters:
+
+```ruby runnable
+[['5', nil], ['5abc', nil], ['abc', nil], ['1f', 16]].each do |str, base|
+  result = begin
+    (base ? Integer(str, base) : Integer(str)).inspect
+  rescue StandardError => e
+    "#{e.class}: #{e.message}"
+  end
+  puts format('Integer(%-7s %s) → %s', str.inspect + ',', base.inspect, result)
+end
+
+# And when you want strictness without an exception:
+p Integer('abc', exception: false)   # nil — explicit "this was not a number"
+```
+
+The rule worth adopting: **`to_i` for data you produced, `Integer()` for data someone else
+produced.** Anything arriving from `params`, a CSV, an API payload or an environment variable is
+in the second category.
 
 :::mistakes
 **That `"5" + 2` and `"5" - 2` disagree is the tell.** `+` means both addition and
@@ -150,16 +226,35 @@ matched pair.
 
 The practical consequence is a real bug class:
 
-```javascript runnable
-// A form field is always a string. Always.
-const quantity = "2";      // from an <input>
-const price = 10;
+```ruby runnable
+# A form field is always a string. Always. In Rails, params values are strings.
+quantity = '2'      # params[:quantity]
+price = 10
 
-console.log("total (broken):", quantity * price);   // 20 — works by accident
-console.log("total (broken):", quantity + price);   // "210" — silently wrong
+# Ruby will not let the first mistake happen at all:
+begin
+  puts quantity * price
+rescue StandardError => e
+  puts "#{e.class}: #{e.message}"
+end
 
-console.log("total (fixed) :", Number(quantity) * price);
+# ...although String#* IS defined — as repetition. So this "works":
+p '2' * 10          # "2222222222"   a String, not 20
+
+# The fix, and the version to use on untrusted input:
+p Integer(quantity) * price            # 20
+p Integer(quantity, exception: false)  # 2, or nil if it was junk
 ```
+
+That `'2' * 10` result deserves a second look, because it is the one place Ruby will quietly
+hand you something useless instead of raising. `String#*` means "repeat", so a string where you
+expected a number produces a longer string rather than an error — and `quantity * price` for a
+quantity of `"2"` and a price of `10` gives `"2222222222"`, which will then fail somewhere much
+later, in a currency formatter or a database insert, far from the line that caused it.
+
+In Rails the habit that prevents this is to convert at the boundary, once, in the place that
+knows what the parameter means — strong parameters, a form object, or an ActiveRecord cast from
+the column type — and never to do arithmetic on anything straight out of `params`.
 
 The first line working by accident is what makes the second line dangerous: there is no
 error, and `"210"` looks like a number in a log.
@@ -167,12 +262,55 @@ error, and `"210"` looks like a number in a log.
 **Always use `===`.** `==` runs a conversion table that almost nobody has memorised
 correctly. There is no case where `==` is clearer.
 
-```javascript runnable
-// A quick tour of why == is not worth defending.
-const pairs = [[0, ""], [0, "0"], ["", "0"], [null, undefined], [NaN, NaN]];
-for (const [a, b] of pairs) {
-  console.log(`${JSON.stringify(a)} == ${JSON.stringify(b)} →`, a == b);
-}
+```ruby runnable
+# Ruby's equivalent list is boring, which is the point.
+pairs = [[0, ''], [0, '0'], ['', '0'], [nil, false], [Float::NAN, Float::NAN]]
+pairs.each { |a, b| puts format('%-14s == %-14s → %s', a.inspect, b.inspect, a == b) }
+```
+
+All false. The only surprise is the last one, and it is not Ruby's fault: `NaN == NaN` is false
+by IEEE 754, in every language. `value.nan?` is how you ask.
+
+What Ruby *does* ask you to learn is that there are three equality questions, not one:
+
+```ruby runnable
+p 1 == 1.0           # true  — same value
+p 1.eql?(1.0)        # false — same value AND same type
+p 1.equal?(1)        # true  — the same object
+
+# The one that bites: Hash keys use eql?, not ==
+counts = { 1 => :integer_key }
+p counts[1.0]        # nil — 1.0 is not the same key as 1
+p({ 1 => :a, 1.0 => :b }.size)   # 2 — two distinct keys that are == to each other
+```
+
+| method | asks | you redefine it when |
+|---|---|---|
+| `==` | same value? | your class has a meaningful notion of equal |
+| `eql?` | same value and type? | your objects are used as Hash keys (pair it with `hash`) |
+| `equal?` | the same object? | never — it is identity, and overriding it is a lie |
+| `===` | does this *match*? | your class is the subject of a `case`/`when` |
+
+`===` is not a stricter `==`, which is the trap for anyone arriving from JavaScript. It is the
+"case equality" or pattern-match operator, and classes define it to mean whatever matching means
+for them:
+
+```ruby runnable
+p Integer === 5          # true  — is 5 an Integer?
+p (1..10) === 5          # true  — is 5 in the range?
+p(/ell/ === 'hello')     # true  — does the pattern match?
+p 5 === 5                # true  — Object#=== falls back to ==
+
+# which is exactly what `case` uses:
+def describe(x)
+  case x
+  when Integer then 'a whole number'
+  when 1.0..9.9 then 'a small float'
+  when /\A\d+\z/ then 'a string of digits'
+  else 'something else'
+  end
+end
+p [5, 2.5, '42', :x].map { |v| describe(v) }
 ```
 :::
 
@@ -180,10 +318,11 @@ for (const [a, b] of pairs) {
 **Why `0.1 + 0.2 !== 0.3`.** This is not a JavaScript bug; it is in every language using
 IEEE 754 floating point, which is nearly all of them.
 
-```javascript runnable
-console.log(0.1 + 0.2);                  // 0.30000000000000004
-console.log(0.1 + 0.2 === 0.3);          // false
-console.log((0.1 + 0.2).toFixed(20));    // see the actual stored value
+```ruby runnable
+p 0.1 + 0.2                 # 0.30000000000000004
+p 0.1 + 0.2 == 0.3          # false
+puts format('%.20f', 0.1 + 0.2)   # see the actual stored value
+p (0.1 + 0.2).rationalize(0.0001) # 3/10 — what you meant
 ```
 
 A float stores a number as `sign × mantissa × 2^exponent` — a sum of powers of two. `0.5`
@@ -201,17 +340,42 @@ nearest representable one, and two tiny errors add up to a visible one.
 only for display. Or use a decimal type: `BigDecimal` in Ruby and Java, `decimal.Decimal`
 in Python, `NUMERIC` in PostgreSQL.
 
-```javascript runnable
-// Wrong: accumulating float error over many additions.
-let floatTotal = 0;
-for (let i = 0; i < 10; i++) floatTotal += 0.1;
-console.log("float  :", floatTotal, "— should be 1");
+```ruby runnable
+# Wrong: accumulating float error over many additions.
+float_total = 0.0
+10.times { float_total += 0.1 }
+p float_total            # 0.9999999999999999 — should be 1
 
-// Right: integers throughout, divide once at the edge.
-let paise = 0;
-for (let i = 0; i < 10; i++) paise += 10;
-console.log("integer:", paise / 100);
+# Right: integers throughout, divide once at the very edge.
+paise = 0
+10.times { paise += 10 }
+p paise / 100.0          # 1.0
+
+# Ruby also gives you two exact types, which most languages do not.
+require 'bigdecimal'
+require 'bigdecimal/util'
+
+p (BigDecimal('0.1') * 10).to_i      # 1 — exact decimal arithmetic
+p (1r / 10 * 10) == 1                # true — Rational, exact fractions
+p 1r / 3                             # (1/3) — no rounding at all
 ```
+
+Three options, and the choice is not arbitrary:
+
+**Integer minor units** — store paise, cents, satoshis. Fastest, exact, and the thing to reach
+for by default. The cost is that every display and every input needs a conversion, and forgetting
+one gives you a bill a hundred times too large.
+
+**`BigDecimal`** — exact decimal arithmetic with a scale you control. This is what Rails uses for
+a `decimal` column, and what ActiveRecord hands you back from one, so it is already in your
+application whether you chose it or not. Slower than Integer, and `BigDecimal('0.1')` is exact
+while `BigDecimal(0.1)` is not — the string constructor is the one you want.
+
+**`Rational`** — exact fractions, so `1r/3` loses nothing. Right for ratios, tax rates and
+anything you will multiply repeatedly; wrong for money you need to round and display.
+
+What matters most is the rule underneath all three: **never let a Float hold money.** A
+`float` column in a schema is a bug waiting for a reconciliation report to find it.
 :::
 
 :::tradeoffs
@@ -254,12 +418,15 @@ trust the type.
 :::checkpoint
 Without running them:
 
-```javascript
-console.log(typeof null);
-console.log(typeof NaN);
-console.log(0.1 + 0.2 === 0.3);
-console.log("10" > 9);
-console.log("10" > "9");
+```ruby
+p nil.class
+p Float::NAN == Float::NAN
+p 0.1 + 0.2 == 0.3
+p '10' > '9'
+p 'abc'.to_i
+p Integer('abc', exception: false)
+p 1.eql?(1.0)
+p({ 1 => :a }[1.0])
 ```
 
 The last two differ. Say why before you run it — then say which operator would have made

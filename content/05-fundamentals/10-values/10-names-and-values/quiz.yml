@@ -4,11 +4,11 @@ questions:
     kind: choice
     concept: assignment
     prompt: |
-      ```javascript
-      let a = [1, 2];
-      let b = a;
-      b.push(3);
-      console.log(a);
+      ```ruby
+      a = [1, 2]
+      b = a
+      b << 3
+      p a
       ```
       What prints?
     options:
@@ -36,51 +36,58 @@ questions:
         feedback: Right — this moves the label `b`, leaving the old value and its other names alone.
       - text: "`b.push(9)`"
         feedback: Changes the value itself, so every name bound to it sees the change.
-      - text: "`b.sort()`"
-        feedback: "`sort` is in place — it changes the array rather than returning a new one."
-      - text: "`b.name = 'x'`"
+      - text: "`b.sort!`"
+        feedback: "The bang says it: `sort!` changes the array rather than returning a new one."
+      - text: "`b << 9`"
         feedback: Changes the object, visible through every name bound to it.
     explanation: >-
       Reassignment moves a label. Mutation changes the thing a label points at. Classifying
-      every line into one of those two categories is the whole skill — `b = [...b, 9]`
-      builds a new array and moves the label, so it is safe; `b.push(9)` is not.
+      every line into one of those two categories is the whole skill — `b = b + [9]`
+      builds a new array and moves the label, so it is safe; `b << 9` is not. Ruby's `!`
+      convention helps, but only where a non-mutating sibling exists: `push`, `<<`, `delete`
+      and `clear` all mutate with no bang to warn you.
 
   - id: const-meaning
     kind: choice
     concept: mutability
-    prompt: "`const list = [1, 2]; list.push(3);` — what happens?"
+    prompt: "`LIST = [1, 2]` then `LIST << 3`, then `LIST = [9]`. What happens at each step?"
     options:
-      - text: It works. `const` prevents rebinding the name, not changing the value.
+      - text: "Both succeed. The push mutates the array; the reassignment only prints a warning to stderr."
         correct: true
         feedback: >-
-          Exactly. `list = [9]` would throw; `list.push(3)` is fine. Java's `final` and
-          C++'s `const` pointer behave the same way.
-      - text: It throws, because `list` is constant
+          Right — a Ruby constant protects neither the value nor, in the end, the binding.
+          `LIST = [1, 2].freeze` is the idiom that protects the value.
+      - text: The push succeeds and the reassignment raises an error
         feedback: >-
-          Try it. `const` freezes the binding. For an immutable value use `Object.freeze`.
-      - text: It silently does nothing
-        feedback: It genuinely mutates the array.
+          That is JavaScript's `const`. Ruby only warns: "already initialized constant LIST".
+      - text: The push raises, because `LIST` is a constant
+        feedback: >-
+          Capitalisation makes it a constant by convention; it does not freeze anything.
     explanation: >-
-      `const` makes the *binding* immutable, not the value. This trips people in every
-      language with a similar keyword. If you need the value itself protected, that is a
-      separate tool — `Object.freeze` in JavaScript, `.freeze` in Ruby, or a language where
-      data is immutable by default.
+      A Ruby constant is a naming convention with a warning attached. Mutating the value is
+      entirely legal, and reassigning the name prints "warning: already initialized constant
+      LIST" and then does it anyway — so a typo that clobbers a constant is a line in a log,
+      not a stopped program. This is weaker than JavaScript's `const`, which does make the
+      binding immutable. The Ruby idiom that actually protects something is
+      `NAME = value.freeze`: the capital letter documents the intent and `freeze` enforces
+      it on the value. Remember that `freeze` is shallow, so a frozen Hash of Hashes still
+      has mutable insides.
 
   - id: mutating-param
     kind: multi
     concept: variables
     prompt: "A function takes an array and should not surprise its caller. Which are safe?"
     options:
-      - text: "`return prices.map(p => p * 1.2)`"
+      - text: "`prices.map { |p| p * 1.2 }`"
         correct: true
         feedback: Builds a new array; the caller's is untouched.
-      - text: "`return [...prices].sort()`"
+      - text: "`prices.sort`"
         correct: true
-        feedback: Copies first, then sorts the copy.
-      - text: "`prices.forEach((p, i) => { prices[i] = p * 1.2 })`"
+        feedback: No bang, so it returns a new sorted array and leaves the argument alone.
+      - text: "`prices.each_with_index { |p, i| prices[i] = p * 1.2 }`"
         feedback: Writes into the caller's array. The original data is gone.
-      - text: "`prices.sort(); return prices`"
-        feedback: "`sort` is in place, so the caller's array is reordered as a side effect."
+      - text: "`prices.sort!`"
+        feedback: "The bang is the warning: it reorders the caller's array as a side effect."
     explanation: >-
       A function that returns a value *and* mutates its argument is doing two things, and
       the second one is invisible at the call site. Returning a new value is almost always
@@ -97,7 +104,8 @@ questions:
       - Something holds a second reference to the same object and is mutating through it
       - Assignment does not copy, so passing the config anywhere shares it
       - Find every place the object is passed, especially functions that return nothing
-      - "`Object.freeze` it to convert a silent mutation into a thrown error with a stack trace"
+      - "`freeze` it to convert a silent mutation into a FrozenError with a stack trace"
+      - "`freeze` is shallow, so a nested mutation needs the inner objects frozen too"
       - A shallow copy only protects the top level — nested objects are still shared
       - Fix by not mutating shared data, or by copying at the boundary
     model: >-
@@ -105,8 +113,11 @@ questions:
       mutating it. Assignment binds a name rather than copying, so every function the
       config was passed to has a live reference. I would look for functions that take the
       config and return nothing, since those are the ones mutating rather than deriving.
-      To prove it quickly I would `Object.freeze` the config at creation: in strict mode the
-      offending write then throws, and the stack trace names the culprit directly instead of
-      me reading every call site. The fix is to stop mutating shared state — return a new
-      object instead — and if a copy is needed at the boundary, to remember that a shallow
-      copy only protects the top level.
+      To prove it quickly I would `freeze` the config at creation: the offending write then
+      raises FrozenError, and the backtrace names the culprit directly instead of me reading
+      every call site. If the mutation is a level down, the outer freeze will not catch it,
+      so I would deep-freeze — walking the structure — before concluding the config is
+      innocent. `equal?` and `object_id` settle whether two names really are the same object.
+      The fix is to stop mutating shared state and return a new object instead; if a copy is
+      needed at the boundary, `dup` only protects the top level, so nested data needs
+      `Marshal.load(Marshal.dump(x))` or ActiveSupport's `deep_dup`.
