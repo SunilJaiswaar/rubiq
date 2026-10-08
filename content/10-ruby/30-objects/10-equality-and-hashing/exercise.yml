@@ -1,0 +1,169 @@
+id: ruby-equality-hashing
+language: ruby
+title: Make a value object work as a Hash key
+brief: >-
+  Build a `Money` class that behaves like a value: two instances with the same amount and
+  currency are equal, interchangeable as Hash keys, and deduplicated by `uniq` and `Set`.
+
+
+  Implement `==`, `eql?` and `hash` — and `<=>` so that sorting works. The tests check each
+  one independently, because getting `==` right while leaving `hash` alone is the single most
+  common version of this bug: your objects compare equal and still occupy two slots in a
+  Hash.
+
+
+  `Money.new(100, 'INR')` holds an integer amount in minor units. Comparing two different
+  currencies should raise rather than guess.
+starter: |
+  class Money
+    attr_reader :amount, :currency
+
+    def initialize(amount, currency)
+      @amount = amount
+      @currency = currency
+    end
+
+    # Your code here.
+    #
+    # Four methods to think about, and the order matters:
+    #   - `==`     value equality. What makes two Money objects the same money?
+    #   - `eql?`   stricter equality, used by Hash. Usually the same as `==` here.
+    #   - `hash`   two objects that are `eql?` MUST return the same hash.
+    #   - `<=>`    ordering. Return nil for things that cannot be compared.
+    #
+    # Then ask: what does `include Comparable` give you once `<=>` exists?
+  end
+
+  # Scratch space — click Run.
+  a = Money.new(100, 'INR')
+  b = Money.new(100, 'INR')
+  puts "a == b          : #{a == b}"
+  puts "same hash key   : #{{ a => :first }[b].inspect}"
+  puts "uniq            : #{[a, b].uniq.size}"
+  puts "a < Money.new(200, 'INR') : #{begin a < Money.new(200, 'INR') rescue => e; e.class end}"
+solution: |
+  class Money
+    include Comparable          # gives <, <=, >, >=, between?, clamp from <=>
+
+    attr_reader :amount, :currency
+
+    def initialize(amount, currency)
+      @amount = amount
+      @currency = currency
+    end
+
+    # Value equality. `other.is_a?(Money)` rather than `other.class == Money` so a
+    # subclass still compares; `instance_of?` would be the stricter choice.
+    def ==(other)
+      other.is_a?(Money) && amount == other.amount && currency == other.currency
+    end
+
+    # Hash uses eql? to resolve collisions. Here it means the same thing as ==,
+    # so alias it rather than writing the logic twice and letting them drift.
+    alias eql? ==
+
+    # The contract: a == b implies a.hash == b.hash. Deriving the hash from the
+    # same fields the comparison uses is what guarantees it, and delegating to
+    # Array#hash means we never have to invent a combining function.
+    def hash
+      [amount, currency].hash
+    end
+
+    # nil for incomparable operands is the documented protocol — it is what makes
+    # `Money.new(1, 'INR') < Money.new(1, 'USD')` raise ArgumentError via Comparable
+    # rather than silently ordering by number alone.
+    def <=>(other)
+      return nil unless other.is_a?(Money) && currency == other.currency
+
+      amount <=> other.amount
+    end
+
+    def to_s = format('%s %.2f', currency, amount / 100.0)
+  end
+hints:
+  - >-
+    Start with `==`. Two Money objects are the same money when the amounts match *and* the
+    currencies match. Also decide what happens when `other` is not a Money at all — `==`
+    should return false, never raise.
+  - >-
+    `hash` has a contract: if `a == b` then `a.hash` must equal `b.hash`. You do not have to
+    invent a hashing function — build an Array of the fields that define identity and call
+    `.hash` on it.
+  - >-
+    `Hash` looks up keys with `hash` first and then `eql?`, not `==`. So implementing `==`
+    alone leaves your object broken as a key. Since they mean the same thing for a value
+    object, `alias eql? ==` keeps them from drifting apart.
+  - >-
+    For `<=>`, return `nil` when the two cannot be ordered. That is the protocol, and it is
+    what makes comparison operators raise `ArgumentError` on mismatched currencies instead of
+    quietly comparing the numbers.
+  - >-
+    `<=>` on its own does not give you `<`, `>` or `between?`. Those come from the
+    `Comparable` module, which builds them all out of your `<=>`. Include it.
+tests:
+  - id: equal-values
+    name: Two instances with the same amount and currency are ==
+    call: "Money.new(100, 'INR') == Money.new(100, 'INR')"
+    expect: true
+  - id: different-amount
+    name: Different amounts are not ==
+    call: "Money.new(100, 'INR') == Money.new(200, 'INR')"
+    expect: false
+  - id: different-currency
+    name: Different currencies are not ==
+    call: "Money.new(100, 'INR') == Money.new(100, 'USD')"
+    expect: false
+  - id: not-money
+    name: Comparing with a non-Money returns false rather than raising
+    call: "Money.new(100, 'INR') == 100"
+    expect: false
+  - id: hash-contract
+    name: Equal objects return the same hash
+    call: "Money.new(100, 'INR').hash == Money.new(100, 'INR').hash"
+    expect: true
+  - id: works-as-hash-key
+    name: An equal instance finds the same Hash entry
+    call: "{ Money.new(100, 'INR') => :found }[Money.new(100, 'INR')]"
+    expect: found
+  - id: uniq-dedupes
+    name: uniq treats equal instances as one
+    call: "[Money.new(100, 'INR'), Money.new(100, 'INR'), Money.new(200, 'INR')].uniq.size"
+    expect: 2
+  - id: set-dedupes
+    name: Set treats equal instances as one
+    hidden: true
+    call: "require 'set'; Set[Money.new(5, 'INR'), Money.new(5, 'INR')].size"
+    expect: 1
+  - id: group-by-key
+    name: group_by collapses equal instances into one bucket
+    hidden: true
+    call: "[Money.new(1, 'INR'), Money.new(1, 'INR'), Money.new(2, 'INR')].group_by { |m| m }.values.map(&:size).sort"
+    expect: [1, 2]
+  - id: comparable-included
+    name: Comparable gives the comparison operators
+    call: "Money.new(100, 'INR') < Money.new(200, 'INR')"
+    expect: true
+  - id: sorting
+    name: sort orders by amount
+    call: "[Money.new(300, 'INR'), Money.new(100, 'INR'), Money.new(200, 'INR')].sort.map(&:amount)"
+    expect: [100, 200, 300]
+  - id: between
+    name: Comparable also supplies between?
+    hidden: true
+    call: "Money.new(150, 'INR').between?(Money.new(100, 'INR'), Money.new(200, 'INR'))"
+    expect: true
+  - id: incomparable-raises
+    name: Comparing different currencies raises rather than guessing
+    hidden: true
+    call: "begin; Money.new(100, 'INR') < Money.new(100, 'USD'); 'no raise'; rescue ArgumentError; 'ArgumentError'; end"
+    expect: ArgumentError
+  - id: spaceship-nil
+    name: "`<=>` returns nil for incomparable operands"
+    hidden: true
+    call: "(Money.new(100, 'INR') <=> Money.new(100, 'USD')).inspect"
+    expect: "nil"
+  - id: min-max
+    name: Enumerable min and max work through Comparable
+    hidden: true
+    call: "[Money.new(300, 'INR'), Money.new(100, 'INR')].minmax.map(&:amount)"
+    expect: [100, 300]

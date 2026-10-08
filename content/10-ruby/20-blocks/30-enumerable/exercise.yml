@@ -1,0 +1,149 @@
+id: ruby-enumerable-include
+language: ruby
+title: Get fifty methods from one
+brief: >-
+  Implement `each` on a `Roster` class, include `Enumerable`, and get `map`, `select`,
+  `sort_by`, `group_by`, `sum`, `min_by`, `each_slice`, `lazy` and the rest for free.
+
+
+  The tests call methods you will never write. That is the point: `Enumerable` is built
+  entirely on top of whatever `each` you provide, so one correct method buys the whole
+  interface.
+
+
+  Two details carry real weight. `each` must return an `Enumerator` when called without a
+  block — that is what makes `roster.each_with_index` and `roster.lazy` work. And defining
+  `<=>` on the members is what lets `sort`, `min` and `max` work without a block.
+starter: |
+  class Roster
+    def initialize(*members)
+      @members = members
+    end
+
+    # Your code here. Write ONE method.
+    #
+    #   - It must yield each member to the block.
+    #   - Called with no block, it must return an Enumerator rather than
+    #     yielding into nothing. `to_enum(:each)` builds one for you.
+    #   - Then include the module that turns it into fifty methods.
+  end
+
+  # Scratch space — click Run.
+  roster = Roster.new(
+    { name: 'Asha', role: :dev,  years: 6 },
+    { name: 'Bo',   role: :ops,  years: 2 },
+    { name: 'Cal',  role: :dev,  years: 9 },
+  )
+
+  p roster.map { |m| m[:name] }
+  p roster.select { |m| m[:role] == :dev }.size
+  p roster.sum { |m| m[:years] }
+  p roster.max_by { |m| m[:years] }[:name]
+  p roster.group_by { |m| m[:role] }.keys
+  p roster.each.class
+solution: |
+  class Roster
+    include Enumerable          # the fifty methods arrive here
+
+    def initialize(*members)
+      @members = members
+    end
+
+    # The only method required. Everything in Enumerable is written in terms
+    # of it, which is why one correct implementation buys the whole interface.
+    def each
+      # No block? Hand back an Enumerator so the caller can chain, iterate
+      # externally with `next`, or go `lazy`. Without this line,
+      # `roster.each_with_index` and `roster.lazy` both break.
+      return to_enum(:each) unless block_given?
+
+      @members.each { |member| yield member }
+      self            # returning self lets callers chain, as Array#each does
+    end
+  end
+hints:
+  - >-
+    Write `each` so it yields every member, then `include Enumerable` at the top of the
+    class. That is the whole exercise — `map`, `select` and the rest are implemented in terms
+    of your `each`.
+  - >-
+    `yield member` passes each one to the caller's block. Loop over the stored members and
+    yield each in turn.
+  - >-
+    What should `each` do when nobody passed a block? `yield` would raise `LocalJumpError`.
+    Guard with `block_given?` and return `to_enum(:each)`, which wraps the method in an
+    Enumerator.
+  - >-
+    That Enumerator is not a nicety. `each_with_index`, `each_slice`, `lazy` and external
+    iteration with `.next` all work by calling your `each` with no block and getting one
+    back.
+  - >-
+    Have `each` return `self` at the end. `Array#each` does, and it is what lets someone
+    write `roster.each { ... }.map { ... }`.
+tests:
+  - id: map
+    name: map works
+    call: "Roster.new(1, 2, 3).map { |n| n * 2 }"
+    expect: [2, 4, 6]
+  - id: select
+    name: select works
+    call: "Roster.new(1, 2, 3, 4).select(&:even?)"
+    expect: [2, 4]
+  - id: sum
+    name: sum works
+    call: "Roster.new(1, 2, 3).sum"
+    expect: 6
+  - id: sort-by
+    name: sort_by works
+    call: "Roster.new(3, 1, 2).sort_by { |n| -n }"
+    expect: [3, 2, 1]
+  - id: group-by
+    name: group_by works
+    call: "Roster.new(1, 2, 3, 4).group_by(&:even?).values"
+    expect: [[1, 3], [2, 4]]
+  - id: min-max-by
+    name: min_by and max_by work
+    call: "[Roster.new(3, 1, 2).min_by { |n| n }, Roster.new(3, 1, 2).max_by { |n| n }]"
+    expect: [1, 3]
+  - id: include-query
+    name: include? works
+    call: "Roster.new(1, 2, 3).include?(2)"
+    expect: true
+  - id: each-returns-self
+    name: each with a block returns the roster itself
+    call: "r = Roster.new(1); r.each { |_| }.equal?(r)"
+    expect: true
+  - id: each-returns-enumerator
+    name: each without a block returns an Enumerator
+    call: "Roster.new(1, 2).each.class.name"
+    expect: Enumerator
+  - id: each-with-index
+    name: each_with_index works, which needs the Enumerator
+    hidden: true
+    call: "Roster.new('a', 'b').each_with_index.to_a"
+    expect: [[a, 0], [b, 1]]
+  - id: external-iteration
+    name: External iteration with next works
+    hidden: true
+    call: "e = Roster.new(1, 2).each; [e.next, e.next]"
+    expect: [1, 2]
+  - id: lazy
+    name: lazy works, and only evaluates what is needed
+    hidden: true
+    call: "Roster.new(1, 2, 3, 4, 5).lazy.map { |n| n * 10 }.first(2)"
+    expect: [10, 20]
+  - id: each-slice
+    name: each_slice works
+    hidden: true
+    call: "Roster.new(1, 2, 3, 4, 5).each_slice(2).to_a"
+    expect: [[1, 2], [3, 4], [5]]
+  - id: sort-without-block
+    name: sort works on members that define their own ordering
+    hidden: true
+    call: "Roster.new(3, 1, 2).sort"
+    expect: [1, 2, 3]
+  - id: empty
+    name: An empty roster behaves sensibly
+    hidden: true
+    call: "[Roster.new.map { |n| n }, Roster.new.sum, Roster.new.to_a]"
+    expect: [[], 0, []]

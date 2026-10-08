@@ -24,7 +24,8 @@
     "test": "npm run content:build && vitest run",
     "test:smoke": "node scripts/smoke.mjs",
     "test:watch": "vitest",
-    "content:fences": "node scripts/check-ruby-fences.mjs"
+    "content:fences": "node scripts/check-ruby-fences.mjs",
+    "content:exercises": "ruby scripts/check-exercises.rb"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

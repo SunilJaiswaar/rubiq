@@ -1,0 +1,152 @@
+id: ruby-procs-and-lambdas
+language: ruby
+title: Tell a proc from a lambda, by behaviour
+brief: >-
+  Write `describe_callable(callable)`, which reports the three ways a proc and a lambda
+  differ, and `safe_call(callable, *args)`, which calls either one without raising on an
+  argument-count mismatch.
+
+
+  The differences are not stylistic. A lambda checks its arity and `return`s from itself; a
+  proc ignores extra arguments, fills missing ones with `nil`, and `return`s from the method
+  that created it. The last one is how a block can exit its enclosing method, and it is why
+  `Proc.new { return }` called after that method has finished raises `LocalJumpError`.
+
+
+  `describe_callable` returns a Hash with keys `:lambda`, `:arity` and `:strict_arity`.
+starter: |
+  def describe_callable(callable)
+    # Your code here. Return a Hash with three keys:
+    #
+    #   :lambda        true for a lambda, false for a proc
+    #   :arity         the declared argument count — note what a lambda with
+    #                  an optional parameter reports, and what the sign means
+    #   :strict_arity  true if calling it with the wrong number of arguments
+    #                  raises, false if it silently adjusts
+    #
+    # You can answer the third one by asking the object, not by calling it.
+  end
+
+  def safe_call(callable, *args)
+    # Call `callable` with `args`, but never raise ArgumentError.
+    # If the arity does not match, trim or pad `args` to fit.
+    # Return the result.
+  end
+
+  # Scratch space — click Run.
+  l = ->(a, b) { [a, b] }
+  pr = proc { |a, b| [a, b] }
+
+  p describe_callable(l)
+  p describe_callable(pr)
+  p safe_call(l, 1)
+  p safe_call(pr, 1, 2, 3)
+solution: |
+  def describe_callable(callable)
+    {
+      lambda: callable.lambda?,
+      arity: callable.arity,
+      # A lambda is strict about arity; a proc is not. That IS the difference,
+      # so `lambda?` is the honest answer rather than probing by calling it.
+      strict_arity: callable.lambda?,
+    }
+  end
+
+  def safe_call(callable, *args)
+    # A lambda will raise unless the count matches exactly. Procs never raise,
+    # so they need no adjustment — but doing it uniformly is simpler and gives
+    # the same answer.
+    return callable.call(*args) unless callable.lambda?
+
+    required = callable.arity
+    if required.negative?
+      # A negative arity means "n-1 required, plus optional or splat", so
+      # anything at or above that minimum is acceptable.
+      minimum = required.abs - 1
+      args = args + Array.new([minimum - args.size, 0].max)
+      callable.call(*args)
+    else
+      # Trim extras, pad shortfalls with nil.
+      args = args.first(required)
+      args += Array.new(required - args.size)
+      callable.call(*args)
+    end
+  end
+hints:
+  - >-
+    Every Proc answers `lambda?`, `arity` and `curry`. You do not have to call the object to
+    find out what it is — ask it.
+  - >-
+    `arity` is the number of required parameters, and it goes negative when there are
+    optional ones or a splat. `->(a, b)` reports 2; `->(a, b = 1)` reports -2, meaning "one
+    required, more allowed". The sign is the information.
+  - >-
+    For `safe_call`, the only callable that can raise is a lambda, because a proc already
+    pads and trims for you. So handle the lambda case and pass procs straight through.
+  - >-
+    To fit the arguments to a positive arity: `args.first(n)` trims the extras, and appending
+    `Array.new(n - args.size)` pads with nil, since `Array.new(2)` is `[nil, nil]`.
+  - >-
+    A negative arity of `-n` means `n - 1` arguments are required and more are allowed. So
+    the minimum is `arity.abs - 1`, and you only need to pad up to that.
+tests:
+  - id: lambda-detected
+    name: Identifies a lambda
+    call: "describe_callable(->(a) { a })[:lambda]"
+    expect: true
+  - id: proc-detected
+    name: Identifies a proc
+    call: "describe_callable(proc { |a| a })[:lambda]"
+    expect: false
+  - id: arity-two
+    name: Reports a plain arity
+    call: "describe_callable(->(a, b) { }) [:arity]"
+    expect: 2
+  - id: arity-optional
+    name: Reports a negative arity for optional parameters
+    call: "describe_callable(->(a, b = 1) { })[:arity]"
+    expect: -2
+  - id: arity-splat
+    name: Reports a negative arity for a splat
+    call: "describe_callable(->(*a) { })[:arity]"
+    expect: -1
+  - id: strict-lambda
+    name: A lambda is strict about arity
+    call: "describe_callable(->(a, b) { })[:strict_arity]"
+    expect: true
+  - id: strict-proc
+    name: A proc is not
+    call: "describe_callable(proc { |a, b| })[:strict_arity]"
+    expect: false
+  - id: safe-call-pads
+    name: safe_call pads missing arguments for a lambda
+    call: "safe_call(->(a, b) { [a, b] }, 1)"
+    expect: [1, null]
+  - id: safe-call-trims
+    name: safe_call trims extra arguments for a lambda
+    call: "safe_call(->(a) { a }, 1, 2, 3)"
+    expect: 1
+  - id: safe-call-exact
+    name: safe_call passes an exact match straight through
+    call: "safe_call(->(a, b) { a + b }, 2, 3)"
+    expect: 5
+  - id: safe-call-proc
+    name: safe_call works on a proc, which never raises anyway
+    hidden: true
+    call: "safe_call(proc { |a, b| [a, b] }, 1, 2, 3)"
+    expect: [1, 2]
+  - id: safe-call-splat
+    name: safe_call handles a splat lambda
+    hidden: true
+    call: "safe_call(->(*a) { a }, 1, 2, 3)"
+    expect: [1, 2, 3]
+  - id: safe-call-optional
+    name: safe_call handles an optional parameter
+    hidden: true
+    call: "safe_call(->(a, b = 99) { [a, b] }, 1)"
+    expect: [1, 99]
+  - id: safe-call-never-raises
+    name: safe_call raises for no combination of arity and argument count
+    hidden: true
+    call: "cs = [->(a) { a }, ->(a, b) { 0 }, ->(*a) { 0 }, proc { |a| a }]; cs.product([[], [1], [1, 2, 3]]).all? { |c, as| begin; safe_call(c, *as); true; rescue ArgumentError; false; end }"
+    expect: true

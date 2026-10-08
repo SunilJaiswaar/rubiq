@@ -49,6 +49,12 @@ jobs:
       - name: Execute every runnable Ruby fence
         run: npm run content:fences
 
+      # Each exercise's declared tests must pass against its declared solution,
+      # and its starter must NOT already pass them — an exercise whose starter
+      # satisfies every test asks the learner for nothing.
+      - name: Check every Ruby exercise against its solution
+        run: npm run content:exercises
+
   app:
     name: Types, lint and tests
     runs-on: ubuntu-latest
