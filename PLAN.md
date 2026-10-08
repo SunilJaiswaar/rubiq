@@ -46,7 +46,7 @@ Three things are wrong for this audience, measured rather than asserted:
 | The only runnable exercises are JavaScript | 2 of 2 exercises | High — practice is not in their language |
 | No OOP/SOLID or Design Patterns track | — | High — the highest-value material for a mid Rails dev |
 | No AI/LLM/RAG arc | — | High — the distinctive ask |
-| 2 exercises across 96 lessons | — | Medium — the clearest imbalance overall |
+| 2 exercises across 96 lessons | both now Ruby, both verified | Medium — the clearest imbalance overall |
 
 ### The scope reality
 
@@ -76,7 +76,7 @@ The brief's twenty phases, reordered by what unblocks a Rails engineer soonest. 
 | 5 | Rails | ✅ | 13 lessons |
 | 6 | SQL + PostgreSQL | ✅ | 9 lessons, in-browser engine |
 | 7 | Testing | ✅ | 4 lessons; needs RSpec specifics |
-| 8 | DSA, **in Ruby** | ◐ rewrite | 18 lessons, wrong language |
+| 8 | DSA, **in Ruby** | ✅ | 18 lessons, converted and verified |
 | 9 | Git | ✅ | 5 lessons |
 
 ### Part II — Senior engineering
@@ -510,8 +510,8 @@ Ordered by value per lesson written, each step shipping something complete.
 | # | Work | Why first |
 |---|---|---|
 | 1 | ~~**Ruby runner** (`ruby+stdlib.wasm`)~~ ✅ | Done. Real CRuby 3.4 in the browser, 4 browser checks, playground defaults to Ruby. |
-| 2 | **Rewrite DSA in Ruby** | 91 JS fences in the track where this audience is weakest |
-| 3 | **Rewrite Fundamentals in Ruby** | Entry track; keep the cross-language comparisons, which are genuinely valuable |
+| 2 | ~~**Rewrite DSA in Ruby**~~ ✅ | Done. All 15 lessons + both exercises; 0 JS fences left in the track. Every snippet verified against ruby 3.4.5 first — 432 assertions (354 across the trees/graphs/sorting/DP/tries/retry files, 57 for the arrays and linear-structures lessons, 21 evaluating each exercise's declared tests against its declared solution). This caught 9 wrong claims in the existing content — see below. |
+| 3 | **Rewrite Fundamentals in Ruby** ← next | Entry track; keep the cross-language comparisons, which are genuinely valuable |
 | 4 | **Ruby exercises throughout** | 2 across 96 lessons is the clearest imbalance in the platform |
 | 5 | **OOP + SOLID track** | Highest-value new content for a mid Rails dev |
 | 6 | **Design Patterns in Ruby/Rails** | Follows 5; each pattern with the Rails-native idiom |
@@ -521,6 +521,29 @@ Ordered by value per lesson written, each step shipping something complete.
 | 10 | **AI Engineering for Rails** | The flagship; depends on everything above |
 | 11 | Distributed systems · Linux · Cloud · Hotwire · Production engineering | Fill remaining phases |
 | 12 | Architecture Mode · difficulty engine · AI tutor · link checker | Platform work, once content justifies it |
+
+### What verify-before-ship caught in the DSA rewrite
+
+Running every snippet before writing it found nine claims in the existing content that were
+wrong, not merely JavaScript-flavoured. Recorded because it is the argument for keeping the
+workflow on every later track.
+
+| Claim as written | What measurement showed |
+|---|---|
+| "median-of-three, moved to hi as the pivot" | Ordering the three leaves the **maximum** at hi. Exactly n²/2 comparisons on sorted input — 7,998,000 vs 39,917 at n=4,000 |
+| Median-of-three protects quicksort | Does nothing for duplicates. 20k values / 10 distinct: 20,085,244 vs 59,645, a 337× gap. Three-way partitioning costs ~5% on distinct input |
+| `0.1 + 0.2 < 0.3` is true | False in both languages — the sum is 0.30000000000000004, which is *greater* |
+| `twoSum([7, 2, 24, 11], 9)` returns null | Returns `[0, 1]`, the correct answer |
+| Sorted insertion into a BST is silently slow | In Ruby the recursive insert raises `SystemStackError` at ~9,400 values — it crashes during construction |
+| A boolean comparator silently stops ordering | Ruby raises `NoMethodError`. A **Float** comparator is the silent one, and an inconsistent `<=>` is silent in both |
+| `Array#shift` is O(n), so queues are quadratic | O(1) in MRI. The real quadratic is `Array#include?` in a loop — 143× slower than `Set` at 8k |
+| Bellman-Ford arbitrage check (`< 0`) | Reports arbitrage on an exactly-fair market: the round trip sums to −6.9e−17. Needs an epsilon |
+| `findWords` board search | Was a stub — built the trie, returned an empty set, described the algorithm in a comment |
+
+Two further corrections were to advice rather than fact: "use the language's sorted map" is
+advice a Rubyist cannot take (no ordered map, no heap, no priority queue; `SortedSet` left the
+stdlib in 3.0), and the blocks exercise claimed it had to be JavaScript "where it runs in your
+browser", which stopped being true when ruby.wasm shipped.
 
 Known gaps recorded honestly: pre-rendered lesson HTML for crawlers (deep links return a 404
 status with correct SPA body), lazy-chunk size reporting, a resource link checker, and four
