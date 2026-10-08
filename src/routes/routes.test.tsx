@@ -103,6 +103,22 @@ describe('Home', () => {
   })
 })
 
+/*
+ * Timeouts on the two catalogue tests, and only on those.
+ *
+ * Both mount the full catalogue — every track, every lesson link — which costs
+ * about 1.9s and 1.3s respectively on an idle machine. Against the 5s default
+ * that is only ~2.6x headroom, and a loaded CI box eats it: these failed at
+ * 5000ms during a run where the load average was 14.
+ *
+ * The per-track and per-lesson work in both is O(1) now (two DOM queries each,
+ * hoisted out of the loops), so this timeout guards against machine load rather
+ * than against the suite getting slower as content is added. That distinction is
+ * the reason the default stays at 5s everywhere else — a genuinely quadratic
+ * test should still fail here rather than be given room to grow into.
+ */
+const CATALOGUE_MOUNT_TIMEOUT = 20_000
+
 describe('Catalog', () => {
   it('shows every track with its real lesson count', async () => {
     mount('/learn')
@@ -117,14 +133,20 @@ describe('Catalog', () => {
         .getAllByRole('link')
         .map((a) => (a.getAttribute('aria-label') ?? a.textContent ?? '').trim()),
     )
+    // Same reasoning for the counts: one regex query collects every "N lessons"
+    // label, instead of one exact-text query per track. Two DOM passes total,
+    // so the cost no longer grows with the number of tracks.
+    const lessonCounts = new Set(
+      screen.getAllByText(/^\d+ lessons$/).map((el) => el.textContent?.trim()),
+    )
     for (const track of tracks) {
       expect(linkNames.has(track.title), `no link for ${track.slug}`).toBe(true)
       expect(
-        screen.getAllByText(`${track.lessonCount} lessons`).length,
-        `no lesson count for ${track.slug}`,
-      ).toBeGreaterThan(0)
+        lessonCounts.has(`${track.lessonCount} lessons`),
+        `no "${track.lessonCount} lessons" label for ${track.slug}`,
+      ).toBe(true)
     }
-  })
+  }, CATALOGUE_MOUNT_TIMEOUT)
 
   it('links to every lesson in the catalogue', async () => {
     mount('/learn')
@@ -138,7 +160,7 @@ describe('Catalog', () => {
     for (const lesson of allLessons) {
       expect(hrefs.has(lesson.route), `no catalogue link for ${lesson.id}`).toBe(true)
     }
-  })
+  }, CATALOGUE_MOUNT_TIMEOUT)
 })
 
 describe('Track page', () => {
